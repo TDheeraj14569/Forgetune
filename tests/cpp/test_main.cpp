@@ -414,6 +414,42 @@ bool test_v2_shapes_and_conv2d_verifier() {
         TEST_ASSERT(!vres.passed, "Conv2D with stride 0 must be rejected");
     }
 
+    // 5. Conv2d verifier: reject negative dilation and negative padding
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{-1, 1, 8, 8}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{4, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(36, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{-1, 4, 8, 8}, DType::FLOAT32));
+        cnode.conv_attrs.dilation_h = -1; // Invalid!
+        g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({2});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Conv2D with negative dilation must be rejected");
+    }
+
+    // 6. Conv2d verifier: reject negative numerator (kernel exceeds padded input)
+    {
+        IRGraph g;
+        // Input spatial dimension is 2x2, kernel is 5x5 with 0 padding -> num = 2 - 5 = -3 < 0
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 2, 2}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{1, 1, 5, 5}, DType::FLOAT32));
+        w.const_data.assign(25, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 1, 1, 1}, DType::FLOAT32));
+        cnode.conv_attrs.pad_h = 0;
+        cnode.conv_attrs.pad_w = 0;
+        g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({2});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Conv2D where kernel exceeds padded input must be rejected");
+    }
+
     std::cout << "  PASSED\n";
     return true;
 }

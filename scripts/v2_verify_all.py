@@ -226,7 +226,7 @@ def main():
     print(f"  Mismatched uint32 words:       {mismatched_bits} / {total_floats}")
     assert total_floats == 65536, f"Expected 65,536 floats, got {total_floats}"
     assert mismatched_bits == 0, f"Bitwise mismatch detected: {mismatched_bits} differences!"
-    print("[+] Bitwise reproducibility confirmed: 100% exact bit match across independent compilations (0/65,536 mismatched floats).")
+    print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched floats across independent compilations).")
 
     # Generate Final Verification Document
     ver_md = [

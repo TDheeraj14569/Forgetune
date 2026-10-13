@@ -4,7 +4,7 @@
 [![C++17](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](CMakeLists.txt)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Version](https://img.shields.io/badge/Release-v2.0.0--dev-green.svg)](reports/V2_FINAL_VERIFICATION.md)
-[![Tests](https://img.shields.io/badge/Tests-162%2F162%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-182%2F182%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 
 ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing machine-learning inference compiler built from scratch for CPU execution. It extracts computation graphs from PyTorch models via `torch.export`, normalizes them into custom C++ Intermediate Representation (IR Schema 2.0), applies graph optimizations (constant folding, algebraic simplification, dead-code elimination, and multi-operator fusion), performs liveness-based intermediate buffer reuse, generates standalone C++17 CPU kernels supporting dynamic batch execution ($B \in [1, 128]$), compiles them into shared libraries, and autotunes kernel selection through an empirical correctness gate on the host machine.
 
@@ -24,11 +24,12 @@ ForgeTune implements its own independent compiler engine and runtime; it does no
   - `FUSED_CONV2D_RELU`: Fuses 2D convolution with non-linear activation in a single cache-resident loop nest.
 - **Liveness-Based Intermediate Buffer Reuse:**
   - Analyzes birth and death intervals of all intermediate activation buffers.
-  - Packs non-overlapping activations into a single 64-byte aligned `thread_local` memory arena.
+  - Packs non-overlapping activations into a single 64-byte aligned, re-entrant heap-backed `AlignedArenaPool`.
   - Reduces peak intermediate activation memory by **42.9% to 60.0%**.
 - **Unified Dual C ABI:**
-  - Primary dynamic inference entry point: `int forgetune_run(const float* inp, size_t inp_len, float* out, size_t out_len, int64_t batch_size)`.
-  - Backward-compatible v1 wrapper: `int forgetune_run_v1(inp, inp_len, out, out_len)`.
+  - Defined in `include/forgetune/forgetune_abi.h`.
+  - Primary dynamic inference entry point: `int forgetune_run_v2(const float* inp, size_t inp_len, float* out, size_t out_len, int64_t batch_size)`.
+  - Backward-compatible v1 entry point: `int forgetune_run_v1(inp, inp_len, out, out_len)`.
   - Capability query exports: `int forgetune_is_dynamic(void)`, `int64_t forgetune_max_batch(void)`.
 - **Three Supported Real Workload Models:**
   - **Model A (Dynamic TinyMLP):** `Linear -> ReLU -> Linear` with dynamic batching.
@@ -42,19 +43,20 @@ ForgeTune implements its own independent compiler engine and runtime; it does no
 
 Measured on host AMD64 CPU (AMD64 Family 25 Model 117 Stepping 2, Windows 11) using `scripts/run_v2_benchmarks.py`:
 
-| Workload Model | Batch Size ($B$) | PyTorch Eager (μs) | ForgeTune E2E (μs) | ForgeTune Native Kernel (μs) | E2E Speedup | In-Kernel Speedup |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A (Dynamic TinyMLP)** | $B=1$ | 36.10 μs | 12.50 μs | 0.216 μs | **2.89x** | **167.3x** |
-| | $B=4$ | 44.15 μs | 12.80 μs | 0.737 μs | **3.45x** | **59.9x** |
-| | $B=16$ | 45.90 μs | 15.00 μs | 2.760 μs | **3.06x** | **16.6x** |
-| | $B=64$ | 37.15 μs | 23.50 μs | 10.220 μs | **1.58x** | **3.6x** |
-| **Model B (Residual MLP)** | $B=1$ | 42.40 μs | 8.90 μs | 0.137 μs | **4.76x** | **308.6x** |
-| | $B=4$ | 45.20 μs | 14.60 μs | 0.442 μs | **3.10x** | **102.4x** |
-| | $B=16$ | 46.30 μs | 9.95 μs | 3.267 μs | **4.65x** | **14.2x** |
-| | $B=64$ | 113.30 μs | 21.95 μs | 8.612 μs | **5.16x** | **13.2x** |
-| **Model C (Small CNN)** | $B=1$ | 177.85 μs | 31.55 μs | 17.189 μs | **5.64x** | **10.4x** |
-| | $B=4$ | 442.05 μs | 82.20 μs | 69.325 μs | **5.38x** | **6.4x** |
-| | $B=16$ | 335.90 μs | 273.10 μs | 251.369 μs | **1.23x** | **1.3x** |
+| Workload Model | Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Model A (Dynamic TinyMLP)** | $B=1$ | 25.45 | 25.75 | 12.70 | **2.00x** | **2.03x** | 0.281 | 0.304 | **0.92x** | 12.40 |
+| | $B=4$ | 44.10 | 38.60 | 9.70 | **4.55x** | **3.98x** | 1.027 | 1.101 | **0.93x** | 8.60 |
+| | $B=16$ | 35.30 | 28.40 | 11.85 | **2.98x** | **2.40x** | 3.196 | 3.609 | **0.89x** | 8.24 |
+| | $B=64$ | 55.00 | 50.10 | 30.00 | **1.83x** | **1.67x** | 17.885 | 17.097 | **1.05x** | 12.90 |
+| **Model B (Residual MLP)** | $B=1$ | 67.25 | 68.15 | 13.90 | **4.84x** | **4.90x** | 0.152 | 0.154 | **0.99x** | 13.75 |
+| | $B=4$ | 70.25 | 70.60 | 13.70 | **5.13x** | **5.15x** | 0.664 | 0.507 | **1.31x** | 13.19 |
+| | $B=16$ | 72.50 | 48.15 | 15.70 | **4.62x** | **3.07x** | 1.466 | 1.979 | **0.74x** | 13.72 |
+| | $B=64$ | 77.90 | 77.10 | 22.40 | **3.48x** | **3.44x** | 8.164 | 8.204 | **1.00x** | 14.20 |
+| **Model C (Small CNN)** | $B=1$ | 145.10 | 103.35 | 33.40 | **4.34x** | **3.09x** | 33.318 | 18.590 | **1.79x** | 14.81 |
+| | $B=4$ | 385.40 | 230.55 | 65.60 | **5.88x** | **3.51x** | 71.214 | 67.496 | **1.06x** | 0.00 |
+| | $B=16$ | 344.20 | 350.00 | 288.40 | **1.19x** | **1.21x** | 258.786 | 253.753 | **1.02x** | 34.65 |
+| | $B=64$ | 426.05 | 488.35 | 1118.00 | **0.38x** | **0.44x** | 1121.199 | 978.263 | **1.15x** | 139.74 |
 
 ---
 
