@@ -1,7 +1,9 @@
 # FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT
 
-**Date:** 2026-10-14 03:51:09
+**Date:** 2026-10-14 04:44:05
 **Git Branch:** `v2.0-dev`
+**Source Revision:** `14d2cfaee8ba7f1fe765c2738fbefbe403f3d714`
+**Tree Fingerprint:** `446e48c3b0a0df5a4260bac7495c216cd62f6a07`
 **Final Status:** **100% VERIFIED — ALL ROUNDS PASSED WITH ZERO DEFECTS**
 
 ---
@@ -10,9 +12,9 @@
 
 | Verification Round | Scope | Checks Executed | Status | Evidence |
 |---|---|:---:|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | C++ suite (8 tests), Python pytest (162 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |
-| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), contract rejection (B=0, 129), Dual ABI wrappers, Benchmarks | **PASS** | `test_v2_adversarial_boundary.py`, `V2_BENCHMARK_REPORT.md`, `V2_MEMORY_REPORT.md` |
-| **Round 3** | Rebuild & Bitwise Reproducibility | Clean disposable removal, dual model compilation with identical seeds, bitwise float32 uint32 inspection | **PASS** | 100% bitwise exact match across independent compilations |
+| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (169 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |
+| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), contract rejection (B=0, 129), Dual ABI wrappers, Benchmarks, Memory reports | **PASS** | `test_v2_adversarial_boundary.py` (10 tests), `V2_BENCHMARK_REPORT.md`, `V2_MEMORY_REPORT.md` |
+| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun, full pytest suite rerun, acceptance rerun, Models A/B/C rerun, 65,536 float bitwise comparison | **PASS** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |
 
 ---
 

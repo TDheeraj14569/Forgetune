@@ -21,23 +21,30 @@ The repository maintains clean separation between frontend extraction, intermedi
 
 ## 2. Systems Programming & Memory Safety Review
 
-### 2.1 Stack Overflow Elimination
-- **Risk Identified in v1.0:** v1 generated fixed stack arrays (`float buf_X[N]`) for intermediate activations. In v2.0, with dynamic batching up to $B_{max} = 128$ and convolutional activations (e.g. Small CNN intermediate tensors exceeding 900 KB), stack allocation would trigger fatal `STATUS_STACK_OVERFLOW` (0xC00000FD) on Windows where the default thread stack is 1 MB.
-- **Implementation in v2.0:** All intermediate buffers are managed within a single heap-allocated arena:
+### 2.1 Heap Alignment Guarantee & Stack Overflow Elimination
+- **Risk Identified in v1.0:** v1 generated fixed stack arrays (`float buf_X[N]`) for intermediate activations. In v2.0, with dynamic batching up to $B_{max} = 128$ and convolutional activations (e.g. Small CNN intermediate tensors exceeding 900 KB), stack allocation would trigger fatal `STATUS_STACK_OVERFLOW` (0xC00000FD) on Windows where the default thread stack is 1 MB. Furthermore, standard `std::vector` aligns the container object, not the heap buffer returned by `data()`.
+- **Implementation in v2.0:** All intermediate buffers are managed within a dedicated `AlignedArenaPool`:
   ```cpp
-  alignas(64) static thread_local std::vector<float> arena_storage;
-  if (arena_storage.size() < arena_elements) {
-      arena_storage.resize(arena_elements);
-  }
-  float* arena = arena_storage.data();
+  struct AlignedArenaPool {
+      // 64-byte aligned allocation via _aligned_malloc / posix_memalign
+      // RAII Lease leasing disjoint arena slots per nested call
+      struct Lease {
+          AlignedArenaPool& pool;
+          float* ptr;
+          size_t bytes;
+          ...
+      };
+      Lease lease(size_t req_bytes);
+  };
   ```
 - **Safety Assessment:**
   - Completely immune to thread stack overflow.
-  - Zero heap allocations during steady-state execution (amortized $O(1)$).
-  - 64-byte aligned for AVX2/AVX-512 vector operations.
+  - Strict 64-byte heap alignment guaranteed via `_aligned_malloc(alloc_bytes, 64)` (`reinterpret_cast<uintptr_t>(ptr) % 64 == 0`), enabling safe AVX2/AVX-512 vector load/store instructions.
+  - Zero heap allocations during steady-state dynamic batch execution ($B \in [1, 128]$) post warm-up sizing.
 
 ### 2.2 Re-Entrancy & Multithread Safety
-- The use of `thread_local` storage ensures that concurrent calls from multiple OS threads allocate disjoint arenas. There is zero global mutable state and zero data race possibility across threads.
+- **Thread-Safety:** Intermediate arena storage is managed by a `thread_local AlignedArenaPool`. Concurrent OS threads execute in total isolation without locks, mutexes, or data races.
+- **Same-Thread Nested Re-Entrancy:** In contrast to a single thread_local buffer which is corrupted by re-entrant or recursive calls on the same thread, `AlignedArenaPool::Lease` leases distinct, non-overlapping arena memory blocks from the pool, ensuring nested calls on the same thread never overwrite the outer call's active intermediate tensors.
 - Generated kernels are pure functions taking `const float*` inputs and `float*` outputs with explicit length parameters.
 
 ### 2.3 Buffer Overrun & Null Pointer Defense

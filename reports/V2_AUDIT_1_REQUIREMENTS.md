@@ -58,7 +58,7 @@ This independent audit evaluated the functional compliance of ForgeTune v2.0 aga
 - **REQ-24 (Reproducible Benchmarking):** Script `scripts/run_v2_benchmarks.py` generates `reports/V2_BENCHMARK_REPORT.md` and `reports/v2_benchmark_report.json`.
 - **REQ-25 (Three Final Verification Rounds):** Executed by `scripts/v2_verify_all.py` (Round 1, Round 2, Round 3). All 3 rounds exited code 0.
 - **REQ-26 (Three Written Audits):** Audits 1, 2, and 3 produced in `reports/`.
-- **REQ-27 (Full Compatibility):** 119/119 v1 tests + 43 v2 tests = 162 total automated tests passing in `scripts/verify_all.py`.
+- **REQ-27 (Full Compatibility):** 119/119 v1 tests + 50 v2 tests = 169 Python tests, plus 13 native C++ tests = 182 total automated tests passing cleanly.
 
 ---
 

@@ -144,3 +144,18 @@ The implementation will proceed through the required 8 milestone gates:
    - Measure isolated kernel latency vs end-to-end Python latency.
 8. **Milestone 8 — Documentation & Release Verification:**
    - Comprehensive documentation, 3 verification rounds, and 3 independent audits.
+
+---
+
+## 7. Forensic Repair & Verification Log (Investigations D1–D8)
+
+During the final release verification audit on branch `v2.0-dev`, eight specific forensic investigations were conducted and resolved:
+
+1. **D1 — Genuine Heap Buffer Alignment:** Standard `alignas(64) std::vector<float>` aligns the container header, not the heap buffer returned by `data()`. The code generator was updated to emit `AlignedArenaPool` utilizing `_aligned_malloc(alloc_bytes, 64)` on Windows and `posix_memalign` on POSIX, with runtime assertions proving `reinterpret_cast<uintptr_t>(ptr) % 64 == 0`.
+2. **D2 — Re-Entrant Arena Leasing & Thread Safety:** A single `thread_local` vector arena suffers corruption during nested or recursive same-thread invocations. This was replaced with RAII `AlignedArenaPool::Lease`, enabling dynamic pooling of disjoint 64-byte aligned arena blocks per thread, guaranteeing same-thread re-entrancy and multithreaded isolation.
+3. **D3 — Zero-Allocation Inference Verification:** Arena pool sizing to $B_{max}=128$ capacity during initial warm-up guarantees zero heap allocations and zero reallocations during subsequent dynamic batch calls ($B \in [1, 128]$).
+4. **D4 — Benchmark Metric Disambiguation:** Disambiguated PyTorch E2E vs ForgeTune E2E (`t_PT / t_FT_e2e`) from genuine compiler optimization (`t_baseline_kernel / t_tuned_kernel`), and clearly labeled mismatched boundary comparisons (`t_PT_e2e / t_FT_kernel`) as diagnostic framework overhead elimination ratios.
+5. **D5 — Bitwise Reproducibility Count:** Reconciled the 65,536 float32 comparison count across 128 dynamic batch invocations of batch size 64 for `DynamicTinyMLP` ($128 \times 64 \times 8 = 65,536$ float32 values / 2,097,152 bits) with 0 bit differences across independent compilations.
+6. **D6 — Round 3 Independent Clean Rebuild:** Enhanced Round 3 of `scripts/v2_verify_all.py` to execute a full clean rebuild and acceptance suite alongside bitwise comparison.
+7. **D7 — Unified Dual C ABI Specification:** Formalized `include/forgetune/forgetune_abi.h` exporting `forgetune_run_v1` (4 arguments) and `forgetune_run_v2` (5 arguments) uniformly across both static and dynamic models.
+8. **D8 — Expanded Native Test Suite & Unified Inventory:** Expanded native C++ test coverage in `tests/cpp/test_main.cpp` from 8 to 13 tests (+5 new tests covering v2 shapes, interpreter ops, Conv2D+ReLU fusion, memory planning, and aligned arena leasing). Reconciled the full test inventory: 13 native C++ + 169 Python tests = 182 total automated tests.
