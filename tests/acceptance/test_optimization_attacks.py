@@ -24,7 +24,13 @@ ENGINE_EXE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
 
 @pytest.fixture
 def temp_opt_dir():
-    d = tempfile.mkdtemp(prefix="forgetune_accept_opt_")
+    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_opt"))
+    if os.path.exists(d):
+        try:
+            shutil.rmtree(d)
+        except Exception:
+            pass
+    os.makedirs(d, exist_ok=True)
     yield d
     try:
         shutil.rmtree(d)

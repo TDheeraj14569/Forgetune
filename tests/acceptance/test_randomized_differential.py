@@ -76,7 +76,13 @@ def build_fused_mlp_graph(M: int, K: int, N: int, w_data: np.ndarray, bias_data:
 
 @pytest.fixture
 def temp_diff_dir():
-    d = tempfile.mkdtemp(prefix="forgetune_accept_diff_")
+    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_diff"))
+    if os.path.exists(d):
+        try:
+            shutil.rmtree(d)
+        except Exception:
+            pass
+    os.makedirs(d, exist_ok=True)
     yield d
     try:
         shutil.rmtree(d)

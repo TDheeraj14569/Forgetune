@@ -50,7 +50,13 @@ class ThreeLayerMLP(nn.Module):
 
 @pytest.fixture
 def temp_output_dir():
-    d = tempfile.mkdtemp(prefix="forgetune_accept_e2e_")
+    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_e2e"))
+    if os.path.exists(d):
+        try:
+            shutil.rmtree(d)
+        except Exception:
+            pass
+    os.makedirs(d, exist_ok=True)
     yield d
     try:
         shutil.rmtree(d)
