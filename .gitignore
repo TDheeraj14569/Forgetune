@@ -1,0 +1,41 @@
+# Build artifacts
+build/
+bin/
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.pyd
+*.exe
+*.exp
+*.lib
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ForgeTune artifacts
+build/artifacts/
+tuning_cache/
+
+# OS
+.DS_Store
+Thumbs.db

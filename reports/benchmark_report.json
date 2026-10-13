@@ -1,0 +1,118 @@
+{
+  "schema_version": "2.0",
+  "benchmark_timestamp": "2026-10-13T15:57:13Z",
+  "machine_metadata": {
+    "system": "Windows",
+    "release": "11",
+    "version": "10.0.26200",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+    "python_version": "3.12.14"
+  },
+  "protocol": {
+    "type": "interleaved_multi_round",
+    "rounds": 5,
+    "iters_per_round": 100,
+    "warmup_per_round": 20,
+    "total_measured_samples_per_candidate": 500,
+    "timer": "time.perf_counter_ns (monotonic)"
+  },
+  "workload": {
+    "model": "TinyMLP (4 -> 8 -> 3)",
+    "batch_size": 2,
+    "input_shape": [
+      2,
+      4
+    ],
+    "hidden_shape": [
+      2,
+      8
+    ],
+    "output_shape": [
+      2,
+      3
+    ],
+    "dtype": "float32",
+    "arithmetic_flops": 246,
+    "total_ops_including_relu": 262,
+    "counting_convention": "Standard ML: 2*M*K*N per MatMul + bias additions (246 FLOPs) + 16 elementwise ReLU ops (262 total ops)"
+  },
+  "end_to_end_latency": {
+    "pytorch_cpu": {
+      "total_samples": 500,
+      "median_us": 26.7,
+      "mean_us": 30.5794,
+      "min_us": 26.0,
+      "max_us": 266.1,
+      "std_dev_us": 18.11369304255761,
+      "iqr_us": 0.6000000000000014,
+      "p90_us": 28.860000000000014,
+      "p99_us": 113.22299999999998
+    },
+    "forgetune_baseline_naive": {
+      "total_samples": 500,
+      "median_us": 7.2,
+      "mean_us": 7.780399999999999,
+      "min_us": 6.8,
+      "max_us": 108.7,
+      "std_dev_us": 6.301270970209104,
+      "iqr_us": 0.2999999999999998,
+      "p90_us": 7.7,
+      "p99_us": 15.204999999999995
+    },
+    "forgetune_fused_o2": {
+      "total_samples": 500,
+      "median_us": 7.1,
+      "mean_us": 10.3896,
+      "min_us": 6.8,
+      "max_us": 1263.9,
+      "std_dev_us": 56.63484803405056,
+      "iqr_us": 0.20000000000000018,
+      "p90_us": 7.4,
+      "p99_us": 22.901999999999997
+    },
+    "forgetune_fused_o3": {
+      "total_samples": 500,
+      "median_us": 7.1,
+      "mean_us": 8.5194,
+      "min_us": 6.8,
+      "max_us": 245.9,
+      "std_dev_us": 13.016926044193381,
+      "iqr_us": 0.20000000000000018,
+      "p90_us": 7.410000000000003,
+      "p99_us": 19.413999999999717
+    },
+    "forgetune_autotuned": {
+      "total_samples": 500,
+      "median_us": 7.1,
+      "mean_us": 9.1362,
+      "min_us": 6.7,
+      "max_us": 257.9,
+      "std_dev_us": 14.199109463624822,
+      "iqr_us": 0.20000000000000018,
+      "p90_us": 8.010000000000002,
+      "p99_us": 47.3429999999996
+    },
+    "speedup_vs_pytorch": 3.76056338028169,
+    "speedup_vs_baseline": 1.0140845070422535,
+    "fused_o2_speedup_vs_baseline": 1.0140845070422535,
+    "noise_dominated": true
+  },
+  "in_kernel_latency": {
+    "iterations": 10000,
+    "baseline_kernel_us": 0.0201,
+    "fused_o2_kernel_us": 0.01763,
+    "fused_o3_kernel_us": 0.01761,
+    "autotuned_kernel_us": 0.01764,
+    "algorithmic_speedup_o2_vs_o2": 1.1401020986954056,
+    "fused_o3_speedup_vs_baseline": 1.141396933560477,
+    "winner_speedup_vs_baseline": 1.1394557823129252
+  },
+  "selected_candidate": {
+    "candidate_id": "fused_ikj_o3",
+    "variant": "fused_ikj",
+    "enable_fusion": true,
+    "opt_level": "-O3",
+    "tile_sizes": null
+  }
+}
