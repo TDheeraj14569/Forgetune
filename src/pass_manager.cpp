@@ -227,8 +227,12 @@ bool DeadCodeEliminationPass::run(IRGraph& graph) {
             worklist.push_back(out_id);
         }
     }
-
-
+    // Preserve declared graph inputs as live roots to maintain entry parameter contract and verifier validity
+    for (NodeId in_id : graph.get_inputs()) {
+        if (graph.has_node(in_id) && !graph.get_node(in_id).deleted) {
+            live.insert(in_id);
+        }
+    }
     while (!worklist.empty()) {
         NodeId curr = worklist.back();
         worklist.pop_back();

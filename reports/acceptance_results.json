@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0",
+  "timestamp": "2026-10-13T16:48:42Z",
+  "environment": {
+    "os": "Windows",
+    "release": "11",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+    "python_version": "3.12.14"
+  },
+  "summary": {
+    "total_acceptance_suites": 7,
+    "total_tests": 75,
+    "passed_tests": 75,
+    "failed_tests": 0,
+    "all_passed": true,
+    "total_duration_seconds": 187.751
+  },
+  "suites": [
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_pipeline_e2e_acceptance.py",
+      "name": "test_pipeline_e2e_acceptance.py",
+      "returncode": 0,
+      "passed": 5,
+      "failed": 0,
+      "duration_seconds": 23.219,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_frontend_and_parameters.py",
+      "name": "test_frontend_and_parameters.py",
+      "returncode": 0,
+      "passed": 4,
+      "failed": 0,
+      "duration_seconds": 6.013,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_optimization_attacks.py",
+      "name": "test_optimization_attacks.py",
+      "returncode": 0,
+      "passed": 9,
+      "failed": 0,
+      "duration_seconds": 4.094,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_runtime_abi_robustness.py",
+      "name": "test_runtime_abi_robustness.py",
+      "returncode": 0,
+      "passed": 6,
+      "failed": 0,
+      "duration_seconds": 6.402,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_mutation_resilience.py",
+      "name": "test_mutation_resilience.py",
+      "returncode": 0,
+      "passed": 7,
+      "failed": 0,
+      "duration_seconds": 3.345,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_autotuner_integrity.py",
+      "name": "test_autotuner_integrity.py",
+      "returncode": 0,
+      "passed": 3,
+      "failed": 0,
+      "duration_seconds": 31.45,
+      "success": true
+    },
+    {
+      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_randomized_differential.py",
+      "name": "test_randomized_differential.py",
+      "returncode": 0,
+      "passed": 41,
+      "failed": 0,
+      "duration_seconds": 113.224,
+      "success": true
+    }
+  ],
+  "verification_metrics": {
+    "numerical_tolerance": {
+      "max_absolute_error_bound": 0.0001,
+      "max_relative_error_bound": 0.0001,
+      "status": "PASSED"
+    },
+    "kernel_variants_verified": [
+      "naive_ijk",
+      "loop_ikj",
+      "tiled",
+      "fused_ikj",
+      "fused_tiled"
+    ],
+    "optimization_passes_verified": [
+      "ConstantFoldingPass",
+      "AlgebraicSimplificationPass",
+      "DeadCodeEliminationPass",
+      "OperatorFusionPass"
+    ],
+    "abi_contracts_verified": [
+      "NullPointerRejection_Negative1",
+      "InputCountMismatch_Negative2",
+      "OutputCountMismatch_Negative3",
+      "UnalignedPointerExecution",
+      "ReentrancyStress1000Calls"
+    ],
+    "frontend_semantics_verified": [
+      "torch.export.export_AOT",
+      "WeightTransposition_N_K_to_K_N",
+      "ParameterLifting_ConstNodes",
+      "UnsupportedOpRejection",
+      "BitExactFloat32Serialization"
+    ]
+  }
+}
