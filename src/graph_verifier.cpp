@@ -310,36 +310,43 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                         }
 
                         const auto& attrs = node.conv_attrs;
+                        bool attrs_valid = true;
                         if (attrs.stride_h <= 0 || attrs.stride_w <= 0) {
                             res.add_error("CONV2D node %" + std::to_string(node.id) + " stride must be positive.");
+                            attrs_valid = false;
                         }
                         if (attrs.pad_h < 0 || attrs.pad_w < 0) {
                             res.add_error("CONV2D node %" + std::to_string(node.id) + " padding cannot be negative.");
+                            attrs_valid = false;
                         }
                         if (attrs.dilation_h <= 0 || attrs.dilation_w <= 0) {
                             res.add_error("CONV2D node %" + std::to_string(node.id) + " dilation must be positive.");
+                            attrs_valid = false;
                         }
                         if (attrs.groups != 1) {
                             res.add_error("CONV2D node %" + std::to_string(node.id) + " only groups=1 supported.");
+                            attrs_valid = false;
                         }
 
-                        int64_t eff_kh = attrs.dilation_h * (K_h - 1) + 1;
-                        int64_t eff_kw = attrs.dilation_w * (K_w - 1) + 1;
-                        int64_t H_out = (H_in + 2 * attrs.pad_h - eff_kh) / attrs.stride_h + 1;
-                        int64_t W_out = (W_in + 2 * attrs.pad_w - eff_kw) / attrs.stride_w + 1;
+                        if (attrs_valid) {
+                            int64_t eff_kh = attrs.dilation_h * (K_h - 1) + 1;
+                            int64_t eff_kw = attrs.dilation_w * (K_w - 1) + 1;
+                            int64_t H_out = (H_in + 2 * attrs.pad_h - eff_kh) / attrs.stride_h + 1;
+                            int64_t W_out = (W_in + 2 * attrs.pad_w - eff_kw) / attrs.stride_w + 1;
 
-                        if (H_out <= 0 || W_out <= 0) {
-                            res.add_error("CONV2D node %" + std::to_string(node.id) +
-                                          " non-positive spatial output dimensions: " +
-                                          std::to_string(H_out) + "x" + std::to_string(W_out));
-                        }
+                            if (H_out <= 0 || W_out <= 0) {
+                                res.add_error("CONV2D node %" + std::to_string(node.id) +
+                                              " non-positive spatial output dimensions: " +
+                                              std::to_string(H_out) + "x" + std::to_string(W_out));
+                            }
 
-                        TensorShape expected_out{B, C_out, H_out, W_out};
-                        if (node.output_meta.shape != expected_out) {
-                            res.add_error("CONV2D node %" + std::to_string(node.id) +
-                                          " output shape mismatch: got " +
-                                          node.output_meta.shape.to_string() + ", expected " +
-                                          expected_out.to_string());
+                            TensorShape expected_out{B, C_out, H_out, W_out};
+                            if (node.output_meta.shape != expected_out) {
+                                res.add_error("CONV2D node %" + std::to_string(node.id) +
+                                              " output shape mismatch: got " +
+                                              node.output_meta.shape.to_string() + ", expected " +
+                                              expected_out.to_string());
+                            }
                         }
                     }
                 }

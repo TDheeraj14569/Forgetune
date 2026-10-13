@@ -12,6 +12,7 @@ std::string CodeGenerator::generate(const IRGraph& graph) const {
 
     emit_headers(oss);
     emit_constants(oss, graph);
+    emit_arena_pool(oss);
     emit_kernel_functions(oss, graph);
     emit_entry_point(oss, graph);
 
@@ -26,10 +27,15 @@ void CodeGenerator::emit_headers(std::ostringstream& oss) const {
         << "// ============================================================================\n\n"
         << "#include <cstddef>\n"
         << "#include <cstdint>\n"
+        << "#include <cstdlib>\n"
+        << "#include <cassert>\n"
         << "#include <algorithm>\n"
         << "#include <cmath>\n"
         << "#include <chrono>\n"
         << "#include <vector>\n\n"
+        << "#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)\n"
+        << "#include <malloc.h>\n"
+        << "#endif\n\n"
         << "#ifdef _WIN32\n"
         << "#define FORGETUNE_EXPORT __declspec(dllexport)\n"
         << "#else\n"
@@ -57,6 +63,93 @@ void CodeGenerator::emit_constants(std::ostringstream& oss, const IRGraph& graph
 
     oss << std::defaultfloat;
     oss << "} // anonymous namespace\n\n";
+}
+
+void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
+    oss << "// Thread-safe, re-entrant 64-byte aligned memory arena pool\n"
+        << "namespace {\n\n"
+        << "class AlignedArenaPool {\n"
+        << "public:\n"
+        << "    struct Block {\n"
+        << "        void* raw_ptr = nullptr;\n"
+        << "        float* aligned_ptr = nullptr;\n"
+        << "        size_t capacity_bytes = 0;\n"
+        << "        bool in_use = false;\n\n"
+        << "        ~Block() { free_mem(); }\n\n"
+        << "        void free_mem() noexcept {\n"
+        << "            if (raw_ptr) {\n"
+        << "#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)\n"
+        << "                _aligned_free(raw_ptr);\n"
+        << "#else\n"
+        << "                std::free(raw_ptr);\n"
+        << "#endif\n"
+        << "                raw_ptr = nullptr;\n"
+        << "                aligned_ptr = nullptr;\n"
+        << "                capacity_bytes = 0;\n"
+        << "            }\n"
+        << "        }\n\n"
+        << "        bool ensure_capacity(size_t required_bytes) noexcept {\n"
+        << "            if (capacity_bytes >= required_bytes && aligned_ptr != nullptr) {\n"
+        << "                return true;\n"
+        << "            }\n"
+        << "            free_mem();\n"
+        << "            size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;\n"
+        << "            if (alloc_bytes == 0) alloc_bytes = 64;\n"
+        << "#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)\n"
+        << "            raw_ptr = _aligned_malloc(alloc_bytes, 64);\n"
+        << "            aligned_ptr = static_cast<float*>(raw_ptr);\n"
+        << "#else\n"
+        << "            void* p = nullptr;\n"
+        << "            if (posix_memalign(&p, 64, alloc_bytes) == 0) {\n"
+        << "                raw_ptr = p;\n"
+        << "                aligned_ptr = static_cast<float*>(p);\n"
+        << "            } else {\n"
+        << "                raw_ptr = nullptr;\n"
+        << "                aligned_ptr = nullptr;\n"
+        << "            }\n"
+        << "#endif\n"
+        << "            if (aligned_ptr) {\n"
+        << "                capacity_bytes = alloc_bytes;\n"
+        << "                return true;\n"
+        << "            }\n"
+        << "            return false;\n"
+        << "        }\n"
+        << "    };\n\n"
+        << "    struct Lease {\n"
+        << "        AlignedArenaPool* pool = nullptr;\n"
+        << "        size_t index = 0;\n"
+        << "        float* ptr = nullptr;\n\n"
+        << "        ~Lease() {\n"
+        << "            if (pool && index < pool->blocks_.size()) {\n"
+        << "                pool->blocks_[index].in_use = false;\n"
+        << "            }\n"
+        << "        }\n"
+        << "    };\n\n"
+        << "    Lease acquire(size_t required_bytes) {\n"
+        << "        for (size_t i = 0; i < blocks_.size(); ++i) {\n"
+        << "            if (!blocks_[i].in_use) {\n"
+        << "                blocks_[i].in_use = true;\n"
+        << "                if (!blocks_[i].ensure_capacity(required_bytes)) {\n"
+        << "                    blocks_[i].in_use = false;\n"
+        << "                    return Lease{nullptr, 0, nullptr};\n"
+        << "                }\n"
+        << "                return Lease{this, i, blocks_[i].aligned_ptr};\n"
+        << "            }\n"
+        << "        }\n"
+        << "        blocks_.emplace_back();\n"
+        << "        size_t idx = blocks_.size() - 1;\n"
+        << "        blocks_[idx].in_use = true;\n"
+        << "        if (!blocks_[idx].ensure_capacity(required_bytes)) {\n"
+        << "            blocks_[idx].in_use = false;\n"
+        << "            return Lease{nullptr, 0, nullptr};\n"
+        << "        }\n"
+        << "        return Lease{this, idx, blocks_[idx].aligned_ptr};\n"
+        << "    }\n\n"
+        << "private:\n"
+        << "    std::vector<Block> blocks_;\n"
+        << "};\n\n"
+        << "static thread_local AlignedArenaPool g_thread_arena_pool;\n\n"
+        << "} // anonymous namespace\n\n";
 }
 
 void CodeGenerator::emit_matmul_naive(std::ostringstream& oss, const std::string& func_name,
@@ -330,6 +423,11 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
     size_t arena_elements = (plan.arena_size_bytes + sizeof(float) - 1) / sizeof(float);
     if (arena_elements == 0) arena_elements = 1;
 
+    int64_t static_batch = 1;
+    if (!inputs.empty() && graph.get_node(inputs[0]).output_meta.shape.rank() > 0) {
+        static_batch = graph.get_node(inputs[0]).output_meta.shape.dims[0];
+    }
+
     oss << "// Main exported inference entry point\n";
     if (is_dynamic) {
         oss << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
@@ -349,10 +447,6 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    if (input_count != static_cast<size_t>(batch_size * " << static_input_elements << ")) return -2; // Input size mismatch\n"
             << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3; // Output size mismatch\n\n";
     } else {
-        int64_t static_batch = 1;
-        if (!inputs.empty() && graph.get_node(inputs[0]).output_meta.shape.rank() > 0) {
-            static_batch = graph.get_node(inputs[0]).output_meta.shape.dims[0];
-        }
         oss << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
             << "    const float* input,\n"
             << "    size_t input_count,\n"
@@ -366,14 +460,16 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    const int64_t batch_size = " << static_batch << ";\n\n";
     }
 
-    // Allocate intermediate arena
-    oss << "    // Intermediate tensor arena with buffer reuse (planned savings: "
+    // Intermediate tensor arena with 64-byte alignment and re-entrant leasing (planned savings: 
+    oss << "    // Intermediate tensor arena with 64-byte alignment and re-entrant leasing (planned savings: "
         << std::fixed << std::setprecision(1) << plan.savings_percent << "%)\n"
-        << "    alignas(64) static thread_local std::vector<float> arena_storage;\n"
-        << "    if (arena_storage.size() < " << arena_elements << ") {\n"
-        << "        arena_storage.resize(" << arena_elements << ");\n"
-        << "    }\n"
-        << "    float* arena = arena_storage.data();\n\n";
+        << "    AlignedArenaPool::Lease arena_lease = g_thread_arena_pool.acquire("
+        << plan.arena_size_bytes << ");\n"
+        << "    float* arena = arena_lease.ptr;\n"
+        << "    if (!arena && " << plan.arena_size_bytes << " > 0) return -4; // Arena allocation failed\n"
+        << "#ifndef NDEBUG\n"
+        << "    if (arena) assert(reinterpret_cast<uintptr_t>(arena) % 64 == 0);\n"
+        << "#endif\n\n";
 
     auto topo = graph.topological_order();
     for (NodeId id : topo) {
@@ -385,7 +481,10 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             oss << "    float* buf_" << id << " = output;\n";
         } else {
             size_t elem_offset = plan.allocations.at(id).offset / sizeof(float);
-            oss << "    float* buf_" << id << " = arena + " << elem_offset << ";\n";
+            oss << "    float* buf_" << id << " = arena + " << elem_offset << ";\n"
+                << "#ifndef NDEBUG\n"
+                << "    if (buf_" << id << ") assert(reinterpret_cast<uintptr_t>(buf_" << id << ") % 64 == 0);\n"
+                << "#endif\n";
         }
     }
     oss << "\n";
@@ -582,7 +681,13 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         << "}\n\n";
 
     if (is_dynamic) {
-        oss << "// 4-argument compatibility wrapper for dynamic models\n"
+        oss << "// Explicit 5-argument v2 entry point for dynamic models\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
+            << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t batch_size\n"
+            << ") noexcept {\n"
+            << "    return forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "}\n\n"
+            << "// 4-argument compatibility wrapper for dynamic models (infers batch_size from input_count)\n"
             << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v1(\n"
             << "    const float* input, size_t input_count, float* output, size_t output_count\n"
             << ") noexcept {\n"
@@ -595,17 +700,24 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    return 128;\n"
             << "}\n\n";
     } else {
-        oss << "// 5-argument compatibility wrapper for static models\n"
-            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
-            << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t /*batch_size*/\n"
+        oss << "// Explicit 4-argument v1 entry point for static models\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v1(\n"
+            << "    const float* input, size_t input_count, float* output, size_t output_count\n"
             << ") noexcept {\n"
+            << "    return forgetune_run(input, input_count, output, output_count);\n"
+            << "}\n\n"
+            << "// 5-argument compatibility wrapper for static models\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
+            << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t batch_size\n"
+            << ") noexcept {\n"
+            << "    if (batch_size > 0 && batch_size != " << static_batch << ") return -2;\n"
             << "    return forgetune_run(input, input_count, output, output_count);\n"
             << "}\n\n"
             << "extern \"C\" FORGETUNE_EXPORT int forgetune_is_dynamic(void) noexcept {\n"
             << "    return 0;\n"
             << "}\n\n"
             << "extern \"C\" FORGETUNE_EXPORT int64_t forgetune_max_batch(void) noexcept {\n"
-            << "    return 1;\n"
+            << "    return " << static_batch << ";\n"
             << "}\n\n";
     }
 

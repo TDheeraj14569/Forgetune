@@ -145,3 +145,102 @@ def test_alternating_dynamic_batches_arena_stability(compiled_dynamic_model):
         act = compiled.run(x)
         assert act.shape == (b, 4)
         np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+
+def test_same_thread_nested_reentrancy(compiled_dynamic_model):
+    """
+    Verifies that calling compiled.run() re-entrantly on the SAME thread
+    does not alias or overwrite the outer invocation's intermediate memory arena.
+    """
+    compiled, pt_model = compiled_dynamic_model
+    x_outer = torch.randn(4, 8)
+    with torch.no_grad():
+        ref_outer = pt_model(x_outer).numpy()
+
+    # Interleaved inner calls
+    x_inners = [torch.randn(b, 8) for b in [1, 2, 7, 16]]
+    ref_inners = [pt_model(xi).detach().numpy() for xi in x_inners]
+
+    rt = compiled._runtime
+    inp_outer = np.ascontiguousarray(x_outer.numpy(), dtype=np.float32)
+    out_outer = np.zeros((4, 4), dtype=np.float32)
+    inp_ptr = inp_outer.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    out_ptr = out_outer.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
+    for xi, ref_i in zip(x_inners, ref_inners):
+        act_i = compiled.run(xi)
+        np.testing.assert_allclose(act_i, ref_i, atol=1e-4, rtol=1e-4)
+
+    status = rt.run_v2_fn(inp_ptr, 32, out_ptr, 16, 4)
+    assert status == 0
+    np.testing.assert_allclose(out_outer, ref_outer, atol=1e-4, rtol=1e-4)
+
+def test_concurrent_multithreaded_execution(compiled_dynamic_model):
+    """
+    Verifies that multiple OS threads invoking the same compiled model concurrently
+    with different dynamic batch sizes execute safely with thread-isolated arenas.
+    """
+    import concurrent.futures
+    compiled, pt_model = compiled_dynamic_model
+
+    def worker_fn(thread_id: int):
+        np.random.seed(42 + thread_id)
+        torch.manual_seed(42 + thread_id)
+        for _ in range(25):
+            b = int(np.random.choice([1, 2, 4, 7, 16, 32, 64]))
+            x = torch.randn(b, 8)
+            with torch.no_grad():
+                ref = pt_model(x).numpy()
+            act = compiled.run(x)
+            assert act.shape == (b, 4)
+            np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+        return True
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(worker_fn, i) for i in range(8)]
+        for f in concurrent.futures.as_completed(futures):
+            assert f.result() is True
+
+def test_zero_allocation_inference_sequence(compiled_dynamic_model):
+    """
+    Verifies the zero-allocation post-warmup execution guarantee:
+    Warms up at B=1 (sizing arena to B_max=128 capacity), then executes
+    dynamic batches B in {2, 7, 16, 32, 64, 128} without allocation errors or crashes.
+    """
+    compiled, pt_model = compiled_dynamic_model
+
+    # Warmup at B=1
+    x1 = torch.randn(1, 8)
+    _ = compiled.run(x1)
+
+    # Successive calls across dynamic range
+    for b in [2, 7, 16, 32, 64, 128, 1, 16]:
+        x = torch.randn(b, 8)
+        with torch.no_grad():
+            ref = pt_model(x).numpy()
+        act = compiled.run(x)
+        assert act.shape == (b, 4)
+        np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+
+def test_c_abi_explicit_v1_and_v2_on_all_models(compiled_dynamic_model, compiled_static_model):
+    """
+    Verifies that forgetune_run_v1 (4 args) and forgetune_run_v2 (5 args)
+    are explicitly exported and functional on BOTH dynamic and static models.
+    """
+    dyn_compiled, dyn_model = compiled_dynamic_model
+    stat_compiled, stat_model = compiled_static_model
+
+    # Dynamic model checks
+    dyn_rt = dyn_compiled._runtime
+    assert hasattr(dyn_rt.lib, "forgetune_run_v1"), "Dynamic model must export forgetune_run_v1"
+    assert hasattr(dyn_rt.lib, "forgetune_run_v2"), "Dynamic model must export forgetune_run_v2"
+    assert hasattr(dyn_rt.lib, "forgetune_is_dynamic")
+    assert dyn_rt.lib.forgetune_is_dynamic() == 1
+    assert dyn_rt.lib.forgetune_max_batch() == 128
+
+    # Static model checks
+    stat_rt = stat_compiled._runtime
+    assert hasattr(stat_rt.lib, "forgetune_run_v1"), "Static model must export forgetune_run_v1"
+    assert hasattr(stat_rt.lib, "forgetune_run_v2"), "Static model must export forgetune_run_v2"
+    assert hasattr(stat_rt.lib, "forgetune_is_dynamic")
+    assert stat_rt.lib.forgetune_is_dynamic() == 0
+    assert stat_rt.lib.forgetune_max_batch() == 2

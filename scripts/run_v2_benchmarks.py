@@ -109,6 +109,7 @@ def run_benchmarks():
         model.eval()
         art_dir = os.path.join("build", "benchmarks", art_subdir)
         
+        # 1. Compile Optimized Target (with autotuning and fusion)
         compiled = compile_model(
             model=model,
             example_inputs=ex_inps,
@@ -116,6 +117,17 @@ def run_benchmarks():
             autotune=True,
             dynamic_batch=True,
             enable_fusion=True
+        )
+
+        # 2. Compile Baseline Target (unoptimized native kernel without fusion)
+        baseline_art_dir = os.path.join("build", "benchmarks", art_subdir + "_baseline")
+        compiled_baseline = compile_model(
+            model=model,
+            example_inputs=ex_inps,
+            output_dir=baseline_art_dir,
+            autotune=False,
+            dynamic_batch=True,
+            enable_fusion=False
         )
 
         model_results = []
@@ -132,22 +144,28 @@ def run_benchmarks():
             ft_e2e_res = compiled.benchmark(warmup_iters=25, measure_iters=100, batch_size=b)
             ft_e2e_median_us = ft_e2e_res["median_latency_us"]
 
-            # ForgeTune native in-kernel
+            # ForgeTune native in-kernel (Tuned vs Baseline)
             ft_kernel_us = compiled.benchmark_kernel(iters=500, batch_size=b)
+            ft_base_kernel_us = compiled_baseline.benchmark_kernel(iters=500, batch_size=b)
 
             speedup_e2e = pt_median_us / ft_e2e_median_us if ft_e2e_median_us > 0 else 1.0
-            speedup_kernel = pt_median_us / ft_kernel_us if ft_kernel_us > 0 else 1.0
+            kernel_opt_speedup = ft_base_kernel_us / ft_kernel_us if ft_kernel_us > 0 else 1.0
+            dispatch_overhead_us = max(0.0, ft_e2e_median_us - ft_kernel_us)
+            diagnostic_ratio = pt_median_us / ft_kernel_us if ft_kernel_us > 0 else 1.0
 
             entry = {
                 "batch_size": b,
                 "pytorch_eager_median_us": round(pt_median_us, 2),
                 "forgetune_e2e_median_us": round(ft_e2e_median_us, 2),
-                "forgetune_kernel_median_us": round(ft_kernel_us, 3),
                 "speedup_e2e": round(speedup_e2e, 2),
-                "speedup_kernel": round(speedup_kernel, 2)
+                "forgetune_baseline_kernel_us": round(ft_base_kernel_us, 3),
+                "forgetune_kernel_median_us": round(ft_kernel_us, 3),
+                "kernel_opt_speedup": round(kernel_opt_speedup, 2),
+                "dispatch_overhead_us": round(dispatch_overhead_us, 2),
+                "diagnostic_ratio": round(diagnostic_ratio, 2)
             }
             model_results.append(entry)
-            print(f"  Batch B={b:2d}: PyTorch={pt_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (Speedup: {speedup_e2e:5.2f}x) | FT kernel={ft_kernel_us:7.3f} us (Speedup: {speedup_kernel:6.2f}x)")
+            print(f"  Batch B={b:2d}: PyTorch={pt_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Tuned Kernel={ft_kernel_us:7.3f} us (Kernel Opt Speedup: {kernel_opt_speedup:5.2f}x)")
 
         benchmark_results["models"][name] = model_results
 
@@ -170,7 +188,11 @@ def run_benchmarks():
         "",
         "## 1. Executive Performance Summary",
         "",
-        "ForgeTune v2.0 introduces ahead-of-time C++ code generation, operator fusion (`CONV2D + RELU`, `MATMUL + ADD + RELU`), and dynamic batch execution ($B \\in [1, 128]$) without framework overhead. In-kernel latencies achieve up to **10x–50x speedups** over PyTorch eager mode on small and dynamic models.",
+        "ForgeTune v2.0 introduces ahead-of-time C++ code generation, operator fusion (`CONV2D + RELU`, `MATMUL + ADD + RELU`), and dynamic batch execution ($B \\in [1, 128]$) without framework overhead. Benchmarks distinguish:",
+        "1. **Genuine End-to-End Speedup:** Equivalent boundaries comparing PyTorch eager execution in Python vs ForgeTune execution in Python.",
+        "2. **Genuine Native Kernel Optimization Speedup:** Equivalent boundaries comparing ForgeTune unoptimized native C++ baseline vs ForgeTune autotuned fused native C++ kernel.",
+        "3. **Dispatch Overhead:** Python ctypes dynamic dispatch and buffer marshaling overhead ($t_{e2e} - t_{kernel}$).",
+        "4. **Diagnostic Boundary Ratio:** Framework overhead elimination metric ($t_{PT\\_e2e} / t_{FT\\_kernel}$).",
         "",
         "---",
         "",
@@ -182,23 +204,24 @@ def run_benchmarks():
         md_lines.extend([
             f"### {model_name}",
             "",
-            "| Batch Size ($B$) | PyTorch Eager Median (μs) | ForgeTune E2E Median (μs) | ForgeTune Isolated Kernel (μs) | E2E Speedup | In-Kernel Speedup |",
-            "|:---:|:---:|:---:|:---:|:---:|:---:|",
+            "| Batch Size ($B$) | PyTorch Eager E2E (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | Dispatch Overhead (μs) | Diagnostic E2E-to-Kernel Ratio* |",
+            "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
         ])
         for e in entries:
             md_lines.append(
-                f"| {e['batch_size']} | {e['pytorch_eager_median_us']} | {e['forgetune_e2e_median_us']} | {e['forgetune_kernel_median_us']} | **{e['speedup_e2e']}x** | **{e['speedup_kernel']}x** |"
+                f"| {e['batch_size']} | {e['pytorch_eager_median_us']} | {e['forgetune_e2e_median_us']} | **{e['speedup_e2e']}x** | {e['forgetune_baseline_kernel_us']} | {e['forgetune_kernel_median_us']} | **{e['kernel_opt_speedup']}x** | {e['dispatch_overhead_us']} | {e['diagnostic_ratio']}x* |"
             )
         md_lines.append("")
 
     md_lines.extend([
         "---",
         "",
-        "## 3. Latency Metric Disambiguation",
+        "## 3. Latency Metric Methodology & Disambiguation",
         "",
-        "1. **Isolated Kernel Latency (Pure C++):** Measured via `std::chrono::steady_clock` inside compiled native DLL with warm-up discard and memory barriers. Bypasses Python interpreter and ctypes dispatch.",
-        "2. **End-to-End Latency (Python Caller):** Measured via Python `time.perf_counter_ns` from user call of `CompiledModel.run()` including numpy array validation and ctypes dynamic dispatch.",
-        "3. **Optimization Objective:** Autotuner selects kernel configurations based on isolated kernel latency, eliminating Python runtime noise.",
+        "1. **Genuine End-to-End Speedup (Column 4):** Measures real-world Python caller latency: `PyTorch Eager E2E / ForgeTune E2E`. Both run complete model inference with caller input validation.",
+        "2. **Genuine Kernel Optimization Speedup (Column 7):** Measures compiler code-generation and fusion efficacy at identical boundaries: `Baseline C++ Kernel / Tuned C++ Kernel` inside the compiled native shared library.",
+        "3. **Dispatch Overhead (Column 8):** Difference between Python caller duration and pure native execution ($t_{e2e} - t_{kernel}$), representing numpy pointer translation and ctypes call overhead.",
+        "4. ***Diagnostic Ratio (Column 9):** `PyTorch E2E / Tuned C++ Kernel`. This is NOT an equivalent-workload speedup because it divides PyTorch Python-level execution by native in-kernel execution. It serves as a diagnostic demonstrating the performance ceiling when framework interpreter overhead is completely eliminated.",
         ""
     ])
 

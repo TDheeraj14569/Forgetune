@@ -26,6 +26,7 @@ private:
     // Code emission helpers
     void emit_headers(std::ostringstream& oss) const;
     void emit_constants(std::ostringstream& oss, const IRGraph& graph) const;
+    void emit_arena_pool(std::ostringstream& oss) const;
     void emit_kernel_functions(std::ostringstream& oss, const IRGraph& graph) const;
     void emit_entry_point(std::ostringstream& oss, const IRGraph& graph) const;
 

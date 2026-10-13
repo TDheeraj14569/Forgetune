@@ -1,14 +1,19 @@
 #include "forgetune/compiler.hpp"
+#include "forgetune/memory_planner.hpp"
+#include "forgetune/forgetune_abi.h"
 #include <iostream>
 #include <cassert>
 #include <cmath>
+#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
+#include <malloc.h>
+#endif
 
 using namespace forgetune;
 
 #define TEST_ASSERT(cond, msg) \
     do { \
         if (!(cond)) { \
-            std::cerr << "FAILED: " << msg << " at " << __FILE__ << ":" << __LINE__ << "\n"; \
+            std::cout << "FAILED: " << msg << " at " << __FILE__ << ":" << __LINE__ << "\n"; \
             return false; \
         } \
     } while(0)
@@ -348,6 +353,338 @@ bool test_algebraic_simplification_and_fusion_safety() {
     return true;
 }
 
+bool test_v2_shapes_and_conv2d_verifier() {
+    std::cout << "[TEST] V2 shapes and Conv2D verifier..." << std::endl;
+    // 1. Dynamic rank-2 and rank-4 shape properties
+    TensorShape s2{-1, 16};
+    TEST_ASSERT(s2.has_dynamic_batch(), "s2 must have dynamic batch");
+    TEST_ASSERT(s2.static_element_count() == 16, "static element count must be 16");
+    TEST_ASSERT(s2.element_count(4) == 64, "element_count(4) must be 64");
+
+    TensorShape s4{-1, 8, 14, 14};
+    TEST_ASSERT(s4.has_dynamic_batch(), "s4 must have dynamic batch");
+    TEST_ASSERT(s4.static_element_count() == 8 * 14 * 14, "s4 static count mismatch");
+    TEST_ASSERT(s4.element_count(2) == 2 * 8 * 14 * 14, "s4 count for B=2 mismatch");
+
+    // 2. Reject non-leading dynamic dimension: [2, -1]
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{2, -1}, DType::FLOAT32)));
+        g.set_inputs({x});
+        g.set_outputs({x});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Non-leading dynamic dimension must be rejected by verifier");
+    }
+
+    // 3. Conv2d graph verifier: valid NCHW + OIHW
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{-1, 1, 8, 8}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{4, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(36, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{-1, 4, 8, 8}, DType::FLOAT32));
+        cnode.conv_attrs.stride_h = 1;
+        cnode.conv_attrs.stride_w = 1;
+        cnode.conv_attrs.pad_h = 1;
+        cnode.conv_attrs.pad_w = 1;
+        NodeId cn = g.add_node(std::move(cnode));
+
+        g.set_inputs({x});
+        g.set_outputs({cn});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(vres.passed, "Valid dynamic Conv2D graph must pass verification");
+    }
+
+    // 4. Conv2d verifier: reject invalid stride <= 0
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{-1, 1, 8, 8}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{4, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(36, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{-1, 4, 8, 8}, DType::FLOAT32));
+        cnode.conv_attrs.stride_h = 0; // Invalid!
+        g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({2});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Conv2D with stride 0 must be rejected");
+    }
+
+    std::cout << "  PASSED\n";
+    return true;
+}
+
+bool test_v2_interpreter_new_ops() {
+    std::cout << "[TEST] V2 interpreter evaluation for new operators..." << std::endl;
+    // 1. MUL: elementwise and broadcasting
+    {
+        IRGraph g;
+        NodeId a = g.add_node(IRNode(0, OpKind::INPUT, "A", {}, TensorMeta(TensorShape{2, 3}, DType::FLOAT32)));
+        IRNode b(1, OpKind::CONST, "B", {}, TensorMeta(TensorShape{3}, DType::FLOAT32));
+        b.const_data = {2.0f, -1.0f, 0.5f};
+        NodeId bn = g.add_node(std::move(b));
+        NodeId mul = g.add_node(IRNode(2, OpKind::MUL, "MUL", {a, bn}, TensorMeta(TensorShape{2, 3}, DType::FLOAT32)));
+        g.set_inputs({a});
+        g.set_outputs({mul});
+
+        Interpreter interp;
+        std::vector<float> in_data = {1.0f, 2.0f, 4.0f,  -3.0f, 0.0f, 10.0f};
+        auto outs = interp.evaluate(g, {{a, in_data}});
+        TEST_ASSERT(outs.find(mul) != outs.end(), "Must produce MUL output");
+        const auto& res_mul = outs[mul];
+        std::vector<float> expected = {2.0f, -2.0f, 2.0f,  -6.0f, 0.0f, 5.0f};
+        for (size_t i = 0; i < expected.size(); ++i) {
+            TEST_ASSERT(std::abs(res_mul[i] - expected[i]) < 1e-5f, "MUL evaluation mismatch");
+        }
+    }
+
+    // 2. SIGMOID and TANH
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{3}, DType::FLOAT32)));
+        NodeId sig = g.add_node(IRNode(1, OpKind::SIGMOID, "SIG", {x}, TensorMeta(TensorShape{3}, DType::FLOAT32)));
+        NodeId tnh = g.add_node(IRNode(2, OpKind::TANH, "TNH", {x}, TensorMeta(TensorShape{3}, DType::FLOAT32)));
+        g.set_inputs({x});
+        g.set_outputs({sig, tnh});
+
+        Interpreter interp;
+        std::vector<float> in_data = {0.0f, 2.0f, -2.0f};
+        auto outs = interp.evaluate(g, {{x, in_data}});
+        const auto& res_sig = outs[sig];
+        const auto& res_tnh = outs[tnh];
+        TEST_ASSERT(std::abs(res_sig[0] - 0.5f) < 1e-5f, "sigmoid(0) must be 0.5");
+        TEST_ASSERT(std::abs(res_tnh[0] - 0.0f) < 1e-5f, "tanh(0) must be 0");
+        TEST_ASSERT(std::abs(res_sig[1] - (1.0f / (1.0f + std::exp(-2.0f)))) < 1e-5f, "sigmoid(2) mismatch");
+        TEST_ASSERT(std::abs(res_tnh[1] - std::tanh(2.0f)) < 1e-5f, "tanh(2) mismatch");
+    }
+
+    // 3. FLATTEN: [2, 2, 2, 2] -> [2, 8]
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{2, 2, 2, 2}, DType::FLOAT32)));
+        NodeId flat = g.add_node(IRNode(1, OpKind::FLATTEN, "FLAT", {x}, TensorMeta(TensorShape{2, 8}, DType::FLOAT32)));
+        g.set_inputs({x});
+        g.set_outputs({flat});
+
+        Interpreter interp;
+        std::vector<float> in_data(16);
+        for (int i = 0; i < 16; ++i) in_data[i] = static_cast<float>(i);
+        auto outs = interp.evaluate(g, {{x, in_data}});
+        const auto& res_flat = outs[flat];
+        TEST_ASSERT(res_flat.size() == 16, "Flattened size must be 16");
+        for (int i = 0; i < 16; ++i) {
+            TEST_ASSERT(res_flat[i] == static_cast<float>(i), "Flattened elements must preserve order");
+        }
+    }
+
+    // 4. CONV2D: 1x1x3x3 input with 1x1x3x3 kernel of 1.0f -> output sum 9.0f
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 3, 3}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{1, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(9, 1.0f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 1, 1, 1}, DType::FLOAT32));
+        cnode.conv_attrs.stride_h = 1;
+        cnode.conv_attrs.stride_w = 1;
+        cnode.conv_attrs.pad_h = 0;
+        cnode.conv_attrs.pad_w = 0;
+        NodeId cn = g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({cn});
+
+        Interpreter interp;
+        std::vector<float> in_data(9, 1.0f);
+        auto outs = interp.evaluate(g, {{x, in_data}});
+        const auto& res_cn = outs[cn];
+        TEST_ASSERT(res_cn.size() == 1, "Output must have 1 element");
+        TEST_ASSERT(std::abs(res_cn[0] - 9.0f) < 1e-5f, "Conv output must be 9.0f");
+    }
+
+    std::cout << "  PASSED\n";
+    return true;
+}
+
+bool test_v2_conv2d_relu_fusion_pass() {
+    std::cout << "[TEST] Conv2D + ReLU operator fusion pass..." << std::endl;
+    // 1. Success case: Conv2D -> ReLU
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{2, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(18, 0.5f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 2, 4, 4}, DType::FLOAT32));
+        cnode.conv_attrs.stride_h = 1;
+        cnode.conv_attrs.stride_w = 1;
+        cnode.conv_attrs.pad_h = 1;
+        cnode.conv_attrs.pad_w = 1;
+        NodeId cn = g.add_node(std::move(cnode));
+        NodeId rnode = g.add_node(IRNode(3, OpKind::RELU, "ReLU", {cn}, TensorMeta(TensorShape{1, 2, 4, 4}, DType::FLOAT32)));
+        g.set_inputs({x});
+        g.set_outputs({rnode});
+
+        OperatorFusionPass fpass;
+        bool fused = fpass.run(g);
+        TEST_ASSERT(fused, "Conv2D + ReLU must be fused");
+        TEST_ASSERT(g.get_node(cn).deleted, "Original Conv2D must be deleted");
+        TEST_ASSERT(g.get_node(rnode).deleted, "Original ReLU must be deleted");
+        NodeId out_id = g.get_outputs()[0];
+        TEST_ASSERT(g.get_node(out_id).op == OpKind::FUSED_CONV2D_RELU, "Fused node must be FUSED_CONV2D_RELU");
+    }
+
+    // 2. Rejection case: Conv2D output has multiple consumers
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{2, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(18, 0.5f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 2, 4, 4}, DType::FLOAT32));
+        NodeId cn = g.add_node(std::move(cnode));
+        NodeId rnode = g.add_node(IRNode(3, OpKind::RELU, "ReLU", {cn}, TensorMeta(TensorShape{1, 2, 4, 4}, DType::FLOAT32)));
+        NodeId extra = g.add_node(IRNode(4, OpKind::RELU, "Extra", {cn}, TensorMeta(TensorShape{1, 2, 4, 4}, DType::FLOAT32)));
+        g.set_inputs({x});
+        g.set_outputs({rnode, extra});
+
+        OperatorFusionPass fpass;
+        bool fused = fpass.run(g);
+        TEST_ASSERT(!fused, "Conv2D with multiple consumers must NOT be fused");
+    }
+
+    std::cout << "  PASSED\n";
+    return true;
+}
+
+bool test_v2_memory_planner_and_64byte_alignment() {
+    std::cout << "[TEST] V2 memory planner and 64-byte alignment verification..." << std::endl;
+    IRGraph g;
+    NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{-1, 16}, DType::FLOAT32)));
+
+    IRNode w1(1, OpKind::CONST, "W1", {}, TensorMeta(TensorShape{16, 32}, DType::FLOAT32));
+    w1.const_data.assign(512, 0.1f);
+    NodeId wn1 = g.add_node(std::move(w1));
+    NodeId mm1 = g.add_node(IRNode(2, OpKind::MATMUL, "MM1", {x, wn1}, TensorMeta(TensorShape{-1, 32}, DType::FLOAT32)));
+    NodeId r1 = g.add_node(IRNode(3, OpKind::RELU, "R1", {mm1}, TensorMeta(TensorShape{-1, 32}, DType::FLOAT32)));
+
+    IRNode w2(4, OpKind::CONST, "W2", {}, TensorMeta(TensorShape{32, 16}, DType::FLOAT32));
+    w2.const_data.assign(512, 0.1f);
+    NodeId wn2 = g.add_node(std::move(w2));
+    NodeId mm2 = g.add_node(IRNode(5, OpKind::MATMUL, "MM2", {r1, wn2}, TensorMeta(TensorShape{-1, 16}, DType::FLOAT32)));
+    NodeId r2 = g.add_node(IRNode(6, OpKind::RELU, "R2", {mm2}, TensorMeta(TensorShape{-1, 16}, DType::FLOAT32)));
+
+    IRNode w3(7, OpKind::CONST, "W3", {}, TensorMeta(TensorShape{16, 8}, DType::FLOAT32));
+    w3.const_data.assign(128, 0.1f);
+    NodeId wn3 = g.add_node(std::move(w3));
+    NodeId mm3 = g.add_node(IRNode(8, OpKind::MATMUL, "MM3", {r2, wn3}, TensorMeta(TensorShape{-1, 8}, DType::FLOAT32)));
+
+    g.set_inputs({x});
+    g.set_outputs({mm3});
+
+    MemoryPlanner planner(64);
+    MemoryPlan plan = planner.plan(g, 128);
+
+    TEST_ASSERT(plan.savings_percent > 30.0, "Planned memory savings should exceed 30%");
+    TEST_ASSERT(plan.arena_size_bytes < plan.naive_size_bytes, "Arena size must be less than naive total");
+
+    // Verify 64-byte alignment on every single allocated offset
+    for (const auto& kv : plan.allocations) {
+        const auto& alloc = kv.second;
+        TEST_ASSERT(alloc.offset % 64 == 0, "Buffer offset must be 64-byte aligned");
+        TEST_ASSERT(alloc.size_bytes % 64 == 0, "Buffer size must be a multiple of 64 bytes");
+    }
+
+    std::cout << "  PASSED (Planned Savings: " << plan.savings_percent << "%)\n";
+    return true;
+}
+
+bool test_aligned_arena_pool_and_reentrancy() {
+    std::cout << "[TEST] Aligned arena allocation, 64-byte pointer proof, and re-entrant leasing..." << std::endl;
+#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
+    void* raw = _aligned_malloc(4096, 64);
+    TEST_ASSERT(raw != nullptr, "_aligned_malloc must succeed");
+    uintptr_t addr = reinterpret_cast<uintptr_t>(raw);
+    TEST_ASSERT(addr % 64 == 0, "Raw heap buffer must be strictly 64-byte aligned");
+    _aligned_free(raw);
+#endif
+
+    struct TestBlock {
+        void* raw_ptr = nullptr;
+        float* aligned_ptr = nullptr;
+        size_t capacity_bytes = 0;
+        bool in_use = false;
+        int alloc_count = 0;
+
+        ~TestBlock() {
+            if (raw_ptr) {
+#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
+                _aligned_free(raw_ptr);
+#else
+                std::free(raw_ptr);
+#endif
+            }
+        }
+
+        bool ensure(size_t req) {
+            if (capacity_bytes >= req && aligned_ptr) return true;
+            if (raw_ptr) {
+#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
+                _aligned_free(raw_ptr);
+#else
+                std::free(raw_ptr);
+#endif
+            }
+            size_t bytes = ((req + 63) / 64) * 64;
+#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
+            raw_ptr = _aligned_malloc(bytes, 64);
+            aligned_ptr = static_cast<float*>(raw_ptr);
+#else
+            void* p = nullptr;
+            if (posix_memalign(&p, 64, bytes) == 0) {
+                raw_ptr = p;
+                aligned_ptr = static_cast<float*>(p);
+            }
+#endif
+            alloc_count++;
+            capacity_bytes = bytes;
+            return aligned_ptr != nullptr;
+        }
+    };
+
+    TestBlock b1;
+    // First call (warm-up) for B=128 capacity (e.g. 32768 bytes)
+    bool ok = b1.ensure(32768);
+    TEST_ASSERT(ok, "Block allocation must succeed");
+    TEST_ASSERT(reinterpret_cast<uintptr_t>(b1.aligned_ptr) % 64 == 0, "Base pointer must be 64-byte aligned");
+    TEST_ASSERT(b1.alloc_count == 1, "Warm-up allocates exactly once");
+
+    // Subsequent calls with batch sizes B in {1, 2, 7, 16, 32, 64, 128}
+    size_t batch_bytes[] = {256, 512, 1792, 4096, 8192, 16384, 32768};
+    for (size_t req : batch_bytes) {
+        ok = b1.ensure(req);
+        TEST_ASSERT(ok, "Ensure capacity must succeed");
+        TEST_ASSERT(b1.alloc_count == 1, "Must NOT reallocate during subsequent dynamic batch calls (Zero Allocations!)");
+    }
+
+    // Test nested re-entrancy
+    TestBlock b2;
+    b1.in_use = true; // Outer call is active
+    ok = b2.ensure(32768); // Inner call leases block 2
+    TEST_ASSERT(ok, "Nested lease must succeed");
+    TEST_ASSERT(b1.aligned_ptr != b2.aligned_ptr, "Nested call must have distinct non-overlapping arena");
+    TEST_ASSERT(reinterpret_cast<uintptr_t>(b2.aligned_ptr) % 64 == 0, "Inner lease must also be 64-byte aligned");
+
+    std::cout << "  PASSED (64-byte alignment & Zero-allocation verified)\n";
+    return true;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "Running ForgeTune C++ Test Suite" << std::endl;
@@ -373,6 +710,11 @@ int main() {
     run_test(test_operator_fusion_pass);
     run_test(test_json_roundtrip);
     run_test(test_algebraic_simplification_and_fusion_safety);
+    run_test(test_v2_shapes_and_conv2d_verifier);
+    run_test(test_v2_interpreter_new_ops);
+    run_test(test_v2_conv2d_relu_fusion_pass);
+    run_test(test_v2_memory_planner_and_64byte_alignment);
+    run_test(test_aligned_arena_pool_and_reentrancy);
 
     std::cout << "========================================" << std::endl;
     std::cout << "Test Summary: " << passed << " / " << total << " tests passed." << std::endl;

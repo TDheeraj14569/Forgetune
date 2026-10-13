@@ -32,7 +32,7 @@ def main():
     zig_exe = os.path.join(root_dir, ".venv", "Lib", "site-packages", "ziglang", "zig.exe")
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.join(root_dir, "python")
+    env["PYTHONPATH"] = f"{os.path.join(root_dir, 'python')};{root_dir}"
 
     print("=================================================================")
     print(" ForgeTune Full Verification Suite")

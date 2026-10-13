@@ -109,6 +109,13 @@ class NativeRuntime:
             self.run_dynamic_fn.restype = ctypes.c_int
             self.run_fn = self.run_dynamic_fn
 
+            if hasattr(self.lib, "forgetune_run_v2"):
+                self.run_v2_fn = self.lib.forgetune_run_v2
+                self.run_v2_fn.argtypes = self.run_dynamic_fn.argtypes
+                self.run_v2_fn.restype = ctypes.c_int
+            else:
+                self.run_v2_fn = self.run_dynamic_fn
+
             if hasattr(self.lib, "forgetune_run_v1"):
                 self.run_v1_fn = self.lib.forgetune_run_v1
                 self.run_v1_fn.argtypes = [
@@ -128,6 +135,13 @@ class NativeRuntime:
             ]
             self.run_static_fn.restype = ctypes.c_int
             self.run_fn = self.run_static_fn
+
+            if hasattr(self.lib, "forgetune_run_v1"):
+                self.run_v1_fn = self.lib.forgetune_run_v1
+                self.run_v1_fn.argtypes = self.run_static_fn.argtypes
+                self.run_v1_fn.restype = ctypes.c_int
+            else:
+                self.run_v1_fn = self.run_static_fn
 
             if hasattr(self.lib, "forgetune_run_v2"):
                 self.run_v2_fn = self.lib.forgetune_run_v2
