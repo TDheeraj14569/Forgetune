@@ -16,6 +16,9 @@ import hashlib
 import torch
 import numpy as np
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
+
 def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
     print(f"\n========================================================")
     print(f" [V2-VERIFY] {step_name}")
