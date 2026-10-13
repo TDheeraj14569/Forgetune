@@ -11,103 +11,103 @@
     "Model A (Dynamic TinyMLP)": [
       {
         "batch_size": 1,
-        "pytorch_eager_median_us": 35.8,
-        "forgetune_e2e_median_us": 10.0,
+        "pytorch_eager_median_us": 25.1,
+        "forgetune_e2e_median_us": 8.25,
         "forgetune_kernel_median_us": 0.159,
-        "speedup_e2e": 3.58,
-        "speedup_kernel": 225.16
+        "speedup_e2e": 3.04,
+        "speedup_kernel": 158.06
       },
       {
         "batch_size": 4,
-        "pytorch_eager_median_us": 82.0,
-        "forgetune_e2e_median_us": 14.7,
-        "forgetune_kernel_median_us": 1.168,
-        "speedup_e2e": 5.58,
-        "speedup_kernel": 70.18
+        "pytorch_eager_median_us": 74.0,
+        "forgetune_e2e_median_us": 14.8,
+        "forgetune_kernel_median_us": 0.757,
+        "speedup_e2e": 5.0,
+        "speedup_kernel": 97.81
       },
       {
         "batch_size": 16,
-        "pytorch_eager_median_us": 69.55,
-        "forgetune_e2e_median_us": 16.9,
-        "forgetune_kernel_median_us": 3.217,
-        "speedup_e2e": 4.12,
-        "speedup_kernel": 21.62
+        "pytorch_eager_median_us": 74.8,
+        "forgetune_e2e_median_us": 16.95,
+        "forgetune_kernel_median_us": 2.965,
+        "speedup_e2e": 4.41,
+        "speedup_kernel": 25.23
       },
       {
         "batch_size": 64,
-        "pytorch_eager_median_us": 78.8,
-        "forgetune_e2e_median_us": 26.25,
-        "forgetune_kernel_median_us": 12.215,
-        "speedup_e2e": 3.0,
-        "speedup_kernel": 6.45
+        "pytorch_eager_median_us": 80.9,
+        "forgetune_e2e_median_us": 26.2,
+        "forgetune_kernel_median_us": 12.26,
+        "speedup_e2e": 3.09,
+        "speedup_kernel": 6.6
       }
     ],
     "Model B (Residual MLP)": [
       {
         "batch_size": 1,
-        "pytorch_eager_median_us": 44.55,
-        "forgetune_e2e_median_us": 8.5,
-        "forgetune_kernel_median_us": 0.103,
-        "speedup_e2e": 5.24,
-        "speedup_kernel": 434.21
+        "pytorch_eager_median_us": 41.7,
+        "forgetune_e2e_median_us": 8.4,
+        "forgetune_kernel_median_us": 0.146,
+        "speedup_e2e": 4.96,
+        "speedup_kernel": 284.84
       },
       {
         "batch_size": 4,
-        "pytorch_eager_median_us": 44.9,
-        "forgetune_e2e_median_us": 8.65,
-        "forgetune_kernel_median_us": 0.342,
-        "speedup_e2e": 5.19,
-        "speedup_kernel": 131.21
+        "pytorch_eager_median_us": 44.25,
+        "forgetune_e2e_median_us": 8.4,
+        "forgetune_kernel_median_us": 0.341,
+        "speedup_e2e": 5.27,
+        "speedup_kernel": 129.77
       },
       {
         "batch_size": 16,
-        "pytorch_eager_median_us": 45.8,
-        "forgetune_e2e_median_us": 9.4,
-        "forgetune_kernel_median_us": 1.325,
-        "speedup_e2e": 4.87,
-        "speedup_kernel": 34.58
+        "pytorch_eager_median_us": 45.75,
+        "forgetune_e2e_median_us": 15.8,
+        "forgetune_kernel_median_us": 1.975,
+        "speedup_e2e": 2.9,
+        "speedup_kernel": 23.16
       },
       {
         "batch_size": 64,
-        "pytorch_eager_median_us": 112.65,
-        "forgetune_e2e_median_us": 22.2,
-        "forgetune_kernel_median_us": 7.491,
-        "speedup_e2e": 5.07,
-        "speedup_kernel": 15.04
+        "pytorch_eager_median_us": 121.9,
+        "forgetune_e2e_median_us": 22.0,
+        "forgetune_kernel_median_us": 7.862,
+        "speedup_e2e": 5.54,
+        "speedup_kernel": 15.5
       }
     ],
     "Model C (Small CNN)": [
       {
         "batch_size": 1,
-        "pytorch_eager_median_us": 187.2,
-        "forgetune_e2e_median_us": 31.7,
-        "forgetune_kernel_median_us": 20.314,
-        "speedup_e2e": 5.91,
-        "speedup_kernel": 9.22
+        "pytorch_eager_median_us": 167.8,
+        "forgetune_e2e_median_us": 31.3,
+        "forgetune_kernel_median_us": 17.474,
+        "speedup_e2e": 5.36,
+        "speedup_kernel": 9.6
       },
       {
         "batch_size": 4,
-        "pytorch_eager_median_us": 454.95,
-        "forgetune_e2e_median_us": 82.35,
-        "forgetune_kernel_median_us": 73.45,
-        "speedup_e2e": 5.52,
-        "speedup_kernel": 6.19
+        "pytorch_eager_median_us": 363.3,
+        "forgetune_e2e_median_us": 78.6,
+        "forgetune_kernel_median_us": 65.995,
+        "speedup_e2e": 4.62,
+        "speedup_kernel": 5.5
       },
       {
         "batch_size": 16,
-        "pytorch_eager_median_us": 330.4,
-        "forgetune_e2e_median_us": 272.5,
-        "forgetune_kernel_median_us": 250.986,
-        "speedup_e2e": 1.21,
-        "speedup_kernel": 1.32
+        "pytorch_eager_median_us": 342.15,
+        "forgetune_e2e_median_us": 273.2,
+        "forgetune_kernel_median_us": 251.885,
+        "speedup_e2e": 1.25,
+        "speedup_kernel": 1.36
       },
       {
         "batch_size": 64,
-        "pytorch_eager_median_us": 381.75,
-        "forgetune_e2e_median_us": 1056.15,
-        "forgetune_kernel_median_us": 939.627,
-        "speedup_e2e": 0.36,
-        "speedup_kernel": 0.41
+        "pytorch_eager_median_us": 469.0,
+        "forgetune_e2e_median_us": 1070.85,
+        "forgetune_kernel_median_us": 945.446,
+        "speedup_e2e": 0.44,
+        "speedup_kernel": 0.5
       }
     ]
   }
