@@ -18,7 +18,8 @@ class Node:
         shape: Optional[List[int]] = None,
         dtype: str = "f32",
         const_data: Optional[List[float]] = None,
-        deleted: bool = False
+        deleted: bool = False,
+        conv_attrs: Optional[Dict[str, int]] = None
     ):
         self.id = node_id
         self.op = op.upper()
@@ -28,9 +29,10 @@ class Node:
         self.dtype = dtype
         self.const_data = const_data or []
         self.deleted = deleted
+        self.conv_attrs = conv_attrs or {}
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "id": self.id,
             "op": self.op,
             "name": self.name,
@@ -40,6 +42,9 @@ class Node:
             "const_data": self.const_data,
             "deleted": self.deleted
         }
+        if self.conv_attrs or self.op in ("CONV2D", "FUSED_CONV2D_RELU"):
+            d["conv_attrs"] = self.conv_attrs
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Node":
@@ -51,7 +56,8 @@ class Node:
             shape=d.get("shape", []),
             dtype=d.get("dtype", "f32"),
             const_data=d.get("const_data", []),
-            deleted=d.get("deleted", False)
+            deleted=d.get("deleted", False),
+            conv_attrs=d.get("conv_attrs", None)
         )
 
 class Graph:
@@ -81,6 +87,16 @@ class Graph:
     def set_outputs(self, output_ids: List[int]) -> None:
         self.outputs = list(output_ids)
 
+    def has_dynamic_batch(self) -> bool:
+        for inp_id in self.inputs:
+            node = self.nodes.get(inp_id)
+            if node and len(node.shape) > 0 and node.shape[0] == -1:
+                return True
+        for node in self.nodes.values():
+            if not node.deleted and len(node.shape) > 0 and node.shape[0] == -1:
+                return True
+        return False
+
     def topological_order(self) -> List[int]:
         order = []
         visited = set()
@@ -109,7 +125,7 @@ class Graph:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "schema_version_major": 1,
+            "schema_version_major": 2,
             "schema_version_minor": 0,
             "inputs": self.inputs,
             "outputs": self.outputs,
@@ -145,8 +161,13 @@ class Graph:
             if in_id not in feed_dict:
                 raise InvalidGraphError(f"Missing input feed for node {in_id}")
             arr = np.asarray(feed_dict[in_id], dtype=np.float32)
-            expected_shape = tuple(self.nodes[in_id].shape)
-            if arr.shape != expected_shape:
+            expected_shape = list(self.nodes[in_id].shape)
+            if len(expected_shape) > 0 and expected_shape[0] == -1:
+                if arr.ndim != len(expected_shape) or arr.shape[0] <= 0 or list(arr.shape[1:]) != expected_shape[1:]:
+                    raise InvalidShapeError(
+                        f"Input {in_id} shape mismatch: expected {expected_shape} with positive batch, got {arr.shape}"
+                    )
+            elif list(arr.shape) != expected_shape:
                 raise InvalidShapeError(
                     f"Input {in_id} shape mismatch: expected {expected_shape}, got {arr.shape}"
                 )
@@ -175,6 +196,7 @@ class Graph:
                 # 1. Exact shapes: A == B
                 # 2. Rank-1 bias: A[M, N] + B[N]
                 # 3. Rank-2 row: A[M, N] + B[1, N]
+                # 4. Rank-4 channel: A[B, C, H, W] + B[1, C, 1, 1] or B[C]
                 is_valid = False
                 if a.shape == b.shape:
                     is_valid = True
@@ -182,12 +204,86 @@ class Graph:
                     is_valid = True
                 elif a.ndim == 2 and b.ndim == 2 and b.shape[0] == 1 and a.shape[1] == b.shape[1]:
                     is_valid = True
+                elif a.ndim == 4 and b.ndim == 4 and b.shape[0] == 1 and b.shape[2] == 1 and b.shape[3] == 1 and a.shape[1] == b.shape[1]:
+                    is_valid = True
+                elif a.ndim == 4 and b.ndim == 1 and a.shape[1] == b.shape[0]:
+                    b = b.reshape(1, -1, 1, 1)
+                    is_valid = True
                 if not is_valid:
                     raise InvalidShapeError(f"Unsupported ADD broadcast shapes: {a.shape} and {b.shape}")
                 env[nid] = a + b
+            elif node.op == "MUL":
+                a = env[node.inputs[0]]
+                b = env[node.inputs[1]]
+                is_valid = False
+                if a.shape == b.shape:
+                    is_valid = True
+                elif a.ndim == 2 and b.ndim == 1 and a.shape[1] == b.shape[0]:
+                    is_valid = True
+                elif a.ndim == 2 and b.ndim == 2 and b.shape[0] == 1 and a.shape[1] == b.shape[1]:
+                    is_valid = True
+                elif a.ndim == 4 and b.ndim == 4 and b.shape[0] == 1 and b.shape[2] == 1 and b.shape[3] == 1 and a.shape[1] == b.shape[1]:
+                    is_valid = True
+                elif a.ndim == 4 and b.ndim == 1 and a.shape[1] == b.shape[0]:
+                    b = b.reshape(1, -1, 1, 1)
+                    is_valid = True
+                if not is_valid:
+                    raise InvalidShapeError(f"Unsupported MUL broadcast shapes: {a.shape} and {b.shape}")
+                env[nid] = (a * b).astype(np.float32)
             elif node.op == "RELU":
                 inp = env[node.inputs[0]]
                 env[nid] = np.maximum(inp, 0.0, dtype=np.float32)
+            elif node.op == "SIGMOID":
+                inp = env[node.inputs[0]]
+                env[nid] = (1.0 / (1.0 + np.exp(-inp))).astype(np.float32)
+            elif node.op == "TANH":
+                inp = env[node.inputs[0]]
+                env[nid] = np.tanh(inp).astype(np.float32)
+            elif node.op == "FLATTEN":
+                inp = env[node.inputs[0]]
+                B = inp.shape[0]
+                env[nid] = inp.reshape(B, -1).astype(np.float32)
+            elif node.op in ("CONV2D", "FUSED_CONV2D_RELU"):
+                x = env[node.inputs[0]]
+                w = env[node.inputs[1]]
+                bias = env[node.inputs[2]] if len(node.inputs) == 3 else None
+                attrs = node.conv_attrs or {}
+                sh = attrs.get("stride_h", 1)
+                sw = attrs.get("stride_w", 1)
+                ph = attrs.get("pad_h", 0)
+                pw = attrs.get("pad_w", 0)
+                dh = attrs.get("dilation_h", 1)
+                dw = attrs.get("dilation_w", 1)
+
+                B, C_in, H_in, W_in = x.shape
+                C_out, W_Cin, Kh, Kw = w.shape
+                eff_kh = dh * (Kh - 1) + 1
+                eff_kw = dw * (Kw - 1) + 1
+                H_out = (H_in + 2 * ph - eff_kh) // sh + 1
+                W_out = (W_in + 2 * pw - eff_kw) // sw + 1
+
+                if ph > 0 or pw > 0:
+                    x_padded = np.pad(x, ((0, 0), (0, 0), (ph, ph), (pw, pw)), mode='constant')
+                else:
+                    x_padded = x
+
+                out = np.zeros((B, C_out, H_out, W_out), dtype=np.float32)
+                for b in range(B):
+                    for co in range(C_out):
+                        val = np.zeros((H_out, W_out), dtype=np.float32)
+                        for ci in range(C_in):
+                            for kh in range(Kh):
+                                for kw in range(Kw):
+                                    h_start = kh * dh
+                                    w_start = kw * dw
+                                    patch = x_padded[b, ci, h_start : h_start + H_out * sh : sh, w_start : w_start + W_out * sw : sw]
+                                    val += patch * w[co, ci, kh, kw]
+                        if bias is not None:
+                            val += bias[co]
+                        out[b, co] = val
+                if node.op == "FUSED_CONV2D_RELU":
+                    out = np.maximum(out, 0.0)
+                env[nid] = out.astype(np.float32)
             elif node.op == "FUSED_MATMUL_ADD_RELU":
                 x = env[node.inputs[0]]
                 w = env[node.inputs[1]]

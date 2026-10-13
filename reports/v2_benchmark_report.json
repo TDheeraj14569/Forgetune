@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "system": "Windows",
+    "release": "11",
+    "version": "10.0.26200",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD",
+    "python_version": "3.12.14"
+  },
+  "models": {
+    "Model A (Dynamic TinyMLP)": [
+      {
+        "batch_size": 1,
+        "pytorch_eager_median_us": 35.8,
+        "forgetune_e2e_median_us": 10.0,
+        "forgetune_kernel_median_us": 0.159,
+        "speedup_e2e": 3.58,
+        "speedup_kernel": 225.16
+      },
+      {
+        "batch_size": 4,
+        "pytorch_eager_median_us": 82.0,
+        "forgetune_e2e_median_us": 14.7,
+        "forgetune_kernel_median_us": 1.168,
+        "speedup_e2e": 5.58,
+        "speedup_kernel": 70.18
+      },
+      {
+        "batch_size": 16,
+        "pytorch_eager_median_us": 69.55,
+        "forgetune_e2e_median_us": 16.9,
+        "forgetune_kernel_median_us": 3.217,
+        "speedup_e2e": 4.12,
+        "speedup_kernel": 21.62
+      },
+      {
+        "batch_size": 64,
+        "pytorch_eager_median_us": 78.8,
+        "forgetune_e2e_median_us": 26.25,
+        "forgetune_kernel_median_us": 12.215,
+        "speedup_e2e": 3.0,
+        "speedup_kernel": 6.45
+      }
+    ],
+    "Model B (Residual MLP)": [
+      {
+        "batch_size": 1,
+        "pytorch_eager_median_us": 44.55,
+        "forgetune_e2e_median_us": 8.5,
+        "forgetune_kernel_median_us": 0.103,
+        "speedup_e2e": 5.24,
+        "speedup_kernel": 434.21
+      },
+      {
+        "batch_size": 4,
+        "pytorch_eager_median_us": 44.9,
+        "forgetune_e2e_median_us": 8.65,
+        "forgetune_kernel_median_us": 0.342,
+        "speedup_e2e": 5.19,
+        "speedup_kernel": 131.21
+      },
+      {
+        "batch_size": 16,
+        "pytorch_eager_median_us": 45.8,
+        "forgetune_e2e_median_us": 9.4,
+        "forgetune_kernel_median_us": 1.325,
+        "speedup_e2e": 4.87,
+        "speedup_kernel": 34.58
+      },
+      {
+        "batch_size": 64,
+        "pytorch_eager_median_us": 112.65,
+        "forgetune_e2e_median_us": 22.2,
+        "forgetune_kernel_median_us": 7.491,
+        "speedup_e2e": 5.07,
+        "speedup_kernel": 15.04
+      }
+    ],
+    "Model C (Small CNN)": [
+      {
+        "batch_size": 1,
+        "pytorch_eager_median_us": 187.2,
+        "forgetune_e2e_median_us": 31.7,
+        "forgetune_kernel_median_us": 20.314,
+        "speedup_e2e": 5.91,
+        "speedup_kernel": 9.22
+      },
+      {
+        "batch_size": 4,
+        "pytorch_eager_median_us": 454.95,
+        "forgetune_e2e_median_us": 82.35,
+        "forgetune_kernel_median_us": 73.45,
+        "speedup_e2e": 5.52,
+        "speedup_kernel": 6.19
+      },
+      {
+        "batch_size": 16,
+        "pytorch_eager_median_us": 330.4,
+        "forgetune_e2e_median_us": 272.5,
+        "forgetune_kernel_median_us": 250.986,
+        "speedup_e2e": 1.21,
+        "speedup_kernel": 1.32
+      },
+      {
+        "batch_size": 64,
+        "pytorch_eager_median_us": 381.75,
+        "forgetune_e2e_median_us": 1056.15,
+        "forgetune_kernel_median_us": 939.627,
+        "speedup_e2e": 0.36,
+        "speedup_kernel": 0.41
+      }
+    ]
+  }
+}

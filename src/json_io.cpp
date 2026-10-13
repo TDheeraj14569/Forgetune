@@ -40,6 +40,17 @@ std::string graph_to_json(const IRGraph& graph) {
             << "      \"name\": \"" << n.name << "\",\n"
             << "      \"deleted\": " << (n.deleted ? "true" : "false") << ",\n";
 
+        if (n.op == OpKind::CONV2D || n.op == OpKind::FUSED_CONV2D_RELU) {
+            oss << "      \"conv_attrs\": {"
+                << "\"stride_h\": " << n.conv_attrs.stride_h << ", "
+                << "\"stride_w\": " << n.conv_attrs.stride_w << ", "
+                << "\"pad_h\": " << n.conv_attrs.pad_h << ", "
+                << "\"pad_w\": " << n.conv_attrs.pad_w << ", "
+                << "\"dilation_h\": " << n.conv_attrs.dilation_h << ", "
+                << "\"dilation_w\": " << n.conv_attrs.dilation_w << ", "
+                << "\"groups\": " << n.conv_attrs.groups << "},\n";
+        }
+
         // Node inputs
         oss << "      \"inputs\": [";
         for (size_t j = 0; j < n.inputs.size(); ++j) {
@@ -218,9 +229,34 @@ IRGraph json_to_graph(const std::string& json_str) {
                         else if (op_str == "MATMUL") node.op = OpKind::MATMUL;
                         else if (op_str == "ADD") node.op = OpKind::ADD;
                         else if (op_str == "RELU") node.op = OpKind::RELU;
+                        else if (op_str == "MUL") node.op = OpKind::MUL;
+                        else if (op_str == "SIGMOID") node.op = OpKind::SIGMOID;
+                        else if (op_str == "TANH") node.op = OpKind::TANH;
+                        else if (op_str == "FLATTEN") node.op = OpKind::FLATTEN;
+                        else if (op_str == "CONV2D") node.op = OpKind::CONV2D;
+                        else if (op_str == "FUSED_CONV2D_RELU") node.op = OpKind::FUSED_CONV2D_RELU;
                         else if (op_str == "OUTPUT") node.op = OpKind::OUTPUT;
                         else if (op_str == "FUSED_MATMUL_ADD_RELU") node.op = OpKind::FUSED_MATMUL_ADD_RELU;
                         else throw UnsupportedOpError(op_str);
+                    } else if (field == "conv_attrs") {
+                        lexer.next(); // '{'
+                        while (true) {
+                            Token a_key = lexer.next();
+                            if (a_key.type == TokType::RBRACE) break;
+                            if (a_key.type == TokType::COMMA) continue;
+                            if (a_key.type != TokType::STRING) continue;
+                            lexer.next(); // ':'
+                            std::string attr_name = a_key.str_val;
+                            Token attr_val = lexer.next();
+                            int64_t v = static_cast<int64_t>(attr_val.num_val);
+                            if (attr_name == "stride_h") node.conv_attrs.stride_h = v;
+                            else if (attr_name == "stride_w") node.conv_attrs.stride_w = v;
+                            else if (attr_name == "pad_h") node.conv_attrs.pad_h = v;
+                            else if (attr_name == "pad_w") node.conv_attrs.pad_w = v;
+                            else if (attr_name == "dilation_h") node.conv_attrs.dilation_h = v;
+                            else if (attr_name == "dilation_w") node.conv_attrs.dilation_w = v;
+                            else if (attr_name == "groups") node.conv_attrs.groups = v;
+                        }
                     } else if (field == "name") {
                         node.name = lexer.next().str_val;
                     } else if (field == "deleted") {

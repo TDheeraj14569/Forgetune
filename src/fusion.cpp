@@ -21,12 +21,40 @@ bool OperatorFusionPass::run(IRGraph& graph) {
                 continue;
             }
 
-            NodeId add_id = r_node.inputs[0];
-            if (!graph.has_node(add_id)) continue;
-            const auto& a_node = graph.get_node(add_id);
-            if (a_node.deleted || a_node.op != OpKind::ADD || a_node.inputs.size() != 2) {
+            NodeId in_id = r_node.inputs[0];
+            if (!graph.has_node(in_id)) continue;
+            const auto& in_node = graph.get_node(in_id);
+            if (in_node.deleted) continue;
+
+            // Pattern 1: CONV2D + RELU -> FUSED_CONV2D_RELU
+            if (in_node.op == OpKind::CONV2D) {
+                if (use_counts[in_id] == 1 &&
+                    std::find(graph_outputs.begin(), graph_outputs.end(), in_id) == graph_outputs.end()) {
+
+                    IRNode fused_node;
+                    fused_node.op = OpKind::FUSED_CONV2D_RELU;
+                    fused_node.name = "fused_" + in_node.name + "_" + r_node.name;
+                    fused_node.inputs = in_node.inputs;
+                    fused_node.output_meta = r_node.output_meta;
+                    fused_node.conv_attrs = in_node.conv_attrs;
+
+                    NodeId fused_id = graph.add_node(std::move(fused_node));
+                    graph.replace_all_uses(r_node.id, fused_id);
+                    graph.delete_node(r_node.id);
+                    graph.delete_node(in_node.id);
+
+                    changed_in_iteration = true;
+                    any_changed = true;
+                    break;
+                }
+            }
+
+            // Pattern 2: MATMUL + ADD + RELU -> FUSED_MATMUL_ADD_RELU
+            if (in_node.op != OpKind::ADD || in_node.inputs.size() != 2) {
                 continue;
             }
+            NodeId add_id = in_id;
+            const auto& a_node = in_node;
 
             // Check if ADD node is safe to fuse:
             // Must have use count 1 (consumed only by this RELU), and must NOT be a graph output

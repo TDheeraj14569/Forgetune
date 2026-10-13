@@ -219,7 +219,10 @@ class Autotuner:
 
             # 3. Correctness Gate
             try:
-                runtime = NativeRuntime(cand_dll, input_shape, output_shape)
+                is_dyn = graph.has_dynamic_batch()
+                rt_in_shape = tuple(-1 if (is_dyn and i == 0) else s for i, s in enumerate(input_shape))
+                rt_out_shape = tuple(-1 if (is_dyn and i == 0) else s for i, s in enumerate(output_shape))
+                runtime = NativeRuntime(cand_dll, rt_in_shape, rt_out_shape)
                 for tin, expected in zip(test_inputs, test_ground_truths):
                     actual = runtime.run(tin)
                     max_abs = float(np.max(np.abs(actual - expected)))

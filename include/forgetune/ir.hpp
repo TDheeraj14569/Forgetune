@@ -20,7 +20,7 @@ namespace forgetune {
 // ============================================================================
 // Schema version for the IR format (used in serialization and cache keys)
 // ============================================================================
-constexpr int IR_SCHEMA_VERSION_MAJOR = 1;
+constexpr int IR_SCHEMA_VERSION_MAJOR = 2;
 constexpr int IR_SCHEMA_VERSION_MINOR = 0;
 
 // ============================================================================
@@ -46,9 +46,12 @@ inline size_t dtype_size(DType dt) {
 }
 
 // ============================================================================
-// Tensor shape representation
+// Tensor shape representation (Static and Symbolic Dynamic Batch)
 // ============================================================================
 struct TensorShape {
+    static constexpr int64_t DYNAMIC_DIM = -1;
+    static constexpr int64_t DEFAULT_MAX_BATCH = 128;
+
     std::vector<int64_t> dims;
 
     TensorShape() = default;
@@ -57,14 +60,51 @@ struct TensorShape {
 
     int64_t rank() const { return static_cast<int64_t>(dims.size()); }
 
-    int64_t element_count() const {
+    bool is_dynamic() const {
+        for (auto d : dims) {
+            if (d == DYNAMIC_DIM) return true;
+        }
+        return false;
+    }
+
+    bool has_dynamic_batch() const {
+        return (!dims.empty() && dims[0] == DYNAMIC_DIM);
+    }
+
+    int64_t static_element_count() const {
         if (dims.empty()) return 0;
+        int64_t count = 1;
+        size_t start = (is_dynamic() ? 1 : 0);
+        for (size_t i = start; i < dims.size(); ++i) {
+            int64_t d = dims[i];
+            if (d <= 0) {
+                throw std::runtime_error("TensorShape: non-positive dimension encountered");
+            }
+            if (count > (INT64_MAX / d)) {
+                throw std::runtime_error("TensorShape: static element count overflow");
+            }
+            count *= d;
+        }
+        return count;
+    }
+
+    int64_t element_count(int64_t batch_size = 1) const {
+        if (dims.empty()) return 0;
+        if (is_dynamic()) {
+            if (batch_size <= 0) {
+                throw std::runtime_error("TensorShape: batch_size must be positive");
+            }
+            int64_t s = static_element_count();
+            if (batch_size > (INT64_MAX / s)) {
+                throw std::runtime_error("TensorShape: dynamic element count overflow");
+            }
+            return batch_size * s;
+        }
         int64_t count = 1;
         for (auto d : dims) {
             if (d <= 0) {
                 throw std::runtime_error("TensorShape: non-positive dimension encountered");
             }
-            // Check for overflow before multiplying
             if (count > (INT64_MAX / d)) {
                 throw std::runtime_error("TensorShape: element count overflow");
             }
@@ -81,7 +121,11 @@ struct TensorShape {
         oss << "[";
         for (size_t i = 0; i < dims.size(); ++i) {
             if (i > 0) oss << ", ";
-            oss << dims[i];
+            if (dims[i] == DYNAMIC_DIM) {
+                oss << "?";
+            } else {
+                oss << dims[i];
+            }
         }
         oss << "]";
         return oss.str();
@@ -98,9 +142,12 @@ struct TensorMeta {
     TensorMeta() = default;
     TensorMeta(TensorShape s, DType dt) : shape(std::move(s)), dtype(dt) {}
 
-    int64_t element_count() const { return shape.element_count(); }
-    size_t byte_size() const {
-        return static_cast<size_t>(element_count()) * dtype_size(dtype);
+    bool is_dynamic() const { return shape.is_dynamic(); }
+    int64_t element_count(int64_t batch_size = 1) const { return shape.element_count(batch_size); }
+    int64_t static_element_count() const { return shape.static_element_count(); }
+
+    size_t byte_size(int64_t batch_size = 1) const {
+        return static_cast<size_t>(element_count(batch_size)) * dtype_size(dtype);
     }
 
     std::string to_string() const {
@@ -118,8 +165,14 @@ enum class OpKind {
     ADD,
     RELU,
     OUTPUT,
-    // Fused operations
     FUSED_MATMUL_ADD_RELU,
+    // ForgeTune v2.0 Operations
+    MUL,
+    SIGMOID,
+    TANH,
+    CONV2D,
+    FLATTEN,
+    FUSED_CONV2D_RELU,
 };
 
 inline const char* opkind_to_string(OpKind kind) {
@@ -131,9 +184,28 @@ inline const char* opkind_to_string(OpKind kind) {
         case OpKind::RELU:   return "RELU";
         case OpKind::OUTPUT: return "OUTPUT";
         case OpKind::FUSED_MATMUL_ADD_RELU: return "FUSED_MATMUL_ADD_RELU";
+        case OpKind::MUL:    return "MUL";
+        case OpKind::SIGMOID: return "SIGMOID";
+        case OpKind::TANH:   return "TANH";
+        case OpKind::CONV2D: return "CONV2D";
+        case OpKind::FLATTEN: return "FLATTEN";
+        case OpKind::FUSED_CONV2D_RELU: return "FUSED_CONV2D_RELU";
         default: return "UNKNOWN";
     }
 }
+
+// ============================================================================
+// Convolution attributes for CONV2D
+// ============================================================================
+struct Conv2DAttrs {
+    int64_t stride_h = 1;
+    int64_t stride_w = 1;
+    int64_t pad_h = 0;
+    int64_t pad_w = 0;
+    int64_t dilation_h = 1;
+    int64_t dilation_w = 1;
+    int64_t groups = 1;
+};
 
 // ============================================================================
 // IR Node: represents a single operation in the computation graph
@@ -148,6 +220,7 @@ struct IRNode {
     std::vector<NodeId> inputs;         // Operand node IDs
     TensorMeta output_meta;             // Output tensor metadata
     std::vector<float> const_data;      // For CONST nodes: the actual data
+    Conv2DAttrs conv_attrs;             // For CONV2D nodes: convolution attributes
     bool deleted = false;               // Soft-delete flag for passes
 
     IRNode() = default;
@@ -155,16 +228,22 @@ struct IRNode {
         : id(id), op(op), name(std::move(name)), inputs(std::move(inputs)),
           output_meta(std::move(meta)) {}
 
-    // Validate expected arity
+    // Validate expected arity (-1 indicates variable arity, e.g. CONV2D with optional bias)
     int expected_input_count() const {
         switch (op) {
             case OpKind::INPUT:  return 0;
             case OpKind::CONST:  return 0;
             case OpKind::MATMUL: return 2;
             case OpKind::ADD:    return 2;
+            case OpKind::MUL:    return 2;
             case OpKind::RELU:   return 1;
+            case OpKind::SIGMOID: return 1;
+            case OpKind::TANH:   return 1;
             case OpKind::OUTPUT: return 1;
+            case OpKind::FLATTEN: return 1;
             case OpKind::FUSED_MATMUL_ADD_RELU: return 3; // matrix, weight, bias
+            case OpKind::CONV2D: return -1; // 2 or 3 inputs (x, w, optional bias)
+            case OpKind::FUSED_CONV2D_RELU: return -1; // 2 or 3 inputs
             default: return -1;
         }
     }

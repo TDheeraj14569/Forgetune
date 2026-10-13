@@ -40,10 +40,16 @@ def test_json_serialization_and_deserialization():
     g.set_outputs([mm])
 
     json_str = g.to_json()
-    assert '"schema_version_major": 1' in json_str
+    assert '"schema_version_major": 2' in json_str
 
     g2 = Graph.from_json(json_str)
     assert g2.inputs == [0]
     assert g2.outputs == [2]
     assert len(g2.nodes) == 3
     assert g2.nodes[1].const_data == [1.0] * 32
+
+    # Backward compatibility: verify v1 schema JSON deserializes correctly
+    v1_json = json_str.replace('"schema_version_major": 2', '"schema_version_major": 1')
+    g_v1 = Graph.from_json(v1_json)
+    assert g_v1.inputs == [0]
+    assert len(g_v1.nodes) == 3

@@ -49,6 +49,7 @@ def main():
         "src/fusion.cpp",
         "src/codegen.cpp",
         "src/json_io.cpp",
+        "src/memory_planner.cpp",
         "tests/cpp/test_main.cpp"
     ]
     compile_cpp_cmd = [
@@ -80,6 +81,7 @@ def main():
         "src/fusion.cpp",
         "src/codegen.cpp",
         "src/json_io.cpp",
+        "src/memory_planner.cpp",
         "src/main.cpp"
     ]
     os.makedirs("bin", exist_ok=True)

@@ -1,7 +1,9 @@
 #include "forgetune/codegen.hpp"
+#include "forgetune/memory_planner.hpp"
 #include <iomanip>
 #include <sstream>
 #include <limits>
+#include <vector>
 
 namespace forgetune {
 
@@ -26,7 +28,8 @@ void CodeGenerator::emit_headers(std::ostringstream& oss) const {
         << "#include <cstdint>\n"
         << "#include <algorithm>\n"
         << "#include <cmath>\n"
-        << "#include <chrono>\n\n"
+        << "#include <chrono>\n"
+        << "#include <vector>\n\n"
         << "#ifdef _WIN32\n"
         << "#define FORGETUNE_EXPORT __declspec(dllexport)\n"
         << "#else\n"
@@ -47,8 +50,6 @@ void CodeGenerator::emit_constants(std::ostringstream& oss, const IRGraph& graph
                 oss << ", ";
                 if (i % 8 == 0) oss << "\n  ";
             }
-            // Emit decimal scientific literal at max_digits10 precision to guarantee exact
-            // IEEE-754 bit-exact round-tripping while ensuring clean PE/COFF data section structure.
             oss << std::scientific << std::setprecision(std::numeric_limits<float>::max_digits10) << node.const_data[i] << "f";
         }
         oss << "\n};\n\n";
@@ -59,11 +60,11 @@ void CodeGenerator::emit_constants(std::ostringstream& oss, const IRGraph& graph
 }
 
 void CodeGenerator::emit_matmul_naive(std::ostringstream& oss, const std::string& func_name,
-                                      int64_t M, int64_t K, int64_t N) const {
+                                      int64_t K, int64_t N) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* A, const float* B, float* C\n"
         << ") noexcept {\n"
-        << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+        << "    for (int64_t i = 0; i < M; ++i) {\n"
         << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
         << "            float sum = 0.0f;\n"
         << "            for (int64_t k = 0; k < " << K << "; ++k) {\n"
@@ -76,14 +77,12 @@ void CodeGenerator::emit_matmul_naive(std::ostringstream& oss, const std::string
 }
 
 void CodeGenerator::emit_matmul_ikj(std::ostringstream& oss, const std::string& func_name,
-                                    int64_t M, int64_t K, int64_t N) const {
+                                    int64_t K, int64_t N) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* A, const float* B, float* C\n"
         << ") noexcept {\n"
-        << "    // Zero initialize C\n"
-        << "    for (int64_t idx = 0; idx < " << (M * N) << "; ++idx) C[idx] = 0.0f;\n\n"
-        << "    // Cache-friendly i, k, j loop ordering\n"
-        << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+        << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
+        << "    for (int64_t i = 0; i < M; ++i) {\n"
         << "        for (int64_t k = 0; k < " << K << "; ++k) {\n"
         << "            float a_val = A[i * " << K << " + k];\n"
         << "            for (int64_t j = 0; j < " << N << "; ++j) {\n"
@@ -95,19 +94,17 @@ void CodeGenerator::emit_matmul_ikj(std::ostringstream& oss, const std::string& 
 }
 
 void CodeGenerator::emit_matmul_tiled(std::ostringstream& oss, const std::string& func_name,
-                                      int64_t M, int64_t K, int64_t N,
+                                      int64_t K, int64_t N,
                                       int tile_m, int tile_n, int tile_k) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* A, const float* B, float* C\n"
         << ") noexcept {\n"
-        << "    // Zero initialize output C\n"
-        << "    for (int64_t idx = 0; idx < " << (M * N) << "; ++idx) C[idx] = 0.0f;\n\n"
+        << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
         << "    constexpr int64_t TM = " << tile_m << ";\n"
         << "    constexpr int64_t TN = " << tile_n << ";\n"
         << "    constexpr int64_t TK = " << tile_k << ";\n\n"
-        << "    // Tiled matrix multiplication with exact boundary handling\n"
-        << "    for (int64_t i0 = 0; i0 < " << M << "; i0 += TM) {\n"
-        << "        const int64_t imax = std::min(i0 + TM, (int64_t)" << M << ");\n"
+        << "    for (int64_t i0 = 0; i0 < M; i0 += TM) {\n"
+        << "        const int64_t imax = std::min(i0 + TM, M);\n"
         << "        for (int64_t k0 = 0; k0 < " << K << "; k0 += TK) {\n"
         << "            const int64_t kmax = std::min(k0 + TK, (int64_t)" << K << ");\n"
         << "            for (int64_t j0 = 0; j0 < " << N << "; j0 += TN) {\n"
@@ -127,21 +124,20 @@ void CodeGenerator::emit_matmul_tiled(std::ostringstream& oss, const std::string
 }
 
 void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const std::string& func_name,
-                                               int64_t M, int64_t K, int64_t N,
+                                               int64_t K, int64_t N,
                                                bool has_bias, MatMulVariant variant,
                                                int tile_m, int tile_n, int tile_k) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    const float* A, const float* B, const float* bias, float* C\n"
+        << "    int64_t M, const float* A, const float* B, const float* bias, float* C\n"
         << ") noexcept {\n";
 
     if (variant == MatMulVariant::FUSED_TILED) {
-        oss << "    // Fused Tiled implementation\n"
-            << "    for (int64_t idx = 0; idx < " << (M * N) << "; ++idx) C[idx] = 0.0f;\n\n"
+        oss << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
             << "    constexpr int64_t TM = " << tile_m << ";\n"
             << "    constexpr int64_t TN = " << tile_n << ";\n"
             << "    constexpr int64_t TK = " << tile_k << ";\n\n"
-            << "    for (int64_t i0 = 0; i0 < " << M << "; i0 += TM) {\n"
-            << "        const int64_t imax = std::min(i0 + TM, (int64_t)" << M << ");\n"
+            << "    for (int64_t i0 = 0; i0 < M; i0 += TM) {\n"
+            << "        const int64_t imax = std::min(i0 + TM, M);\n"
             << "        for (int64_t k0 = 0; k0 < " << K << "; k0 += TK) {\n"
             << "            const int64_t kmax = std::min(k0 + TK, (int64_t)" << K << ");\n"
             << "            for (int64_t j0 = 0; j0 < " << N << "; j0 += TN) {\n"
@@ -157,16 +153,14 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
             << "            }\n"
             << "        }\n"
             << "    }\n\n"
-            << "    // Add bias and apply ReLU directly in place\n"
-            << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+            << "    for (int64_t i = 0; i < M; ++i) {\n"
             << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
             << "            float val = C[i * " << N << " + j] + (bias ? bias[j] : 0.0f);\n"
             << "            C[i * " << N << " + j] = (val > 0.0f) ? val : 0.0f;\n"
             << "        }\n"
             << "    }\n";
     } else if (variant == MatMulVariant::FUSED_IKJ || variant == MatMulVariant::LOOP_IKJ) {
-        // Cache-friendly fused i, k, j loop ordering
-        oss << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+        oss << "    for (int64_t i = 0; i < M; ++i) {\n"
             << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
             << "            C[i * " << N << " + j] = (bias ? bias[j] : 0.0f);\n"
             << "        }\n"
@@ -182,8 +176,7 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
             << "        }\n"
             << "    }\n";
     } else {
-        // Naive fused i, j, k loop ordering
-        oss << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+        oss << "    for (int64_t i = 0; i < M; ++i) {\n"
             << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
             << "            float sum = 0.0f;\n"
             << "            for (int64_t k = 0; k < " << K << "; ++k) {\n"
@@ -197,119 +190,286 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
     oss << "}\n\n";
 }
 
+void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::string& func_name,
+                                       const IRNode& node, const IRGraph& graph, bool fused_relu) const {
+    const auto& x_node = graph.get_node(node.inputs[0]);
+    const auto& w_node = graph.get_node(node.inputs[1]);
+
+    int64_t C_in = x_node.output_meta.shape.dims[1];
+    int64_t H_in = x_node.output_meta.shape.dims[2];
+    int64_t W_in = x_node.output_meta.shape.dims[3];
+
+    int64_t C_out = w_node.output_meta.shape.dims[0];
+    int64_t Kh = w_node.output_meta.shape.dims[2];
+    int64_t Kw = w_node.output_meta.shape.dims[3];
+
+    int64_t H_out = node.output_meta.shape.dims[2];
+    int64_t W_out = node.output_meta.shape.dims[3];
+
+    const auto& attrs = node.conv_attrs;
+    int64_t sh = attrs.stride_h;
+    int64_t sw = attrs.stride_w;
+    int64_t ph = attrs.pad_h;
+    int64_t pw = attrs.pad_w;
+    int64_t dh = attrs.dilation_h;
+    int64_t dw = attrs.dilation_w;
+
+    oss << "static inline void " << func_name << "(\n"
+        << "    int64_t B, const float* X, const float* W, const float* bias, float* out\n"
+        << ") noexcept {\n"
+        << "    for (int64_t b = 0; b < B; ++b) {\n"
+        << "        for (int64_t co = 0; co < " << C_out << "; ++co) {\n"
+        << "            float b_val = (bias != nullptr) ? bias[co] : 0.0f;\n"
+        << "            for (int64_t ho = 0; ho < " << H_out << "; ++ho) {\n"
+        << "                for (int64_t wo = 0; wo < " << W_out << "; ++wo) {\n"
+        << "                    float sum = b_val;\n"
+        << "                    for (int64_t ci = 0; ci < " << C_in << "; ++ci) {\n"
+        << "                        for (int64_t kh = 0; kh < " << Kh << "; ++kh) {\n"
+        << "                            int64_t hi = ho * " << sh << " - " << ph << " + kh * " << dh << ";\n"
+        << "                            if (hi < 0 || hi >= " << H_in << ") continue;\n"
+        << "                            for (int64_t kw = 0; kw < " << Kw << "; ++kw) {\n"
+        << "                                int64_t wi = wo * " << sw << " - " << pw << " + kw * " << dw << ";\n"
+        << "                                if (wi < 0 || wi >= " << W_in << ") continue;\n"
+        << "                                size_t x_idx = ((b * " << C_in << " + ci) * " << H_in << " + hi) * " << W_in << " + wi;\n"
+        << "                                size_t w_idx = ((co * " << C_in << " + ci) * " << Kh << " + kh) * " << Kw << " + kw;\n"
+        << "                                sum += X[x_idx] * W[w_idx];\n"
+        << "                            }\n"
+        << "                        }\n"
+        << "                    }\n"
+        << "                    size_t out_idx = ((b * " << C_out << " + co) * " << H_out << " + ho) * " << W_out << " + wo;\n";
+    if (fused_relu) {
+        oss << "                    out[out_idx] = (sum > 0.0f) ? sum : 0.0f;\n";
+    } else {
+        oss << "                    out[out_idx] = sum;\n";
+    }
+    oss << "                }\n"
+        << "            }\n"
+        << "        }\n"
+        << "    }\n"
+        << "}\n\n";
+}
+
 void CodeGenerator::emit_kernel_functions(std::ostringstream& oss, const IRGraph& graph) const {
     oss << "// Specialized kernel implementations\n";
-
-    // Track emitted kernels to avoid duplicate definitions
-    bool emitted_naive_mm = false;
-    bool emitted_ikj_mm = false;
-    bool emitted_tiled_mm = false;
-    bool emitted_fused = false;
 
     for (const auto& node : graph.nodes()) {
         if (node.deleted) continue;
 
         if (node.op == OpKind::MATMUL) {
-            int64_t M = graph.get_node(node.inputs[0]).output_meta.shape.dims[0];
             int64_t K = graph.get_node(node.inputs[0]).output_meta.shape.dims[1];
             int64_t N = graph.get_node(node.inputs[1]).output_meta.shape.dims[1];
             std::string fname = "matmul_node_" + std::to_string(node.id);
 
             switch (config_.matmul_variant) {
                 case MatMulVariant::LOOP_IKJ:
-                    emit_matmul_ikj(oss, fname, M, K, N);
+                    emit_matmul_ikj(oss, fname, K, N);
                     break;
                 case MatMulVariant::TILED:
-                    emit_matmul_tiled(oss, fname, M, K, N, config_.tile_m, config_.tile_n, config_.tile_k);
+                    emit_matmul_tiled(oss, fname, K, N, config_.tile_m, config_.tile_n, config_.tile_k);
                     break;
                 case MatMulVariant::NAIVE_IJK:
                 default:
-                    emit_matmul_naive(oss, fname, M, K, N);
+                    emit_matmul_naive(oss, fname, K, N);
                     break;
             }
         } else if (node.op == OpKind::FUSED_MATMUL_ADD_RELU) {
-            int64_t M = graph.get_node(node.inputs[0]).output_meta.shape.dims[0];
             int64_t K = graph.get_node(node.inputs[0]).output_meta.shape.dims[1];
             int64_t N = graph.get_node(node.inputs[1]).output_meta.shape.dims[1];
             std::string fname = "fused_node_" + std::to_string(node.id);
 
-            emit_fused_matmul_add_relu(oss, fname, M, K, N, true, config_.matmul_variant,
+            emit_fused_matmul_add_relu(oss, fname, K, N, true, config_.matmul_variant,
                                        config_.tile_m, config_.tile_n, config_.tile_k);
+        } else if (node.op == OpKind::CONV2D) {
+            std::string fname = "conv2d_node_" + std::to_string(node.id);
+            emit_conv2d_kernel(oss, fname, node, graph, false);
+        } else if (node.op == OpKind::FUSED_CONV2D_RELU) {
+            std::string fname = "conv2d_node_" + std::to_string(node.id);
+            emit_conv2d_kernel(oss, fname, node, graph, true);
         }
     }
 }
 
 void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& graph) const {
-    // Determine expected input and output sizes
     const auto& inputs = graph.get_inputs();
     const auto& outputs = graph.get_outputs();
 
-    int64_t total_input_elements = 0;
+    bool is_dynamic = false;
     for (NodeId in_id : inputs) {
-        total_input_elements += graph.get_node(in_id).output_meta.element_count();
+        if (graph.get_node(in_id).output_meta.shape.has_dynamic_batch()) {
+            is_dynamic = true;
+            break;
+        }
+    }
+
+    int64_t total_input_elements = 0;
+    int64_t static_input_elements = 0;
+    for (NodeId in_id : inputs) {
+        const auto& s = graph.get_node(in_id).output_meta.shape;
+        if (s.has_dynamic_batch()) {
+            static_input_elements += s.static_element_count();
+        } else {
+            total_input_elements += s.element_count();
+            static_input_elements += s.element_count();
+        }
     }
 
     int64_t total_output_elements = 0;
+    int64_t static_output_elements = 0;
     for (NodeId out_id : outputs) {
-        total_output_elements += graph.get_node(out_id).output_meta.element_count();
+        const auto& s = graph.get_node(out_id).output_meta.shape;
+        if (s.has_dynamic_batch()) {
+            static_output_elements += s.static_element_count();
+        } else {
+            total_output_elements += s.element_count();
+            static_output_elements += s.element_count();
+        }
     }
 
-    oss << "// Main exported inference entry point\n"
-        << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
-        << "    const float* input,\n"
-        << "    size_t input_count,\n"
-        << "    float* output,\n"
-        << "    size_t output_count\n"
-        << ") noexcept {\n"
-        << "    // Contract validations\n"
-        << "    if (!input || !output) return -1; // Null pointer\n"
-        << "    if (input_count != " << total_input_elements << ") return -2; // Input size mismatch\n"
-        << "    if (output_count != " << total_output_elements << ") return -3; // Output size mismatch\n\n";
+    MemoryPlanner planner(64);
+    MemoryPlan plan = planner.plan(graph, TensorShape::DEFAULT_MAX_BATCH);
+    size_t arena_elements = (plan.arena_size_bytes + sizeof(float) - 1) / sizeof(float);
+    if (arena_elements == 0) arena_elements = 1;
 
-    // Allocate intermediate buffers for live nodes that are neither inputs nor constants
-    oss << "    // Intermediate tensor buffers\n";
+    oss << "// Main exported inference entry point\n";
+    if (is_dynamic) {
+        oss << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
+            << "    const float* input,\n"
+            << "    size_t input_count,\n"
+            << "    float* output,\n"
+            << "    size_t output_count,\n"
+            << "    int64_t batch_size\n"
+            << ") noexcept {\n"
+            << "    // Contract validations\n"
+            << "    if (!input || !output) return -1; // Null pointer\n"
+            << "    if (batch_size <= 0) {\n"
+            << "        if (input_count == 0 || input_count % " << static_input_elements << " != 0) return -2;\n"
+            << "        batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
+            << "    }\n"
+            << "    if (batch_size <= 0 || batch_size > 128) return -2;\n"
+            << "    if (input_count != static_cast<size_t>(batch_size * " << static_input_elements << ")) return -2; // Input size mismatch\n"
+            << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3; // Output size mismatch\n\n";
+    } else {
+        int64_t static_batch = 1;
+        if (!inputs.empty() && graph.get_node(inputs[0]).output_meta.shape.rank() > 0) {
+            static_batch = graph.get_node(inputs[0]).output_meta.shape.dims[0];
+        }
+        oss << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
+            << "    const float* input,\n"
+            << "    size_t input_count,\n"
+            << "    float* output,\n"
+            << "    size_t output_count\n"
+            << ") noexcept {\n"
+            << "    // Contract validations\n"
+            << "    if (!input || !output) return -1; // Null pointer\n"
+            << "    if (input_count != " << total_input_elements << ") return -2; // Input size mismatch\n"
+            << "    if (output_count != " << total_output_elements << ") return -3; // Output size mismatch\n"
+            << "    const int64_t batch_size = " << static_batch << ";\n\n";
+    }
+
+    // Allocate intermediate arena
+    oss << "    // Intermediate tensor arena with buffer reuse (planned savings: "
+        << std::fixed << std::setprecision(1) << plan.savings_percent << "%)\n"
+        << "    alignas(64) static thread_local std::vector<float> arena_storage;\n"
+        << "    if (arena_storage.size() < " << arena_elements << ") {\n"
+        << "        arena_storage.resize(" << arena_elements << ");\n"
+        << "    }\n"
+        << "    float* arena = arena_storage.data();\n\n";
+
     auto topo = graph.topological_order();
-
     for (NodeId id : topo) {
         const auto& node = graph.get_node(id);
         if (node.deleted || node.op == OpKind::INPUT || node.op == OpKind::CONST) continue;
 
-        // Check if this node is a graph output
         bool is_output = (std::find(outputs.begin(), outputs.end(), id) != outputs.end());
-        int64_t count = node.output_meta.element_count();
-
         if (is_output) {
             oss << "    float* buf_" << id << " = output;\n";
         } else {
-            oss << "    float buf_" << id << "[" << count << "];\n";
+            size_t elem_offset = plan.allocations.at(id).offset / sizeof(float);
+            oss << "    float* buf_" << id << " = arena + " << elem_offset << ";\n";
         }
     }
     oss << "\n";
 
-    // Emit operations in topological order
+    auto get_operand_ptr = [&](NodeId op_id) -> std::string {
+        const auto& op_node = graph.get_node(op_id);
+        if (op_node.op == OpKind::INPUT) {
+            return "input";
+        } else if (op_node.op == OpKind::CONST) {
+            return "const_data_" + std::to_string(op_id);
+        } else {
+            return "buf_" + std::to_string(op_id);
+        }
+    };
+
+    auto get_elements_expr = [&](const IRNode& n) -> std::string {
+        if (n.output_meta.shape.has_dynamic_batch()) {
+            return "(batch_size * " + std::to_string(n.output_meta.shape.static_element_count()) + ")";
+        } else {
+            return std::to_string(n.output_meta.shape.element_count());
+        }
+    };
+
     for (NodeId id : topo) {
         const auto& node = graph.get_node(id);
         if (node.deleted || node.op == OpKind::INPUT || node.op == OpKind::CONST) continue;
 
         oss << "    // Node %" << id << ": " << opkind_to_string(node.op) << " (" << node.name << ")\n";
 
-        // Helper to resolve pointer for an operand
-        auto get_operand_ptr = [&](NodeId op_id) -> std::string {
-            const auto& op_node = graph.get_node(op_id);
-            if (op_node.op == OpKind::INPUT) {
-                return "input";
-            } else if (op_node.op == OpKind::CONST) {
-                return "const_data_" + std::to_string(op_id);
-            } else {
-                return "buf_" + std::to_string(op_id);
-            }
-        };
-
         switch (node.op) {
             case OpKind::MATMUL: {
                 std::string a_ptr = get_operand_ptr(node.inputs[0]);
                 std::string b_ptr = get_operand_ptr(node.inputs[1]);
-                oss << "    matmul_node_" << id << "(" << a_ptr << ", " << b_ptr << ", buf_" << id << ");\n";
+                oss << "    matmul_node_" << id << "(batch_size, " << a_ptr << ", " << b_ptr << ", buf_" << id << ");\n";
+                break;
+            }
+            case OpKind::FUSED_MATMUL_ADD_RELU: {
+                std::string x_ptr = get_operand_ptr(node.inputs[0]);
+                std::string w_ptr = get_operand_ptr(node.inputs[1]);
+                std::string b_ptr = get_operand_ptr(node.inputs[2]);
+                oss << "    fused_node_" << id << "(batch_size, " << x_ptr << ", " << w_ptr << ", " << b_ptr << ", buf_" << id << ");\n";
+                break;
+            }
+            case OpKind::CONV2D:
+            case OpKind::FUSED_CONV2D_RELU: {
+                std::string x_ptr = get_operand_ptr(node.inputs[0]);
+                std::string w_ptr = get_operand_ptr(node.inputs[1]);
+                std::string b_ptr = (node.inputs.size() == 3) ? get_operand_ptr(node.inputs[2]) : "nullptr";
+                oss << "    conv2d_node_" << id << "(batch_size, " << x_ptr << ", " << w_ptr << ", " << b_ptr << ", buf_" << id << ");\n";
+                break;
+            }
+            case OpKind::RELU: {
+                std::string in_ptr = get_operand_ptr(node.inputs[0]);
+                std::string elems = get_elements_expr(node);
+                oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                    << "        float val = " << in_ptr << "[idx];\n"
+                    << "        buf_" << id << "[idx] = (val > 0.0f) ? val : 0.0f;\n"
+                    << "    }\n";
+                break;
+            }
+            case OpKind::SIGMOID: {
+                std::string in_ptr = get_operand_ptr(node.inputs[0]);
+                std::string elems = get_elements_expr(node);
+                oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                    << "        buf_" << id << "[idx] = 1.0f / (1.0f + std::exp(-" << in_ptr << "[idx]));\n"
+                    << "    }\n";
+                break;
+            }
+            case OpKind::TANH: {
+                std::string in_ptr = get_operand_ptr(node.inputs[0]);
+                std::string elems = get_elements_expr(node);
+                oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                    << "        buf_" << id << "[idx] = std::tanh(" << in_ptr << "[idx]);\n"
+                    << "    }\n";
+                break;
+            }
+            case OpKind::FLATTEN: {
+                std::string in_ptr = get_operand_ptr(node.inputs[0]);
+                std::string elems = get_elements_expr(node);
+                oss << "    if (buf_" << id << " != " << in_ptr << ") {\n"
+                    << "        for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                    << "            buf_" << id << "[idx] = " << in_ptr << "[idx];\n"
+                    << "        }\n"
+                    << "    }\n";
                 break;
             }
             case OpKind::ADD: {
@@ -317,54 +477,96 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
                 std::string b_ptr = get_operand_ptr(node.inputs[1]);
                 const auto& a_shape = graph.get_node(node.inputs[0]).output_meta.shape;
                 const auto& b_shape = graph.get_node(node.inputs[1]).output_meta.shape;
-                int64_t elements = node.output_meta.element_count();
 
                 if (a_shape == b_shape) {
-                    oss << "    for (int64_t idx = 0; idx < " << elements << "; ++idx) {\n"
+                    std::string elems = get_elements_expr(node);
+                    oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
                         << "        buf_" << id << "[idx] = " << a_ptr << "[idx] + " << b_ptr << "[idx];\n"
                         << "    }\n";
                 } else if (a_shape.rank() == 2 && b_shape.rank() == 1) {
-                    int64_t M = a_shape.dims[0];
                     int64_t N = a_shape.dims[1];
-                    oss << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+                    oss << "    for (int64_t i = 0; i < batch_size; ++i) {\n"
                         << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
                         << "            buf_" << id << "[i * " << N << " + j] = "
                         << a_ptr << "[i * " << N << " + j] + " << b_ptr << "[j];\n"
                         << "        }\n"
                         << "    }\n";
                 } else if (a_shape.rank() == 2 && b_shape.rank() == 2 && b_shape.dims[0] == 1) {
-                    int64_t M = a_shape.dims[0];
                     int64_t N = a_shape.dims[1];
-                    oss << "    for (int64_t i = 0; i < " << M << "; ++i) {\n"
+                    oss << "    for (int64_t i = 0; i < batch_size; ++i) {\n"
                         << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
                         << "            buf_" << id << "[i * " << N << " + j] = "
                         << a_ptr << "[i * " << N << " + j] + " << b_ptr << "[j];\n"
                         << "        }\n"
                         << "    }\n";
+                } else if (a_shape.rank() == 4) {
+                    int64_t C = a_shape.dims[1];
+                    int64_t H = a_shape.dims[2];
+                    int64_t W = a_shape.dims[3];
+                    oss << "    for (int64_t b = 0; b < batch_size; ++b) {\n"
+                        << "        for (int64_t c = 0; c < " << C << "; ++c) {\n"
+                        << "            float b_val = " << b_ptr << "[c];\n"
+                        << "            for (int64_t h = 0; h < " << H << "; ++h) {\n"
+                        << "                for (int64_t w = 0; w < " << W << "; ++w) {\n"
+                        << "                    size_t idx = ((b * " << C << " + c) * " << H << " + h) * " << W << " + w;\n"
+                        << "                    buf_" << id << "[idx] = " << a_ptr << "[idx] + b_val;\n"
+                        << "                }\n"
+                        << "            }\n"
+                        << "        }\n"
+                        << "    }\n";
                 }
                 break;
             }
-            case OpKind::RELU: {
-                std::string in_ptr = get_operand_ptr(node.inputs[0]);
-                int64_t elements = node.output_meta.element_count();
-                oss << "    for (int64_t idx = 0; idx < " << elements << "; ++idx) {\n"
-                    << "        float val = " << in_ptr << "[idx];\n"
-                    << "        buf_" << id << "[idx] = (val > 0.0f) ? val : 0.0f;\n"
-                    << "    }\n";
-                break;
-            }
-            case OpKind::FUSED_MATMUL_ADD_RELU: {
-                std::string x_ptr = get_operand_ptr(node.inputs[0]);
-                std::string w_ptr = get_operand_ptr(node.inputs[1]);
-                std::string b_ptr = get_operand_ptr(node.inputs[2]);
-                oss << "    fused_node_" << id << "(" << x_ptr << ", " << w_ptr << ", " << b_ptr << ", buf_" << id << ");\n";
+            case OpKind::MUL: {
+                std::string a_ptr = get_operand_ptr(node.inputs[0]);
+                std::string b_ptr = get_operand_ptr(node.inputs[1]);
+                const auto& a_shape = graph.get_node(node.inputs[0]).output_meta.shape;
+                const auto& b_shape = graph.get_node(node.inputs[1]).output_meta.shape;
+
+                if (a_shape == b_shape) {
+                    std::string elems = get_elements_expr(node);
+                    oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                        << "        buf_" << id << "[idx] = " << a_ptr << "[idx] * " << b_ptr << "[idx];\n"
+                        << "    }\n";
+                } else if (a_shape.rank() == 2 && b_shape.rank() == 1) {
+                    int64_t N = a_shape.dims[1];
+                    oss << "    for (int64_t i = 0; i < batch_size; ++i) {\n"
+                        << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
+                        << "            buf_" << id << "[i * " << N << " + j] = "
+                        << a_ptr << "[i * " << N << " + j] * " << b_ptr << "[j];\n"
+                        << "        }\n"
+                        << "    }\n";
+                } else if (a_shape.rank() == 2 && b_shape.rank() == 2 && b_shape.dims[0] == 1) {
+                    int64_t N = a_shape.dims[1];
+                    oss << "    for (int64_t i = 0; i < batch_size; ++i) {\n"
+                        << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
+                        << "            buf_" << id << "[i * " << N << " + j] = "
+                        << a_ptr << "[i * " << N << " + j] * " << b_ptr << "[j];\n"
+                        << "        }\n"
+                        << "    }\n";
+                } else if (a_shape.rank() == 4) {
+                    int64_t C = a_shape.dims[1];
+                    int64_t H = a_shape.dims[2];
+                    int64_t W = a_shape.dims[3];
+                    oss << "    for (int64_t b = 0; b < batch_size; ++b) {\n"
+                        << "        for (int64_t c = 0; c < " << C << "; ++c) {\n"
+                        << "            float b_val = " << b_ptr << "[c];\n"
+                        << "            for (int64_t h = 0; h < " << H << "; ++h) {\n"
+                        << "                for (int64_t w = 0; w < " << W << "; ++w) {\n"
+                        << "                    size_t idx = ((b * " << C << " + c) * " << H << " + h) * " << W << " + w;\n"
+                        << "                    buf_" << id << "[idx] = " << a_ptr << "[idx] * b_val;\n"
+                        << "                }\n"
+                        << "            }\n"
+                        << "        }\n"
+                        << "    }\n";
+                }
                 break;
             }
             case OpKind::OUTPUT: {
                 std::string in_ptr = get_operand_ptr(node.inputs[0]);
-                int64_t elements = node.output_meta.element_count();
+                std::string elems = get_elements_expr(node);
                 if (in_ptr != "output") {
-                    oss << "    for (int64_t idx = 0; idx < " << elements << "; ++idx) {\n"
+                    oss << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
                         << "        output[idx] = " << in_ptr << "[idx];\n"
                         << "    }\n";
                 }
@@ -377,8 +579,37 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
     }
 
     oss << "    return 0; // Success\n"
-        << "}\n\n"
-        << "// Standalone C++ kernel-level microbenchmark\n"
+        << "}\n\n";
+
+    if (is_dynamic) {
+        oss << "// 4-argument compatibility wrapper for dynamic models\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v1(\n"
+            << "    const float* input, size_t input_count, float* output, size_t output_count\n"
+            << ") noexcept {\n"
+            << "    return forgetune_run(input, input_count, output, output_count, -1);\n"
+            << "}\n\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_is_dynamic(void) noexcept {\n"
+            << "    return 1;\n"
+            << "}\n\n"
+            << "extern \"C\" FORGETUNE_EXPORT int64_t forgetune_max_batch(void) noexcept {\n"
+            << "    return 128;\n"
+            << "}\n\n";
+    } else {
+        oss << "// 5-argument compatibility wrapper for static models\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
+            << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t /*batch_size*/\n"
+            << ") noexcept {\n"
+            << "    return forgetune_run(input, input_count, output, output_count);\n"
+            << "}\n\n"
+            << "extern \"C\" FORGETUNE_EXPORT int forgetune_is_dynamic(void) noexcept {\n"
+            << "    return 0;\n"
+            << "}\n\n"
+            << "extern \"C\" FORGETUNE_EXPORT int64_t forgetune_max_batch(void) noexcept {\n"
+            << "    return 1;\n"
+            << "}\n\n";
+    }
+
+    oss << "// Standalone C++ kernel-level microbenchmark\n"
         << "extern \"C\" FORGETUNE_EXPORT double forgetune_benchmark_kernel(\n"
         << "    const float* input,\n"
         << "    size_t input_count,\n"
@@ -386,30 +617,57 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         << "    size_t output_count,\n"
         << "    int iters\n"
         << ") noexcept {\n"
-        << "    if (!input || !output || iters <= 0) return -1.0;\n"
-        << "    if (input_count != " << total_input_elements << ") return -2.0;\n"
-        << "    if (output_count != " << total_output_elements << ") return -3.0;\n\n"
-        << "    // Warm-up\n"
-        << "    for (int w = 0; w < 10; ++w) {\n"
-        << "        forgetune_run(input, input_count, output, output_count);\n"
-        << "    }\n\n"
-        << "    auto start = std::chrono::steady_clock::now();\n"
-        << "    for (int i = 0; i < iters; ++i) {\n"
-        << "        forgetune_run(input, input_count, output, output_count);\n"
-        << "#if defined(__GNUC__) || defined(__clang__)\n"
-        << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
-        << "#endif\n"
-        << "    }\n"
-        << "    auto end = std::chrono::steady_clock::now();\n\n"
-        << "    // Observe results outside timed region to prevent optimization elimination\n"
-        << "    volatile float checksum = 0.0f;\n"
-        << "    for (size_t o = 0; o < " << total_output_elements << "; ++o) {\n"
-        << "        checksum += output[o];\n"
-        << "    }\n"
-        << "    (void)checksum;\n\n"
-        << "    std::chrono::duration<double, std::micro> elapsed = end - start;\n"
-        << "    return elapsed.count() / static_cast<double>(iters);\n"
-        << "}\n";
+        << "    if (!input || !output || iters <= 0) return -1.0;\n";
+
+    if (is_dynamic) {
+        oss << "    if (input_count == 0 || input_count % " << static_input_elements << " != 0) return -2.0;\n"
+            << "    int64_t batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
+            << "    if (batch_size <= 0 || batch_size > 128) return -2.0;\n"
+            << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3.0;\n\n"
+            << "    // Warm-up\n"
+            << "    for (int w = 0; w < 10; ++w) {\n"
+            << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "    }\n\n"
+            << "    auto start = std::chrono::steady_clock::now();\n"
+            << "    for (int i = 0; i < iters; ++i) {\n"
+            << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "#if defined(__GNUC__) || defined(__clang__)\n"
+            << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
+            << "#endif\n"
+            << "    }\n"
+            << "    auto end = std::chrono::steady_clock::now();\n\n"
+            << "    volatile float checksum = 0.0f;\n"
+            << "    for (size_t o = 0; o < output_count; ++o) {\n"
+            << "        checksum += output[o];\n"
+            << "    }\n"
+            << "    (void)checksum;\n\n"
+            << "    std::chrono::duration<double, std::micro> elapsed = end - start;\n"
+            << "    return elapsed.count() / static_cast<double>(iters);\n"
+            << "}\n";
+    } else {
+        oss << "    if (input_count != " << total_input_elements << ") return -2.0;\n"
+            << "    if (output_count != " << total_output_elements << ") return -3.0;\n\n"
+            << "    // Warm-up\n"
+            << "    for (int w = 0; w < 10; ++w) {\n"
+            << "        forgetune_run(input, input_count, output, output_count);\n"
+            << "    }\n\n"
+            << "    auto start = std::chrono::steady_clock::now();\n"
+            << "    for (int i = 0; i < iters; ++i) {\n"
+            << "        forgetune_run(input, input_count, output, output_count);\n"
+            << "#if defined(__GNUC__) || defined(__clang__)\n"
+            << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
+            << "#endif\n"
+            << "    }\n"
+            << "    auto end = std::chrono::steady_clock::now();\n\n"
+            << "    volatile float checksum = 0.0f;\n"
+            << "    for (size_t o = 0; o < " << total_output_elements << "; ++o) {\n"
+            << "        checksum += output[o];\n"
+            << "    }\n"
+            << "    (void)checksum;\n\n"
+            << "    std::chrono::duration<double, std::micro> elapsed = end - start;\n"
+            << "    return elapsed.count() / static_cast<double>(iters);\n"
+            << "}\n";
+    }
 }
 
 } // namespace forgetune

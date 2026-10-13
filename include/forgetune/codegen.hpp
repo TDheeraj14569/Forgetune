@@ -31,16 +31,18 @@ private:
 
     // Operation-specific kernel emitters
     void emit_matmul_naive(std::ostringstream& oss, const std::string& func_name,
-                           int64_t M, int64_t K, int64_t N) const;
+                           int64_t K, int64_t N) const;
     void emit_matmul_ikj(std::ostringstream& oss, const std::string& func_name,
-                         int64_t M, int64_t K, int64_t N) const;
+                         int64_t K, int64_t N) const;
     void emit_matmul_tiled(std::ostringstream& oss, const std::string& func_name,
-                           int64_t M, int64_t K, int64_t N,
+                           int64_t K, int64_t N,
                            int tile_m, int tile_n, int tile_k) const;
     void emit_fused_matmul_add_relu(std::ostringstream& oss, const std::string& func_name,
-                                    int64_t M, int64_t K, int64_t N,
+                                    int64_t K, int64_t N,
                                     bool has_bias, MatMulVariant variant,
                                     int tile_m, int tile_n, int tile_k) const;
+    void emit_conv2d_kernel(std::ostringstream& oss, const std::string& func_name,
+                            const IRNode& node, const IRGraph& graph, bool fused_relu) const;
 };
 
 } // namespace forgetune

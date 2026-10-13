@@ -29,7 +29,7 @@ class CompiledModel:
         self._cpp_source = cpp_source
         self._opt_report = opt_report
 
-    def run(self, input_tensor: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+    def run(self, input_tensor: Union[np.ndarray, torch.Tensor], batch_size: Optional[int] = None) -> np.ndarray:
         """
         Executes native CPU inference using the generated standalone C++ shared library.
         Does NOT invoke PyTorch for arithmetic evaluation.
@@ -39,7 +39,7 @@ class CompiledModel:
         else:
             arr = np.asarray(input_tensor, dtype=np.float32)
 
-        return self._runtime.run(arr)
+        return self._runtime.run(arr, batch_size=batch_size)
 
     def optimization_report(self) -> Dict[str, Any]:
         """Returns the optimization and autotuning report."""
@@ -53,20 +53,29 @@ class CompiledModel:
         """Returns the emitted C++ source code."""
         return self._cpp_source
 
-    def benchmark(self, warmup_iters: int = 10, measure_iters: int = 50) -> Dict[str, Any]:
+    def benchmark(self, warmup_iters: int = 10, measure_iters: int = 50, batch_size: Optional[int] = None) -> Dict[str, Any]:
         """
         Measures steady-state native inference latency on host machine.
         """
-        # Create representative input matching expected shape
-        dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
+        if self._runtime.is_dynamic:
+            b = batch_size if batch_size is not None else 1
+            shape = (b, *self._runtime.expected_input_shape[1:])
+            dummy_input = np.ones(shape, dtype=np.float32)
+        else:
+            dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
         return benchmark_function(lambda: self._runtime.run(dummy_input), warmup_iters, measure_iters)
 
-    def benchmark_kernel(self, iters: int = 1000) -> float:
+    def benchmark_kernel(self, iters: int = 1000, batch_size: Optional[int] = None) -> float:
         """
         Executes microbenchmark inside native C++ without Python/ctypes per-iteration overhead.
         Returns average latency per call in microseconds.
         """
-        dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
+        if self._runtime.is_dynamic:
+            b = batch_size if batch_size is not None else 1
+            shape = (b, *self._runtime.expected_input_shape[1:])
+            dummy_input = np.ones(shape, dtype=np.float32)
+        else:
+            dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
         return self._runtime.benchmark_kernel(dummy_input, iters)
 
 def compile_model(
@@ -78,7 +87,9 @@ def compile_model(
     compiler_opt_level: str = "-O2",
     kernel_variant: Optional[str] = None,
     enable_fusion: bool = False,
-    tile_sizes: Optional[Tuple[int, int, int]] = None
+    tile_sizes: Optional[Tuple[int, int, int]] = None,
+    dynamic_batch: bool = False,
+    max_batch_size: int = 128
 ) -> CompiledModel:
     """
     Compiles a PyTorch model into a standalone, correctness-verified native C++ shared library.
@@ -96,7 +107,7 @@ def compile_model(
     model.eval()
 
     # 1. Export frontend
-    ir_graph = export_to_forgetune_ir(model, example_inputs)
+    ir_graph = export_to_forgetune_ir(model, example_inputs, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
 
     # Convert example input to numpy
     ex_np = example_inputs[0].detach().cpu().to(torch.float32).numpy()
@@ -188,13 +199,20 @@ def compile_model(
         cpp_source = f.read()
 
     # Load runtime
-    runtime = NativeRuntime(final_dll_path, tuple(ex_np.shape), tuple(ref_np.shape))
+    if dynamic_batch or ir_graph.has_dynamic_batch():
+        in_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ex_np.shape))
+        out_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ref_np.shape))
+    else:
+        in_shape = tuple(ex_np.shape)
+        out_shape = tuple(ref_np.shape)
+
+    runtime = NativeRuntime(final_dll_path, in_shape, out_shape)
 
     # Create and save manifest
     manifest_data = create_manifest(
         model_name=model.__class__.__name__,
-        input_shapes=[list(ex_np.shape)],
-        output_shape=list(ref_np.shape),
+        input_shapes=[list(in_shape)],
+        output_shape=list(out_shape),
         kernel_config=selected_cand.to_dict(),
         compiler_info=native_compiler.get_compiler_info(),
         artifacts={
