@@ -184,7 +184,7 @@ def run_benchmarks():
                 "compilation_cost_s": compilation_cost_s
             }
             model_results.append(entry)
-            print(f"  Batch B={b:2d}: PyTorch(8th)={pt_median_us:6.2f} us | PyTorch(1th)={pt_1th_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Tuned Kernel={ft_kernel_us:7.3f} us (Kernel Opt Speedup: {kernel_opt_speedup:5.2f}x)")
+            print(f"  Batch B={b:2d}: PyTorch (8 threads)={pt_median_us:6.2f} us | PyTorch (1 thread)={pt_1th_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Tuned Kernel={ft_kernel_us:7.3f} us (Kernel Opt Speedup: {kernel_opt_speedup:5.2f}x)")
 
         benchmark_results["models"][name] = model_results
 
@@ -225,7 +225,7 @@ def run_benchmarks():
         md_lines.extend([
             f"### {model_name} (Compilation Cost: {comp_cost}s)",
             "",
-            "| Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |",
+            "| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |",
             "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
         ])
         for e in entries:
@@ -239,8 +239,8 @@ def run_benchmarks():
         "",
         "## 3. Latency Metric Methodology & Disambiguation",
         "",
-        "1. **Genuine End-to-End Speedup (Column 5):** Measures real-world Python caller latency: `PyTorch Eager (Default 8th) / ForgeTune E2E`. Both run complete model inference with caller input validation.",
-        "2. **Controlled End-to-End Speedup (Column 6):** Measures single-threaded algorithmic efficiency: `PyTorch Eager (1th) / ForgeTune E2E`, controlling for multi-core parallelism in PyTorch MKL-DNN / oneDNN.",
+        "1. **Genuine End-to-End Speedup (Column 5):** Measures real-world Python caller latency: `PyTorch Eager (8 threads) / ForgeTune E2E`. Both run complete model inference with caller input validation.",
+        "2. **Controlled End-to-End Speedup (Column 6):** Measures single-threaded algorithmic efficiency: `PyTorch Eager (1 thread) / ForgeTune E2E`, controlling for multi-core parallelism in PyTorch MKL-DNN / oneDNN.",
         "3. **Genuine Kernel Optimization Speedup (Column 9):** Measures compiler code-generation and fusion efficacy at identical boundaries: `Baseline C++ Kernel / Tuned C++ Kernel` inside the compiled native shared library.",
         "4. **E2E - Kernel Residual (Column 10):** Difference between Python caller duration and pure native execution ($t_{e2e} - t_{kernel}$), representing numpy pointer translation, ctypes call overhead, and batch validation. Note on signed residuals: Because $t_{e2e}$ (100 iterations) and $t_{kernel}$ (500 iterations) are measured in separate benchmark sessions, workloads where pure kernel execution dominates latency (e.g., Model C at certain batch sizes) can exhibit small negative residuals (such as -1.90 μs) due to inter-session timer variance, core migration, or CPU frequency scaling; these are reported signed rather than clamped to zero.",
         "5. ***Diagnostic Ratio (Column 11):** `PyTorch E2E / Tuned C++ Kernel`. This is NOT an equivalent-workload speedup because it divides PyTorch Python-level execution by native in-kernel execution. It serves as a diagnostic demonstrating the performance ceiling when framework interpreter overhead is completely eliminated.",

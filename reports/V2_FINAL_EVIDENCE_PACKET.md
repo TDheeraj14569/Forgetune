@@ -12,9 +12,14 @@
 
 ### A.1 Exact Git Fingerprints
 - **Active Release Branch:** `v2.0-dev`
-- **Active Release Commit Hash:** `fa43745a99e0bbdcb1a4e5d97414c74733f02d43`
-- **Active Git Tree Fingerprint:** `dca8e354c610ffe22847a485effc0657a8f0ef56`
-- **Working Tree Cleanliness:** Clean (0 uncommitted files, verified via `git status --porcelain`).
+- **Active Release Commit Hash:** `30c2426bcd830dedd34c1e6a934d6a4c8ba7e84f`
+- **Active Git Tree Fingerprint:** `8804b9b45e247f9b2cb51a33a6186d0a827aabee`
+- **Verification Baseline Commit Hash:** `fa43745a99e0bbdcb1a4e5d97414c74733f02d43`
+- **Verification Baseline Tree Fingerprint:** `dca8e354c610ffe22847a485effc0657a8f0ef56`
+- **Git Forensic Reconciliation (`git diff fa43745..30c2426`):**
+  - Forensic inspection of `git diff --stat fa43745..30c2426` establishes that exactly one file was modified: `reports/V2_FINAL_EVIDENCE_PACKET.md` (4 lines modified: docs-only update).
+  - Absolutely **zero lines of compiler source code, headers, codegen logic, runtime implementations, optimization passes, or tests were changed** between `fa43745` and `30c2426`.
+  - The working tree is verified clean via `git status --porcelain`.
 - **Preserved Frozen Baseline:**
   - Branch `master` is frozen at tagged release `v1.0.0`.
   - Annotated tag `v1.0.0` points to commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032` (tag object `9bdc0c96df24b43b035ed241f5e7334ac60b4150`).
@@ -349,36 +354,36 @@
 ### E.1 Full Raw Benchmark Measurements
 From `reports/v2_benchmark_report.json` recorded on host machine:
 
-#### Model A: Dynamic TinyMLP (`Linear(16,32) -> ReLU -> Linear(32,8)`) (Compilation Cost: 6.33s)
-| Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
+#### Model A: Dynamic TinyMLP (`Linear(16,32) -> ReLU -> Linear(32,8)`) (Compilation Cost: 6.54s)
+| Batch ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8 threads) | Controlled E2E Speedup (1 thread) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 34.05 | 26.65 | 8.50 | 0.223 | 0.243 | **4.01x** | **3.14x** | **0.92x** | 8.26 | 140.1x* |
-| **4** | 71.40 | 38.70 | 13.50 | 1.020 | 1.102 | **5.29x** | **2.87x** | **0.93x** | 12.40 | 64.8x* |
-| **16** | 47.80 | 39.50 | 16.50 | 3.975 | 4.319 | **2.90x** | **2.39x** | **0.92x** | 12.18 | 11.1x* |
-| **64** | 38.60 | 45.40 | 31.20 | 15.086 | 17.303 | **1.24x** | **1.46x** | **0.87x** | 13.90 | 2.2x* |
+| **1** | 25.00 | 25.30 | 9.70 | 0.398 | 0.398 | **2.58x** | **2.61x** | **1.00x** | 9.30 | 62.8x* |
+| **4** | 31.10 | 40.70 | 13.30 | 1.051 | 1.035 | **2.34x** | **3.06x** | **1.02x** | 12.27 | 30.0x* |
+| **16** | 46.10 | 39.80 | 16.30 | 3.217 | 4.029 | **2.83x** | **2.44x** | **0.80x** | 12.27 | 11.4x* |
+| **64** | 38.00 | 50.05 | 21.70 | 16.869 | 15.815 | **1.75x** | **2.31x** | **1.07x** | 5.88 | 2.4x* |
 
-#### Model B: Residual MLP (`Linear -> Add -> Linear`) (Compilation Cost: 34.65s)
-| Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
+#### Model B: Residual MLP (`Linear -> Add -> Linear`) (Compilation Cost: 6.39s)
+| Batch ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8 threads) | Controlled E2E Speedup (1 thread) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 41.80 | 42.05 | 8.40 | 0.115 | 0.115 | **4.98x** | **5.01x** | **1.00x** | 8.29 | 363.5x* |
-| **4** | 44.15 | 44.05 | 8.60 | 0.358 | 0.371 | **5.13x** | **5.12x** | **0.96x** | 8.23 | 119.0x* |
-| **16** | 45.60 | 45.30 | 9.70 | 1.541 | 1.363 | **4.70x** | **4.67x** | **1.13x** | 8.34 | 33.5x* |
-| **64** | 77.90 | 69.40 | 19.50 | 7.619 | 7.393 | **3.99x** | **3.56x** | **1.03x** | 12.11 | 10.5x* |
+| **1** | 42.70 | 43.20 | 8.80 | 0.115 | 0.116 | **4.85x** | **4.91x** | **0.99x** | 8.68 | 368.1x* |
+| **4** | 45.10 | 46.00 | 8.75 | 0.355 | 0.391 | **5.15x** | **5.26x** | **0.91x** | 8.36 | 115.3x* |
+| **16** | 61.40 | 46.30 | 10.10 | 1.344 | 1.372 | **6.08x** | **4.58x** | **0.98x** | 8.73 | 44.8x* |
+| **64** | 87.40 | 72.15 | 22.50 | 7.372 | 7.260 | **3.88x** | **3.21x** | **1.02x** | 15.24 | 12.0x* |
 
-#### Model C: Small CNN (`Conv2D -> ReLU -> Flatten -> Linear`) (Compilation Cost: 39.33s)
-| Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
+#### Model C: Small CNN (`Conv2D -> ReLU -> Flatten -> Linear`) (Compilation Cost: 14.44s)
+| Batch ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8 threads) | Controlled E2E Speedup (1 thread) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 97.85 | 87.70 | 30.85 | 16.563 | 16.653 | **3.17x** | **2.84x** | **0.99x** | 14.20 | 5.9x* |
-| **4** | 325.10 | 299.70 | 82.05 | 70.593 | 67.180 | **3.96x** | **3.65x** | **1.05x** | 14.87 | 4.8x* |
-| **16** | 344.50 | 264.45 | 286.25 | 256.634 | 255.047 | **1.20x** | **0.92x** | **1.01x** | 31.20 | 1.4x* |
-| **64** | 372.10 | 448.40 | 908.30 | 1037.301 | 949.110 | **0.41x** | **0.49x** | **1.09x** | -40.81 | 0.4x* |
+| **1** | 89.00 | 90.75 | 31.35 | 20.000 | 15.680 | **2.84x** | **2.89x** | **1.28x** | 15.67 | 5.7x* |
+| **4** | 326.60 | 294.10 | 82.10 | 67.218 | 67.212 | **3.98x** | **3.58x** | **1.00x** | 14.89 | 4.9x* |
+| **16** | 267.00 | 238.90 | 232.90 | 262.821 | 265.987 | **1.15x** | **1.03x** | **0.99x** | -33.09 | 1.0x* |
+| **64** | 363.80 | 360.45 | 1106.40 | 1081.672 | 936.092 | **0.33x** | **0.33x** | **1.16x** | 170.31 | 0.4x* |
 
 ### E.2 Formulas and Code Derivations
-- **Genuine E2E Speedup (8th):** `round(pt_8th / ft_e2e, 2)`
-- **Controlled E2E Speedup (1th):** `round(pt_1th / ft_e2e, 2)`
+- **Genuine E2E Speedup (8 threads):** `round(pt_8threads / ft_e2e, 2)`
+- **Controlled E2E Speedup (1 thread):** `round(pt_1thread / ft_e2e, 2)`
 - **Genuine Kernel Opt Speedup:** `round(ft_baseline_kernel / ft_tuned_kernel, 2)`
 - **E2E - Kernel Residual:** `round(ft_e2e - ft_tuned_kernel, 2)` (unclamped signed residual)
-- **Diagnostic Boundary Ratio:** `round(pt_8th / ft_tuned_kernel, 1)`
+- **Diagnostic Boundary Ratio:** `round(pt_8threads / ft_tuned_kernel, 1)`
 
 ---
 
