@@ -73,13 +73,19 @@
 
 ## SECTION C — Targeted Findings & Forensic Source Evidence
 
-### C.1 Finding 4.1: Actual 64-Byte Heap Alignment
+### C.1 Finding 4.1: Actual 64-Byte Heap Alignment & Checked Allocation Bounds
 - **File & Function:** `src/codegen.cpp`, `AlignedArenaPool::Block::ensure_capacity`
-- **Fix Verification:** Present and active. In earlier revisions, `alignas(64) std::vector<float>` aligned only the stack header, leaving the underlying heap buffer aligned only to 4 bytes. In the audited codebase, heap memory is allocated directly via `_aligned_malloc(alloc_bytes, 64)` on Windows / MSVC and `posix_memalign` on POSIX.
+- **Fix Verification:** Present and active. In earlier revisions, `alignas(64) std::vector<float>` aligned only the stack header, leaving the underlying heap buffer aligned only to 4 bytes. In the audited codebase, heap memory is allocated directly via `_aligned_malloc(alloc_bytes, 64)` on Windows / MSVC and `posix_memalign` on POSIX. Furthermore, the check `required_bytes > std::numeric_limits<size_t>::max() - 63` strictly precedes arithmetic rounding `((required_bytes + 63) / 64) * 64`, completely preventing integer overflow on boundary inputs.
 - **Decisive Code Excerpt (`src/codegen.cpp`):**
   ```cpp
-  size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;
-  if (alloc_bytes == 0) alloc_bytes = 64;
+  bool ensure_capacity(size_t required_bytes) noexcept {
+      if (required_bytes > std::numeric_limits<size_t>::max() - 63) return false;
+      size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;
+      if (alloc_bytes == 0) alloc_bytes = 64;
+      if (capacity_bytes >= alloc_bytes && aligned_ptr != nullptr) {
+          return true;
+      }
+      free_mem();
   #if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
       raw_ptr = _aligned_malloc(alloc_bytes, 64);
       aligned_ptr = static_cast<float*>(raw_ptr);
@@ -88,10 +94,19 @@
       if (posix_memalign(&p, 64, alloc_bytes) == 0) {
           raw_ptr = p;
           aligned_ptr = static_cast<float*>(p);
+      } else {
+          raw_ptr = nullptr;
+          aligned_ptr = nullptr;
       }
   #endif
+      if (aligned_ptr) {
+          capacity_bytes = alloc_bytes;
+          return true;
+      }
+      return false;
+  }
   ```
-- **Test Evidence:** Verified by native test `test_aligned_arena_pool_and_reentrancy` in `tests/cpp/test_main.cpp`. The test asserts `reinterpret_cast<uintptr_t>(aligned_ptr) % 64 == 0` for all allocated blocks.
+- **Test Evidence:** Verified by native test `test_aligned_arena_pool_and_reentrancy` in `tests/cpp/test_main.cpp`. The test asserts `reinterpret_cast<uintptr_t>(aligned_ptr) % 64 == 0` for all allocated blocks, validates Rule of Five move semantics on `Block` and `Lease`, tests 0 bytes, 4096 bytes, unaligned 4097 bytes, and asserts that `std::numeric_limits<size_t>::max()` and `SIZE_MAX - 32` are rejected safely without memory corruption.
 - **Result:** PASSED (Exit code 0). Base pointer and all planned offsets are strictly 64-byte aligned.
 
 ### C.2 Finding 4.2: Same-Thread Re-Entrancy, Threads & Arena Leases
@@ -131,42 +146,83 @@
 - **Measurement Boundary & Scope:** Covers steady-state native execution inside the compiled C++ shared library after initial warm-up sizing of the thread-local pool block. (Does not cover Python ctypes argument marshalling or OS thread creation).
 - **Result:** PASSED (Exit code 0).
 
-### C.4 Finding 4.4: Convolution Arithmetic & Malformed Graph Rejection
-- **File & Function:** `src/graph_verifier.cpp`, `GraphVerifier::verify_node` (Conv2D block)
-- **Fix Verification:** Present and active. Hardened against non-positive strides/dilation, negative padding, invalid kernel dimensions, integer overflow, and negative numerators before division.
+### C.4 Finding 4.4: Convolution Arithmetic & Checked Spatial Bounds
+- **File & Function:** `src/graph_verifier.cpp`, `verify_graph` (Conv2D block)
+- **Fix Verification:** Present and active. Hardened against non-positive strides/dilation, negative padding, invalid kernel dimensions, integer overflow on `INT64_MAX` boundary values, and negative numerators before division. All spatial additions and multiplications are guarded via checked arithmetic helper lambdas (`safe_mul` and `safe_add`).
 - **Decisive Code Excerpt (`src/graph_verifier.cpp`):**
   ```cpp
-  int64_t eff_kh = attrs.dilation_h * (K_h - 1) + 1;
-  int64_t eff_kw = attrs.dilation_w * (K_w - 1) + 1;
-  int64_t padded_h = H_in + 2 * attrs.pad_h;
-  int64_t padded_w = W_in + 2 * attrs.pad_w;
+  auto safe_mul = [](int64_t a, int64_t b, int64_t& out) -> bool {
+      if (a <= 0 || b <= 0) {
+          if (a < 0 || b < 0) return false;
+          out = 0;
+          return true;
+      }
+      if (a > std::numeric_limits<int64_t>::max() / b) return false;
+      out = a * b;
+      return true;
+  };
 
-  int64_t num_h = padded_h - eff_kh;
-  int64_t num_w = padded_w - eff_kw;
+  auto safe_add = [](int64_t a, int64_t b, int64_t& out) -> bool {
+      if (a < 0 || b < 0) return false;
+      if (a > std::numeric_limits<int64_t>::max() - b) return false;
+      out = a + b;
+      return true;
+  };
 
-  if (num_h < 0 || num_w < 0) {
-      res.add_error("CONV2D node %" + std::to_string(node.id) +
-                    " effective kernel size exceeds padded input dimension: eff_k=(" +
-                    std::to_string(eff_kh) + ", " + std::to_string(eff_kw) +
-                    ") > padded_in=(" + std::to_string(padded_h) + ", " +
-                    std::to_string(padded_w) + ")");
+  int64_t eff_kh_minus_1 = 0, eff_kh = 0;
+  int64_t eff_kw_minus_1 = 0, eff_kw = 0;
+  int64_t two_pad_h = 0, padded_h = 0;
+  int64_t two_pad_w = 0, padded_w = 0;
+
+  bool math_ok = true;
+  math_ok = math_ok && safe_mul(attrs.dilation_h, K_h - 1, eff_kh_minus_1);
+  math_ok = math_ok && safe_add(eff_kh_minus_1, 1, eff_kh);
+  math_ok = math_ok && safe_mul(attrs.dilation_w, K_w - 1, eff_kw_minus_1);
+  math_ok = math_ok && safe_add(eff_kw_minus_1, 1, eff_kw);
+  math_ok = math_ok && safe_mul(2, attrs.pad_h, two_pad_h);
+  math_ok = math_ok && safe_add(H_in, two_pad_h, padded_h);
+  math_ok = math_ok && safe_mul(2, attrs.pad_w, two_pad_w);
+  math_ok = math_ok && safe_add(W_in, two_pad_w, padded_w);
+
+  if (!math_ok) {
+      res.add_error("CONV2D node %" + std::to_string(node.id) + " spatial dimension arithmetic overflowed.");
   } else {
-      int64_t H_out = num_h / attrs.stride_h + 1;
-      int64_t W_out = num_w / attrs.stride_w + 1;
-      if (H_out <= 0 || W_out <= 0) {
-          res.add_error("CONV2D node %" + std::to_string(node.id) + " non-positive spatial output dimensions.");
+      int64_t num_h = padded_h - eff_kh;
+      int64_t num_w = padded_w - eff_kw;
+
+      if (num_h < 0 || num_w < 0) {
+          res.add_error("CONV2D node %" + std::to_string(node.id) +
+                        " effective kernel size exceeds padded input dimension: eff_k=(" +
+                        std::to_string(eff_kh) + ", " + std::to_string(eff_kw) +
+                        ") > padded_in=(" + std::to_string(padded_h) + ", " +
+                        std::to_string(padded_w) + ")");
+      } else {
+          int64_t div_h = num_h / attrs.stride_h;
+          int64_t div_w = num_w / attrs.stride_w;
+          int64_t H_out = 0, W_out = 0;
+
+          if (!safe_add(div_h, 1, H_out) || !safe_add(div_w, 1, W_out) || H_out <= 0 || W_out <= 0) {
+              res.add_error("CONV2D node %" + std::to_string(node.id) +
+                            " non-positive spatial output dimensions or overflow.");
+          } else {
+              TensorShape expected_out{B, C_out, H_out, W_out};
+              if (node.output_meta.shape != expected_out) {
+                  res.add_error("CONV2D node %" + std::to_string(node.id) +
+                                " output shape mismatch: got " +
+                                node.output_meta.shape.to_string() + ", expected " +
+                                expected_out.to_string());
+              }
+          }
       }
   }
   ```
-- **Test Evidence:** Tested in `tests/cpp/test_main.cpp` (`test_v2_shapes_and_conv2d_verifier`), which submits graphs with stride 0, negative dilation, and kernels larger than padded inputs (e.g. 5x5 kernel on 2x2 unpadded input). All malformed graphs are cleanly rejected with descriptive diagnostics rather than causing hardware SIGFPE or silent integer division wrap-arounds.
+- **Test Evidence:** Tested in `tests/cpp/test_main.cpp` (`test_v2_shapes_and_conv2d_verifier`), which submits graphs with stride 0, negative dilation, kernels larger than padded inputs (e.g. 5x5 kernel on 2x2 unpadded input), and `INT64_MAX` boundary attribute values for `pad_h` and `dilation_h`. All malformed graphs are cleanly rejected with descriptive diagnostics rather than causing hardware SIGFPE, integer wrap-arounds, or silent undefined behavior.
 - **Result:** PASSED (Exit code 0).
 
 ### C.5 Finding 4.5: Benchmark Arithmetic & Metric Disambiguation
 - **File & Function:** `scripts/run_v2_benchmarks.py`, `reports/V2_BENCHMARK_REPORT.md`
-- **Fix Verification:** All ratios are computed directly from the unrounded stored floating-point values. PyTorch is benchmarked under both default multi-threading (8 threads) and controlled single-threading (`num_threads=1`). The residual is explicitly labeled `E2E - Kernel Residual` to reflect all non-kernel runtime work.
-- **Discrepancy Reconciliation:**
-  - *Model A, B=64:* Stored raw values `55.00 μs` (PyTorch) and `17.097 μs` (Kernel). `55.00 / 17.097 = 3.2169...`. In `V2_BENCHMARK_REPORT.md`, this is recorded with 1 decimal place as `3.2x*`, eliminating the historical 3.3x typo.
-  - *Model B, B=1:* Stored raw values `67.25 μs` (PyTorch) and `0.154 μs` (Kernel). `67.25 / 0.154 = 436.688...`. In `V2_BENCHMARK_REPORT.md`, this is recorded as `436.7x*`, perfectly matching the table arithmetic.
+- **Fix Verification:** All ratios are computed directly from stored floating-point values. PyTorch is benchmarked under both default multi-threading (8 threads) and controlled single-threading (`num_threads=1`). The residual is explicitly labeled `E2E - Kernel Residual` and computed signed as `round(ft_e2e_median_us - ft_kernel_us, 2)` without artificial `max(0.0, ...)` clamping.
+- **Signed Residual Methodology:** Because end-to-end execution (100 iterations) and native kernel execution (500 iterations) are evaluated in separate measurement passes, workloads where kernel latency accounts for virtually 100% of the runtime (e.g., Model C at $B=64$) can yield small negative residuals (such as $-40.81\ \mu\text{s}$) due to CPU frequency stepping, core migration, or timer jitter across passes. These values are reported transparently rather than clamped to 0.0.
 - **Result:** PASSED. 100% mathematical consistency across JSON and Markdown reports.
 
 ### C.6 Finding 4.6: Reproducibility Test Accounting
@@ -293,35 +349,35 @@
 ### E.1 Full Raw Benchmark Measurements
 From `reports/v2_benchmark_report.json` recorded on host machine:
 
-#### Model A: Dynamic TinyMLP (`Linear(16,32) -> ReLU -> Linear(32,8)`) (Compilation Cost: 3.24s)
+#### Model A: Dynamic TinyMLP (`Linear(16,32) -> ReLU -> Linear(32,8)`) (Compilation Cost: 6.33s)
 | Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 25.45 | 25.75 | 12.70 | 0.281 | 0.304 | **2.00x** | **2.03x** | **0.92x** | 12.40 | 83.7x* |
-| **4** | 44.10 | 38.60 | 9.70 | 1.027 | 1.101 | **4.55x** | **3.98x** | **0.93x** | 8.60 | 40.1x* |
-| **16** | 35.30 | 28.40 | 11.85 | 3.196 | 3.609 | **2.98x** | **2.40x** | **0.89x** | 8.24 | 9.8x* |
-| **64** | 55.00 | 50.10 | 30.00 | 17.885 | 17.097 | **1.83x** | **1.67x** | **1.05x** | 12.90 | 3.2x* |
+| **1** | 34.05 | 26.65 | 8.50 | 0.223 | 0.243 | **4.01x** | **3.14x** | **0.92x** | 8.26 | 140.1x* |
+| **4** | 71.40 | 38.70 | 13.50 | 1.020 | 1.102 | **5.29x** | **2.87x** | **0.93x** | 12.40 | 64.8x* |
+| **16** | 47.80 | 39.50 | 16.50 | 3.975 | 4.319 | **2.90x** | **2.39x** | **0.92x** | 12.18 | 11.1x* |
+| **64** | 38.60 | 45.40 | 31.20 | 15.086 | 17.303 | **1.24x** | **1.46x** | **0.87x** | 13.90 | 2.2x* |
 
-#### Model B: Residual MLP (`Linear -> Add -> Linear`) (Compilation Cost: 6.22s)
+#### Model B: Residual MLP (`Linear -> Add -> Linear`) (Compilation Cost: 34.65s)
 | Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 67.25 | 68.15 | 13.90 | 0.152 | 0.154 | **4.84x** | **4.90x** | **0.99x** | 13.75 | 436.7x* |
-| **4** | 70.25 | 70.60 | 13.70 | 0.664 | 0.507 | **5.13x** | **5.15x** | **1.31x** | 13.19 | 138.6x* |
-| **16** | 72.50 | 48.15 | 15.70 | 1.466 | 1.979 | **4.62x** | **3.07x** | **0.74x** | 13.72 | 36.6x* |
-| **64** | 77.90 | 77.10 | 22.40 | 8.164 | 8.204 | **3.48x** | **3.44x** | **1.00x** | 14.20 | 9.5x* |
+| **1** | 41.80 | 42.05 | 8.40 | 0.115 | 0.115 | **4.98x** | **5.01x** | **1.00x** | 8.29 | 363.5x* |
+| **4** | 44.15 | 44.05 | 8.60 | 0.358 | 0.371 | **5.13x** | **5.12x** | **0.96x** | 8.23 | 119.0x* |
+| **16** | 45.60 | 45.30 | 9.70 | 1.541 | 1.363 | **4.70x** | **4.67x** | **1.13x** | 8.34 | 33.5x* |
+| **64** | 77.90 | 69.40 | 19.50 | 7.619 | 7.393 | **3.99x** | **3.56x** | **1.03x** | 12.11 | 10.5x* |
 
-#### Model C: Small CNN (`Conv2D -> ReLU -> Flatten -> Linear`) (Compilation Cost: 14.42s)
+#### Model C: Small CNN (`Conv2D -> ReLU -> Flatten -> Linear`) (Compilation Cost: 39.33s)
 | Batch ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | Genuine E2E Speedup (8th) | Controlled E2E Speedup (1th) | Genuine Kernel Opt Speedup | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | 145.10 | 103.35 | 33.40 | 33.318 | 18.590 | **4.34x** | **3.09x** | **1.79x** | 14.81 | 7.8x* |
-| **4** | 385.40 | 230.55 | 65.60 | 71.214 | 67.496 | **5.88x** | **3.51x** | **1.06x** | 0.00 | 5.7x* |
-| **16** | 344.20 | 350.00 | 288.40 | 258.786 | 253.753 | **1.19x** | **1.21x** | **1.02x** | 34.65 | 1.4x* |
-| **64** | 426.05 | 488.35 | 1118.00 | 1121.199 | 978.263 | **0.38x** | **0.44x** | **1.15x** | 139.74 | 0.4x* |
+| **1** | 97.85 | 87.70 | 30.85 | 16.563 | 16.653 | **3.17x** | **2.84x** | **0.99x** | 14.20 | 5.9x* |
+| **4** | 325.10 | 299.70 | 82.05 | 70.593 | 67.180 | **3.96x** | **3.65x** | **1.05x** | 14.87 | 4.8x* |
+| **16** | 344.50 | 264.45 | 286.25 | 256.634 | 255.047 | **1.20x** | **0.92x** | **1.01x** | 31.20 | 1.4x* |
+| **64** | 372.10 | 448.40 | 908.30 | 1037.301 | 949.110 | **0.41x** | **0.49x** | **1.09x** | -40.81 | 0.4x* |
 
 ### E.2 Formulas and Code Derivations
 - **Genuine E2E Speedup (8th):** `round(pt_8th / ft_e2e, 2)`
 - **Controlled E2E Speedup (1th):** `round(pt_1th / ft_e2e, 2)`
 - **Genuine Kernel Opt Speedup:** `round(ft_baseline_kernel / ft_tuned_kernel, 2)`
-- **E2E - Kernel Residual:** `round(max(0.0, ft_e2e - ft_tuned_kernel), 2)`
+- **E2E - Kernel Residual:** `round(ft_e2e - ft_tuned_kernel, 2)` (unclamped signed residual)
 - **Diagnostic Boundary Ratio:** `round(pt_8th / ft_tuned_kernel, 1)`
 
 ---

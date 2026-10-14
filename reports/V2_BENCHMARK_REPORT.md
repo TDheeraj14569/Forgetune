@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — BENCHMARK EVALUATION REPORT
 
-**Date:** 2026-10-14 14:45:19
+**Date:** 2026-10-14 15:00:52
 **Host Platform:** Windows 11 (AMD64)
 **Processor:** AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
 **Python Runtime:** 3.12.14
@@ -21,32 +21,32 @@ ForgeTune v2.0 introduces ahead-of-time C++ code generation, operator fusion (`C
 
 ## 2. Multi-Model Benchmark Data
 
-### Model A (Dynamic TinyMLP) (Compilation Cost: 36.89s)
+### Model A (Dynamic TinyMLP) (Compilation Cost: 6.33s)
 
 | Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 25.30 | 25.30 | 8.70 | **2.91x** | **2.91x** | 0.228 | 0.229 | **1.00x** | 8.47 | 110.5x* |
-| 4 | 43.55 | 37.90 | 13.50 | **3.23x** | **2.81x** | 0.923 | 1.163 | **0.79x** | 12.34 | 37.4x* |
-| 16 | 44.40 | 39.40 | 16.50 | **2.69x** | **2.39x** | 4.177 | 4.444 | **0.94x** | 12.06 | 10.0x* |
-| 64 | 49.30 | 45.20 | 30.50 | **1.62x** | **1.48x** | 18.003 | 17.664 | **1.02x** | 12.84 | 2.8x* |
+| 1 | 34.05 | 26.65 | 8.50 | **4.01x** | **3.14x** | 0.223 | 0.243 | **0.92x** | 8.26 | 140.1x* |
+| 4 | 71.40 | 38.70 | 13.50 | **5.29x** | **2.87x** | 1.020 | 1.102 | **0.93x** | 12.40 | 64.8x* |
+| 16 | 47.80 | 39.50 | 16.50 | **2.90x** | **2.39x** | 3.975 | 4.319 | **0.92x** | 12.18 | 11.1x* |
+| 64 | 38.60 | 45.40 | 31.20 | **1.24x** | **1.46x** | 15.086 | 17.303 | **0.87x** | 13.90 | 2.2x* |
 
-### Model B (Residual MLP) (Compilation Cost: 35.91s)
-
-| Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 42.20 | 42.45 | 8.40 | **5.02x** | **5.05x** | 0.117 | 0.117 | **1.00x** | 8.28 | 360.7x* |
-| 4 | 44.70 | 44.70 | 8.70 | **5.14x** | **5.14x** | 0.375 | 0.394 | **0.95x** | 8.31 | 113.5x* |
-| 16 | 46.10 | 47.90 | 9.70 | **4.75x** | **4.94x** | 1.453 | 1.455 | **1.00x** | 8.24 | 31.7x* |
-| 64 | 79.70 | 69.60 | 20.70 | **3.85x** | **3.36x** | 7.963 | 7.966 | **1.00x** | 12.73 | 10.0x* |
-
-### Model C (Small CNN) (Compilation Cost: 39.56s)
+### Model B (Residual MLP) (Compilation Cost: 34.65s)
 
 | Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 71.40 | 66.05 | 22.80 | **3.13x** | **2.90x** | 18.941 | 14.121 | **1.34x** | 8.68 | 5.1x* |
-| 4 | 368.40 | 310.85 | 80.90 | **4.55x** | **3.84x** | 74.352 | 67.960 | **1.09x** | 12.94 | 5.4x* |
-| 16 | 351.10 | 320.95 | 284.90 | **1.23x** | **1.13x** | 270.492 | 266.102 | **1.02x** | 18.80 | 1.3x* |
-| 64 | 415.75 | 442.80 | 1103.65 | **0.38x** | **0.40x** | 1053.998 | 935.310 | **1.13x** | 168.34 | 0.4x* |
+| 1 | 41.80 | 42.05 | 8.40 | **4.98x** | **5.01x** | 0.115 | 0.115 | **1.00x** | 8.29 | 363.5x* |
+| 4 | 44.15 | 44.05 | 8.60 | **5.13x** | **5.12x** | 0.358 | 0.371 | **0.96x** | 8.23 | 119.0x* |
+| 16 | 45.60 | 45.30 | 9.70 | **4.70x** | **4.67x** | 1.541 | 1.363 | **1.13x** | 8.34 | 33.5x* |
+| 64 | 77.90 | 69.40 | 19.50 | **3.99x** | **3.56x** | 7.619 | 7.393 | **1.03x** | 12.11 | 10.5x* |
+
+### Model C (Small CNN) (Compilation Cost: 39.33s)
+
+| Batch Size ($B$) | PyTorch Eager (8th) (μs) | PyTorch Eager (1th) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8th)** | **Controlled E2E Speedup (1th)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 97.85 | 87.70 | 30.85 | **3.17x** | **2.84x** | 16.563 | 16.653 | **0.99x** | 14.20 | 5.9x* |
+| 4 | 325.10 | 299.70 | 82.05 | **3.96x** | **3.65x** | 70.593 | 67.180 | **1.05x** | 14.87 | 4.8x* |
+| 16 | 344.50 | 264.45 | 286.25 | **1.20x** | **0.92x** | 256.634 | 255.047 | **1.01x** | 31.20 | 1.4x* |
+| 64 | 372.10 | 448.40 | 908.30 | **0.41x** | **0.49x** | 1037.301 | 949.110 | **1.09x** | -40.81 | 0.4x* |
 
 ---
 
