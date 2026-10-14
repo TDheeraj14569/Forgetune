@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
 #include <malloc.h>
 #endif
@@ -450,6 +451,40 @@ bool test_v2_shapes_and_conv2d_verifier() {
         TEST_ASSERT(!vres.passed, "Conv2D where kernel exceeds padded input must be rejected");
     }
 
+    // 7. Conv2d verifier: INT64_MAX boundary attribute values rejected safely via checked arithmetic
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{1, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(9, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32));
+        cnode.conv_attrs.pad_h = std::numeric_limits<int64_t>::max() / 2 + 1; // 2 * pad_h overflows
+        cnode.conv_attrs.pad_w = 0;
+        g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({2});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Conv2D with INT64_MAX overflow pad attribute must be rejected safely");
+    }
+    {
+        IRGraph g;
+        NodeId x = g.add_node(IRNode(0, OpKind::INPUT, "X", {}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32)));
+        IRNode w(1, OpKind::CONST, "W", {}, TensorMeta(TensorShape{1, 1, 3, 3}, DType::FLOAT32));
+        w.const_data.assign(9, 0.1f);
+        NodeId wn = g.add_node(std::move(w));
+
+        IRNode cnode(2, OpKind::CONV2D, "Conv", {x, wn}, TensorMeta(TensorShape{1, 1, 4, 4}, DType::FLOAT32));
+        cnode.conv_attrs.dilation_h = std::numeric_limits<int64_t>::max(); // dilation * (K - 1) overflows
+        cnode.conv_attrs.dilation_w = 1;
+        g.add_node(std::move(cnode));
+        g.set_inputs({x});
+        g.set_outputs({2});
+        auto vres = verify_graph(g, false);
+        TEST_ASSERT(!vres.passed, "Conv2D with INT64_MAX dilation attribute must be rejected safely");
+    }
+
     std::cout << "  PASSED\n";
     return true;
 }
@@ -651,73 +686,234 @@ bool test_aligned_arena_pool_and_reentrancy() {
     _aligned_free(raw);
 #endif
 
-    struct TestBlock {
+    // Test Block structure mirroring codegen.cpp
+    struct Block {
         void* raw_ptr = nullptr;
         float* aligned_ptr = nullptr;
         size_t capacity_bytes = 0;
         bool in_use = false;
         int alloc_count = 0;
 
-        ~TestBlock() {
+        Block() = default;
+        ~Block() { free_mem(); }
+        Block(const Block&) = delete;
+        Block& operator=(const Block&) = delete;
+
+        Block(Block&& other) noexcept
+            : raw_ptr(other.raw_ptr), aligned_ptr(other.aligned_ptr),
+              capacity_bytes(other.capacity_bytes), in_use(other.in_use),
+              alloc_count(other.alloc_count) {
+            other.raw_ptr = nullptr;
+            other.aligned_ptr = nullptr;
+            other.capacity_bytes = 0;
+            other.in_use = false;
+        }
+
+        Block& operator=(Block&& other) noexcept {
+            if (this != &other) {
+                free_mem();
+                raw_ptr = other.raw_ptr;
+                aligned_ptr = other.aligned_ptr;
+                capacity_bytes = other.capacity_bytes;
+                in_use = other.in_use;
+                alloc_count = other.alloc_count;
+                other.raw_ptr = nullptr;
+                other.aligned_ptr = nullptr;
+                other.capacity_bytes = 0;
+                other.in_use = false;
+            }
+            return *this;
+        }
+
+        void free_mem() noexcept {
             if (raw_ptr) {
 #if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
                 _aligned_free(raw_ptr);
 #else
                 std::free(raw_ptr);
 #endif
+                raw_ptr = nullptr;
+                aligned_ptr = nullptr;
+                capacity_bytes = 0;
             }
         }
 
-        bool ensure(size_t req) {
-            if (capacity_bytes >= req && aligned_ptr) return true;
-            if (raw_ptr) {
-#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
-                _aligned_free(raw_ptr);
-#else
-                std::free(raw_ptr);
-#endif
+        bool ensure_capacity(size_t required_bytes) noexcept {
+            if (required_bytes > std::numeric_limits<size_t>::max() - 63) return false;
+            size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;
+            if (alloc_bytes == 0) alloc_bytes = 64;
+            if (capacity_bytes >= alloc_bytes && aligned_ptr != nullptr) {
+                return true;
             }
-            size_t bytes = ((req + 63) / 64) * 64;
+            free_mem();
 #if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
-            raw_ptr = _aligned_malloc(bytes, 64);
+            raw_ptr = _aligned_malloc(alloc_bytes, 64);
             aligned_ptr = static_cast<float*>(raw_ptr);
 #else
             void* p = nullptr;
-            if (posix_memalign(&p, 64, bytes) == 0) {
+            if (posix_memalign(&p, 64, alloc_bytes) == 0) {
                 raw_ptr = p;
                 aligned_ptr = static_cast<float*>(p);
+            } else {
+                raw_ptr = nullptr;
+                aligned_ptr = nullptr;
             }
 #endif
             alloc_count++;
-            capacity_bytes = bytes;
-            return aligned_ptr != nullptr;
+            if (aligned_ptr) {
+                capacity_bytes = alloc_bytes;
+                return true;
+            }
+            return false;
         }
     };
 
-    TestBlock b1;
+    // 1. Boundary & Overflow rejection tests
+    {
+        Block b_overflow;
+        TEST_ASSERT(!b_overflow.ensure_capacity(std::numeric_limits<size_t>::max()),
+                    "SIZE_MAX allocation request must be rejected without overflow or crash");
+        TEST_ASSERT(!b_overflow.ensure_capacity(std::numeric_limits<size_t>::max() - 32),
+                    "SIZE_MAX - 32 allocation request must be rejected without overflow");
+        TEST_ASSERT(b_overflow.raw_ptr == nullptr, "Rejected overflow request must not allocate memory");
+
+        // Zero bytes allocation
+        TEST_ASSERT(b_overflow.ensure_capacity(0), "Zero-byte request should succeed with minimum 64-byte block");
+        TEST_ASSERT(b_overflow.capacity_bytes == 64, "Zero-byte request capacity must be 64 bytes");
+        TEST_ASSERT(reinterpret_cast<uintptr_t>(b_overflow.aligned_ptr) % 64 == 0, "Zero-byte buffer must be 64-byte aligned");
+
+        // Unaligned size request
+        TEST_ASSERT(b_overflow.ensure_capacity(4097), "Unaligned request 4097 bytes must succeed");
+        TEST_ASSERT(b_overflow.capacity_bytes == 4160, "Capacity for 4097 bytes must round up to 4160 bytes");
+        TEST_ASSERT(reinterpret_cast<uintptr_t>(b_overflow.aligned_ptr) % 64 == 0, "Unaligned request buffer must be 64-byte aligned");
+    }
+
+    // 2. Rule of Five Move Semantics verification
+    {
+        Block b_src;
+        TEST_ASSERT(b_src.ensure_capacity(1024), "Initial allocation must succeed");
+        void* orig_raw = b_src.raw_ptr;
+        float* orig_aligned = b_src.aligned_ptr;
+
+        // Move constructor
+        Block b_dst(std::move(b_src));
+        TEST_ASSERT(b_src.raw_ptr == nullptr, "Moved-from block raw_ptr must be null");
+        TEST_ASSERT(b_src.aligned_ptr == nullptr, "Moved-from block aligned_ptr must be null");
+        TEST_ASSERT(b_dst.raw_ptr == orig_raw, "Moved-to block must own original pointer");
+        TEST_ASSERT(b_dst.aligned_ptr == orig_aligned, "Moved-to block must own original aligned pointer");
+
+        // Move assignment
+        Block b_assign;
+        b_assign = std::move(b_dst);
+        TEST_ASSERT(b_dst.raw_ptr == nullptr, "Move-assigned source raw_ptr must be null");
+        TEST_ASSERT(b_assign.raw_ptr == orig_raw, "Move-assigned target must own original pointer");
+    }
+
+    // 3. Pool and Lease management
+    struct MockPool {
+        std::vector<Block> blocks;
+
+        struct Lease {
+            MockPool* pool = nullptr;
+            size_t index = 0;
+            float* ptr = nullptr;
+
+            Lease() = default;
+            Lease(MockPool* p, size_t idx, float* pt) : pool(p), index(idx), ptr(pt) {}
+            ~Lease() {
+                if (pool && index < pool->blocks.size()) {
+                    pool->blocks[index].in_use = false;
+                }
+            }
+            Lease(const Lease&) = delete;
+            Lease& operator=(const Lease&) = delete;
+
+            Lease(Lease&& other) noexcept : pool(other.pool), index(other.index), ptr(other.ptr) {
+                other.pool = nullptr;
+                other.ptr = nullptr;
+            }
+            Lease& operator=(Lease&& other) noexcept {
+                if (this != &other) {
+                    if (pool && index < pool->blocks.size()) {
+                        pool->blocks[index].in_use = false;
+                    }
+                    pool = other.pool;
+                    index = other.index;
+                    ptr = other.ptr;
+                    other.pool = nullptr;
+                    other.ptr = nullptr;
+                }
+                return *this;
+            }
+        };
+
+        Lease acquire(size_t required_bytes) {
+            for (size_t i = 0; i < blocks.size(); ++i) {
+                if (!blocks[i].in_use) {
+                    blocks[i].in_use = true;
+                    if (!blocks[i].ensure_capacity(required_bytes)) {
+                        blocks[i].in_use = false;
+                        return Lease{nullptr, 0, nullptr};
+                    }
+                    return Lease{this, i, blocks[i].aligned_ptr};
+                }
+            }
+            blocks.emplace_back();
+            size_t idx = blocks.size() - 1;
+            blocks[idx].in_use = true;
+            if (!blocks[idx].ensure_capacity(required_bytes)) {
+                blocks[idx].in_use = false;
+                return Lease{nullptr, 0, nullptr};
+            }
+            return Lease{this, idx, blocks[idx].aligned_ptr};
+        }
+    };
+
+    MockPool pool;
+
     // First call (warm-up) for B=128 capacity (e.g. 32768 bytes)
-    bool ok = b1.ensure(32768);
-    TEST_ASSERT(ok, "Block allocation must succeed");
-    TEST_ASSERT(reinterpret_cast<uintptr_t>(b1.aligned_ptr) % 64 == 0, "Base pointer must be 64-byte aligned");
-    TEST_ASSERT(b1.alloc_count == 1, "Warm-up allocates exactly once");
+    {
+        auto l1 = pool.acquire(32768);
+        TEST_ASSERT(l1.ptr != nullptr, "Warm-up lease must succeed");
+        TEST_ASSERT(reinterpret_cast<uintptr_t>(l1.ptr) % 64 == 0, "Base pointer must be 64-byte aligned");
+        TEST_ASSERT(pool.blocks.size() == 1, "Pool should have 1 block");
+        TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Warm-up allocates exactly once");
+    } // l1 destructs here, releasing block 0
 
     // Subsequent calls with batch sizes B in {1, 2, 7, 16, 32, 64, 128}
     size_t batch_bytes[] = {256, 512, 1792, 4096, 8192, 16384, 32768};
     for (size_t req : batch_bytes) {
-        ok = b1.ensure(req);
-        TEST_ASSERT(ok, "Ensure capacity must succeed");
-        TEST_ASSERT(b1.alloc_count == 1, "Must NOT reallocate during subsequent dynamic batch calls (Zero Allocations!)");
+        auto l = pool.acquire(req);
+        TEST_ASSERT(l.ptr != nullptr, "Dynamic batch lease must succeed");
+        TEST_ASSERT(pool.blocks.size() == 1, "Pool must reuse existing block");
+        TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Must NOT reallocate during subsequent dynamic batch calls (Zero Allocations!)");
     }
 
     // Test nested re-entrancy
-    TestBlock b2;
-    b1.in_use = true; // Outer call is active
-    ok = b2.ensure(32768); // Inner call leases block 2
-    TEST_ASSERT(ok, "Nested lease must succeed");
-    TEST_ASSERT(b1.aligned_ptr != b2.aligned_ptr, "Nested call must have distinct non-overlapping arena");
-    TEST_ASSERT(reinterpret_cast<uintptr_t>(b2.aligned_ptr) % 64 == 0, "Inner lease must also be 64-byte aligned");
+    {
+        auto outer = pool.acquire(32768);
+        TEST_ASSERT(outer.ptr != nullptr, "Outer lease must succeed");
+        TEST_ASSERT(pool.blocks[0].in_use == true, "Block 0 must be in use");
 
-    std::cout << "  PASSED (64-byte alignment & Zero-allocation verified)\n";
+        // Inner lease on same thread
+        auto inner = pool.acquire(32768);
+        TEST_ASSERT(inner.ptr != nullptr, "Nested lease must succeed");
+        TEST_ASSERT(pool.blocks.size() == 2, "Pool must allocate second block for nested call");
+        TEST_ASSERT(pool.blocks[1].in_use == true, "Block 1 must be in use");
+        TEST_ASSERT(outer.ptr != inner.ptr, "Nested calls must have distinct non-overlapping pointers");
+        TEST_ASSERT(reinterpret_cast<uintptr_t>(inner.ptr) % 64 == 0, "Inner lease must also be 64-byte aligned");
+
+        // Test Lease move semantics
+        MockPool::Lease moved_inner(std::move(inner));
+        TEST_ASSERT(inner.ptr == nullptr, "Moved-from lease must be null");
+        TEST_ASSERT(moved_inner.ptr != nullptr, "Moved-to lease must be valid");
+        TEST_ASSERT(pool.blocks[1].in_use == true, "Block 1 must remain in use after move");
+    }
+    // Both outer and moved_inner out of scope
+    TEST_ASSERT(pool.blocks[0].in_use == false, "Block 0 must be free after outer scope exit");
+    TEST_ASSERT(pool.blocks[1].in_use == false, "Block 1 must be free after inner scope exit");
+
+    std::cout << "  PASSED (64-byte alignment, Rule of Five & Zero-allocation verified)\n";
     return true;
 }
 

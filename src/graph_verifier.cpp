@@ -1,6 +1,7 @@
 #include "forgetune/graph_verifier.hpp"
 #include <unordered_set>
 #include <sstream>
+#include <limits>
 
 namespace forgetune {
 
@@ -337,48 +338,69 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                             attrs_valid = false;
                         }
 
-                        // Overflow check on large attribute values
                         if (attrs_valid) {
-                            if (attrs.dilation_h > 100000 || attrs.dilation_w > 100000 ||
-                                K_h > 100000 || K_w > 100000 ||
-                                attrs.pad_h > 1000000 || attrs.pad_w > 1000000 ||
-                                H_in > 10000000 || W_in > 10000000) {
-                                res.add_error("CONV2D node %" + std::to_string(node.id) + " attributes exceed safe arithmetic limits.");
-                                attrs_valid = false;
-                            }
-                        }
-
-                        if (attrs_valid) {
-                            int64_t eff_kh = attrs.dilation_h * (K_h - 1) + 1;
-                            int64_t eff_kw = attrs.dilation_w * (K_w - 1) + 1;
-                            int64_t padded_h = H_in + 2 * attrs.pad_h;
-                            int64_t padded_w = W_in + 2 * attrs.pad_w;
-
-                            int64_t num_h = padded_h - eff_kh;
-                            int64_t num_w = padded_w - eff_kw;
-
-                            if (num_h < 0 || num_w < 0) {
-                                res.add_error("CONV2D node %" + std::to_string(node.id) +
-                                              " effective kernel size exceeds padded input dimension: eff_k=(" +
-                                              std::to_string(eff_kh) + ", " + std::to_string(eff_kw) +
-                                              ") > padded_in=(" + std::to_string(padded_h) + ", " +
-                                              std::to_string(padded_w) + ")");
-                            } else {
-                                int64_t H_out = num_h / attrs.stride_h + 1;
-                                int64_t W_out = num_w / attrs.stride_w + 1;
-
-                                if (H_out <= 0 || W_out <= 0) {
-                                    res.add_error("CONV2D node %" + std::to_string(node.id) +
-                                                  " non-positive spatial output dimensions: " +
-                                                  std::to_string(H_out) + "x" + std::to_string(W_out));
+                            auto safe_mul = [](int64_t a, int64_t b, int64_t& out) -> bool {
+                                if (a <= 0 || b <= 0) {
+                                    if (a < 0 || b < 0) return false;
+                                    out = 0;
+                                    return true;
                                 }
+                                if (a > std::numeric_limits<int64_t>::max() / b) return false;
+                                out = a * b;
+                                return true;
+                            };
 
-                                TensorShape expected_out{B, C_out, H_out, W_out};
-                                if (node.output_meta.shape != expected_out) {
+                            auto safe_add = [](int64_t a, int64_t b, int64_t& out) -> bool {
+                                if (a < 0 || b < 0) return false;
+                                if (a > std::numeric_limits<int64_t>::max() - b) return false;
+                                out = a + b;
+                                return true;
+                            };
+
+                            int64_t eff_kh_minus_1 = 0, eff_kh = 0;
+                            int64_t eff_kw_minus_1 = 0, eff_kw = 0;
+                            int64_t two_pad_h = 0, padded_h = 0;
+                            int64_t two_pad_w = 0, padded_w = 0;
+
+                            bool math_ok = true;
+                            math_ok = math_ok && safe_mul(attrs.dilation_h, K_h - 1, eff_kh_minus_1);
+                            math_ok = math_ok && safe_add(eff_kh_minus_1, 1, eff_kh);
+                            math_ok = math_ok && safe_mul(attrs.dilation_w, K_w - 1, eff_kw_minus_1);
+                            math_ok = math_ok && safe_add(eff_kw_minus_1, 1, eff_kw);
+                            math_ok = math_ok && safe_mul(2, attrs.pad_h, two_pad_h);
+                            math_ok = math_ok && safe_add(H_in, two_pad_h, padded_h);
+                            math_ok = math_ok && safe_mul(2, attrs.pad_w, two_pad_w);
+                            math_ok = math_ok && safe_add(W_in, two_pad_w, padded_w);
+
+                            if (!math_ok) {
+                                res.add_error("CONV2D node %" + std::to_string(node.id) + " spatial dimension arithmetic overflowed.");
+                            } else {
+                                int64_t num_h = padded_h - eff_kh;
+                                int64_t num_w = padded_w - eff_kw;
+
+                                if (num_h < 0 || num_w < 0) {
                                     res.add_error("CONV2D node %" + std::to_string(node.id) +
-                                                  " output shape mismatch: got " +
-                                                  node.output_meta.shape.to_string() + ", expected " +
-                                                  expected_out.to_string());
+                                                  " effective kernel size exceeds padded input dimension: eff_k=(" +
+                                                  std::to_string(eff_kh) + ", " + std::to_string(eff_kw) +
+                                                  ") > padded_in=(" + std::to_string(padded_h) + ", " +
+                                                  std::to_string(padded_w) + ")");
+                                } else {
+                                    int64_t div_h = num_h / attrs.stride_h;
+                                    int64_t div_w = num_w / attrs.stride_w;
+                                    int64_t H_out = 0, W_out = 0;
+
+                                    if (!safe_add(div_h, 1, H_out) || !safe_add(div_w, 1, W_out) || H_out <= 0 || W_out <= 0) {
+                                        res.add_error("CONV2D node %" + std::to_string(node.id) +
+                                                      " non-positive spatial output dimensions or overflow.");
+                                    } else {
+                                        TensorShape expected_out{B, C_out, H_out, W_out};
+                                        if (node.output_meta.shape != expected_out) {
+                                            res.add_error("CONV2D node %" + std::to_string(node.id) +
+                                                          " output shape mismatch: got " +
+                                                          node.output_meta.shape.to_string() + ", expected " +
+                                                          expected_out.to_string());
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -166,7 +166,7 @@ def run_benchmarks():
             speedup_e2e = round(pt_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
             speedup_e2e_1th = round(pt_1th_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
             kernel_opt_speedup = round(ft_base_kernel_us / ft_kernel_us, 2) if ft_kernel_us > 0 else 1.0
-            residual_us = round(max(0.0, ft_e2e_median_us - ft_kernel_us), 2)
+            residual_us = round(ft_e2e_median_us - ft_kernel_us, 2)
             diagnostic_ratio = round(pt_median_us / ft_kernel_us, 1) if ft_kernel_us > 0 else 1.0
 
             entry = {
@@ -242,7 +242,7 @@ def run_benchmarks():
         "1. **Genuine End-to-End Speedup (Column 5):** Measures real-world Python caller latency: `PyTorch Eager (Default 8th) / ForgeTune E2E`. Both run complete model inference with caller input validation.",
         "2. **Controlled End-to-End Speedup (Column 6):** Measures single-threaded algorithmic efficiency: `PyTorch Eager (1th) / ForgeTune E2E`, controlling for multi-core parallelism in PyTorch MKL-DNN / oneDNN.",
         "3. **Genuine Kernel Optimization Speedup (Column 9):** Measures compiler code-generation and fusion efficacy at identical boundaries: `Baseline C++ Kernel / Tuned C++ Kernel` inside the compiled native shared library.",
-        "4. **E2E - Kernel Residual (Column 10):** Difference between Python caller duration and pure native execution ($t_{e2e} - t_{kernel}$), representing numpy pointer translation, ctypes call overhead, and batch validation.",
+        "4. **E2E - Kernel Residual (Column 10):** Difference between Python caller duration and pure native execution ($t_{e2e} - t_{kernel}$), representing numpy pointer translation, ctypes call overhead, and batch validation. Note on signed residuals: Because $t_{e2e}$ (100 iterations) and $t_{kernel}$ (500 iterations) are measured in separate benchmark sessions, workloads where pure kernel execution dominates latency (e.g., Model C at certain batch sizes) can exhibit small negative residuals (such as -1.90 μs) due to inter-session timer variance, core migration, or CPU frequency scaling; these are reported signed rather than clamped to zero.",
         "5. ***Diagnostic Ratio (Column 11):** `PyTorch E2E / Tuned C++ Kernel`. This is NOT an equivalent-workload speedup because it divides PyTorch Python-level execution by native in-kernel execution. It serves as a diagnostic demonstrating the performance ceiling when framework interpreter overhead is completely eliminated.",
         ""
     ])

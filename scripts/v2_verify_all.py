@@ -210,7 +210,8 @@ def main():
 
     # Compare 128 dynamic batch-64 invocations: 128 * 64 * 8 = 65,536 float32 values (2,097,152 bits)
     total_floats = 0
-    mismatched_bits = 0
+    mismatched_words = 0
+    total_diff_bits = 0
     np.random.seed(12345)
     for _ in range(128):
         test_x = np.random.randn(64, 16).astype(np.float32)
@@ -220,13 +221,19 @@ def main():
         u1 = out1.view(np.uint32)
         u2 = out2.view(np.uint32)
         diff_bits = np.bitwise_xor(u1, u2)
-        mismatched_bits += int(np.count_nonzero(diff_bits))
+        nz = diff_bits[diff_bits != 0]
+        mismatched_words += int(nz.size)
+        for val in nz:
+            total_diff_bits += bin(int(val)).count('1')
 
+    total_bits = total_floats * 32
     print(f"  Total float32 values compared: {total_floats} (Target: 65,536)")
-    print(f"  Mismatched uint32 words:       {mismatched_bits} / {total_floats}")
+    print(f"  Mismatched float32 words:      {mismatched_words} / {total_floats}")
+    print(f"  Mismatched bits:               {total_diff_bits} / {total_bits}")
     assert total_floats == 65536, f"Expected 65,536 floats, got {total_floats}"
-    assert mismatched_bits == 0, f"Bitwise mismatch detected: {mismatched_bits} differences!"
-    print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched floats across independent compilations).")
+    assert mismatched_words == 0, f"Bitwise word mismatch detected: {mismatched_words} differences!"
+    assert total_diff_bits == 0, f"Bitwise bit mismatch detected: {total_diff_bits} differences!"
+    print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched float32 words, 0/2,097,152 mismatched bits across independent compilations).")
 
     # Generate Final Verification Document
     ver_md = [
