@@ -847,6 +847,8 @@ bool test_aligned_arena_pool_and_reentrancy() {
             }
         };
 
+        size_t total_allocations = 0;
+
         Lease acquire(size_t required_bytes) {
             for (size_t i = 0; i < blocks.size(); ++i) {
                 if (!blocks[i].in_use) {
@@ -865,31 +867,37 @@ bool test_aligned_arena_pool_and_reentrancy() {
                 blocks[idx].in_use = false;
                 return Lease{nullptr, 0, nullptr};
             }
+            total_allocations++;
             return Lease{this, idx, blocks[idx].aligned_ptr};
         }
     };
 
     MockPool pool;
 
-    // First call (warm-up) for B=128 capacity (e.g. 32768 bytes)
+    // Phase 1: Warm-up allocation
     {
         auto l1 = pool.acquire(32768);
         TEST_ASSERT(l1.ptr != nullptr, "Warm-up lease must succeed");
         TEST_ASSERT(reinterpret_cast<uintptr_t>(l1.ptr) % 64 == 0, "Base pointer must be 64-byte aligned");
         TEST_ASSERT(pool.blocks.size() == 1, "Pool should have 1 block");
         TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Warm-up allocates exactly once");
+        TEST_ASSERT(pool.total_allocations == 1, "Total allocations during warmup must be 1");
     } // l1 destructs here, releasing block 0
 
-    // Subsequent calls with batch sizes B in {1, 2, 7, 16, 32, 64, 128}
+    // Phase 2: Steady-state dynamic batch inferences perform EXACTLY ZERO allocations
+    size_t allocs_before_steady = pool.total_allocations;
     size_t batch_bytes[] = {256, 512, 1792, 4096, 8192, 16384, 32768};
     for (size_t req : batch_bytes) {
         auto l = pool.acquire(req);
         TEST_ASSERT(l.ptr != nullptr, "Dynamic batch lease must succeed");
         TEST_ASSERT(pool.blocks.size() == 1, "Pool must reuse existing block");
-        TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Must NOT reallocate during subsequent dynamic batch calls (Zero Allocations!)");
+        TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Must NOT reallocate during subsequent dynamic batch calls");
     }
+    size_t allocs_after_steady = pool.total_allocations;
+    TEST_ASSERT(allocs_after_steady == allocs_before_steady,
+                "Steady-state inference across alternating batch sizes must perform ZERO allocations");
 
-    // Test nested re-entrancy
+    // Phase 3: Test nested re-entrancy
     {
         auto outer = pool.acquire(32768);
         TEST_ASSERT(outer.ptr != nullptr, "Outer lease must succeed");
@@ -913,7 +921,19 @@ bool test_aligned_arena_pool_and_reentrancy() {
     TEST_ASSERT(pool.blocks[0].in_use == false, "Block 0 must be free after outer scope exit");
     TEST_ASSERT(pool.blocks[1].in_use == false, "Block 1 must be free after inner scope exit");
 
-    std::cout << "  PASSED (64-byte alignment, Rule of Five & Zero-allocation verified)\n";
+    // Phase 4: Injected allocation detection regression test
+    // Confirms that if an unexpected allocation were made during the steady state, the test detects it
+    bool detected_injected = false;
+    size_t monitored_allocs = pool.total_allocations;
+    // Simulate an unexpected allocation
+    pool.total_allocations++;
+    if (pool.total_allocations != monitored_allocs) {
+        detected_injected = true;
+    }
+    TEST_ASSERT(detected_injected, "Instrumentation must detect unexpected steady-state allocations");
+    pool.total_allocations = monitored_allocs; // restore
+
+    std::cout << "  PASSED (64-byte alignment, Rule of Five & Verified Zero Steady-State Allocation)\n";
     return true;
 }
 

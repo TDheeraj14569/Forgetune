@@ -78,6 +78,15 @@ class CompiledModel:
             dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
         return self._runtime.benchmark_kernel(dummy_input, iters)
 
+    def get_arena_alloc_count(self) -> int:
+        """Returns total native allocations performed by the arena pool."""
+        return self._runtime.get_arena_alloc_count()
+
+    def reset_arena_alloc_count(self) -> None:
+        """Resets the arena allocation counter."""
+        self._runtime.reset_arena_alloc_count()
+
+
 def compile_model(
     model: torch.nn.Module,
     example_inputs: Tuple[torch.Tensor, ...],

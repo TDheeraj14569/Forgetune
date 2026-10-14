@@ -212,7 +212,11 @@ def test_zero_allocation_inference_sequence(compiled_dynamic_model):
     x1 = torch.randn(1, 8)
     _ = compiled.run(x1)
 
-    # Successive calls across dynamic range
+    # Reset allocation counter after warmup
+    compiled.reset_arena_alloc_count()
+    assert compiled.get_arena_alloc_count() == 0
+
+    # Successive calls across dynamic range must perform ZERO heap allocations
     for b in [2, 7, 16, 32, 64, 128, 1, 16]:
         x = torch.randn(b, 8)
         with torch.no_grad():
@@ -220,6 +224,11 @@ def test_zero_allocation_inference_sequence(compiled_dynamic_model):
         act = compiled.run(x)
         assert act.shape == (b, 4)
         np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+
+    # Prove zero native allocations occurred during steady state across all dynamic batch sizes
+    steady_state_allocs = compiled.get_arena_alloc_count()
+    assert steady_state_allocs == 0, f"Expected 0 steady-state arena allocations, got {steady_state_allocs}"
+
 
 def test_c_abi_explicit_v1_and_v2_on_all_models(compiled_dynamic_model, compiled_static_model):
     """

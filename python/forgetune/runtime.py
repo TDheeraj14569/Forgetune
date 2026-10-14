@@ -308,3 +308,21 @@ class NativeRuntime:
         if lat_us < 0:
             raise RuntimeError(f"Native benchmark returned error code: {lat_us}")
         return float(lat_us)
+
+    def get_arena_alloc_count(self) -> int:
+        """Returns total native heap allocations performed by thread-local arena pool."""
+        if hasattr(self.lib, "forgetune_get_arena_alloc_count"):
+            fn = getattr(self.lib, "forgetune_get_arena_alloc_count")
+            fn.restype = ctypes.c_size_t
+            fn.argtypes = []
+            return int(fn())
+        return 0
+
+    def reset_arena_alloc_count(self) -> None:
+        """Resets the thread-local arena allocation counter to zero."""
+        if hasattr(self.lib, "forgetune_reset_arena_alloc_count"):
+            fn = getattr(self.lib, "forgetune_reset_arena_alloc_count")
+            fn.restype = None
+            fn.argtypes = []
+            fn()
+

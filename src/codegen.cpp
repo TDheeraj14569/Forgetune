@@ -32,6 +32,7 @@ void CodeGenerator::emit_headers(std::ostringstream& oss) const {
         << "#include <algorithm>\n"
         << "#include <cmath>\n"
         << "#include <chrono>\n"
+        << "#include <cstring>\n"
         << "#include <limits>\n"
         << "#include <vector>\n\n"
         << "#if defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)\n"
@@ -112,7 +113,7 @@ void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
         << "                capacity_bytes = 0;\n"
         << "            }\n"
         << "        }\n\n"
-        << "        bool ensure_capacity(size_t required_bytes) noexcept {\n"
+        << "        bool ensure_capacity(size_t required_bytes, bool* did_allocate = nullptr) noexcept {\n"
         << "            if (required_bytes > std::numeric_limits<size_t>::max() - 63) return false;\n"
         << "            size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;\n"
         << "            if (alloc_bytes == 0) alloc_bytes = 64;\n"
@@ -135,11 +136,15 @@ void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
         << "#endif\n"
         << "            if (aligned_ptr) {\n"
         << "                capacity_bytes = alloc_bytes;\n"
+        << "                if (did_allocate) *did_allocate = true;\n"
         << "                return true;\n"
         << "            }\n"
         << "            return false;\n"
         << "        }\n"
         << "    };\n\n"
+        << "    size_t total_allocations_ = 0;\n\n"
+        << "    size_t get_total_allocations() const noexcept { return total_allocations_; }\n"
+        << "    void reset_total_allocations() noexcept { total_allocations_ = 0; }\n\n"
         << "    struct Lease {\n"
         << "        AlignedArenaPool* pool = nullptr;\n"
         << "        size_t index = 0;\n"
@@ -175,20 +180,24 @@ void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
         << "        for (size_t i = 0; i < blocks_.size(); ++i) {\n"
         << "            if (!blocks_[i].in_use) {\n"
         << "                blocks_[i].in_use = true;\n"
-        << "                if (!blocks_[i].ensure_capacity(required_bytes)) {\n"
+        << "                bool did_alloc = false;\n"
+        << "                if (!blocks_[i].ensure_capacity(required_bytes, &did_alloc)) {\n"
         << "                    blocks_[i].in_use = false;\n"
         << "                    return Lease{nullptr, 0, nullptr};\n"
         << "                }\n"
+        << "                if (did_alloc) total_allocations_++;\n"
         << "                return Lease{this, i, blocks_[i].aligned_ptr};\n"
         << "            }\n"
         << "        }\n"
         << "        blocks_.emplace_back();\n"
         << "        size_t idx = blocks_.size() - 1;\n"
         << "        blocks_[idx].in_use = true;\n"
-        << "        if (!blocks_[idx].ensure_capacity(required_bytes)) {\n"
+        << "        bool did_alloc = false;\n"
+        << "        if (!blocks_[idx].ensure_capacity(required_bytes, &did_alloc)) {\n"
         << "            blocks_[idx].in_use = false;\n"
         << "            return Lease{nullptr, 0, nullptr};\n"
         << "        }\n"
+        << "        if (did_alloc) total_allocations_++;\n"
         << "        return Lease{this, idx, blocks_[idx].aligned_ptr};\n"
         << "    }\n\n"
         << "private:\n"
@@ -375,42 +384,138 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         << "    constexpr int64_t w_co_stride = C_in * Kh * Kw;\n"
         << "    constexpr int64_t w_ci_stride = Kh * Kw;\n"
         << "    constexpr int64_t out_b_stride = C_out * H_out * W_out;\n"
-        << "    constexpr int64_t out_co_stride = H_out * W_out;\n\n"
-        << "    for (int64_t b = 0; b < B; ++b) {\n"
+        << "    constexpr int64_t out_co_stride = H_out * W_out;\n\n";
+
+    if (ph > 0 || pw > 0) {
+        oss << "    constexpr int64_t H_pad = H_in + 2 * ph;\n"
+            << "    constexpr int64_t W_pad = W_in + 2 * pw;\n"
+            << "    constexpr int64_t in_row_stride = W_pad;\n"
+            << "    float pad_buf[C_in * H_pad * W_pad] = {0.0f};\n\n";
+    } else {
+        oss << "    constexpr int64_t in_row_stride = W_in;\n\n";
+    }
+
+    oss << "    for (int64_t b = 0; b < B; ++b) {\n"
         << "        const float* x_b = X + b * x_b_stride;\n"
-        << "        float* out_b = out + b * out_b_stride;\n"
-        << "        for (int64_t co = 0; co < C_out; ++co) {\n"
-        << "            float b_val = (bias != nullptr) ? bias[co] : 0.0f;\n"
-        << "            const float* w_co = W + co * w_co_stride;\n"
-        << "            float* out_co = out_b + co * out_co_stride;\n"
+        << "        float* out_b = out + b * out_b_stride;\n\n";
+
+    if (ph > 0 || pw > 0) {
+        oss << "        for (int64_t ci = 0; ci < C_in; ++ci) {\n"
+            << "            const float* src_ci = x_b + ci * x_c_stride;\n"
+            << "            float* dst_ci = pad_buf + ci * H_pad * W_pad;\n"
+            << "            for (int64_t h = 0; h < H_in; ++h) {\n"
+            << "                std::memcpy(dst_ci + (h + ph) * W_pad + pw, src_ci + h * W_in, W_in * sizeof(float));\n"
+            << "            }\n"
+            << "        }\n\n";
+    }
+
+    oss << "        for (int64_t co = 0; co + 3 < C_out; co += 4) {\n"
+        << "            float b0 = (bias != nullptr) ? bias[co + 0] : 0.0f;\n"
+        << "            float b1 = (bias != nullptr) ? bias[co + 1] : 0.0f;\n"
+        << "            float b2 = (bias != nullptr) ? bias[co + 2] : 0.0f;\n"
+        << "            float b3 = (bias != nullptr) ? bias[co + 3] : 0.0f;\n"
+        << "            const float* w0 = W + (co + 0) * w_co_stride;\n"
+        << "            const float* w1 = W + (co + 1) * w_co_stride;\n"
+        << "            const float* w2 = W + (co + 2) * w_co_stride;\n"
+        << "            const float* w3 = W + (co + 3) * w_co_stride;\n"
+        << "            float* out0 = out_b + (co + 0) * out_co_stride;\n"
+        << "            float* out1 = out_b + (co + 1) * out_co_stride;\n"
+        << "            float* out2 = out_b + (co + 2) * out_co_stride;\n"
+        << "            float* out3 = out_b + (co + 3) * out_co_stride;\n\n"
         << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
-        << "                float* out_row = out_co + ho * W_out;\n"
-        << "                float sum[W_out];\n"
-        << "                for (int64_t wo = 0; wo < W_out; ++wo) sum[wo] = b_val;\n"
-        << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n"
-        << "                    const float* x_ci = x_b + ci * x_c_stride;\n"
-        << "                    const float* w_ci = w_co + ci * w_ci_stride;\n"
+        << "                float s0[W_out], s1[W_out], s2[W_out], s3[W_out];\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+        << "                    s0[wo] = b0; s1[wo] = b1; s2[wo] = b2; s3[wo] = b3;\n"
+        << "                }\n"
+        << "                int64_t h_base = ho * sh;\n\n"
+        << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
+
+    if (ph > 0 || pw > 0) {
+        oss << "                    const float* in_ci = pad_buf + ci * H_pad * W_pad;\n";
+    } else {
+        oss << "                    const float* in_ci = x_b + ci * x_c_stride;\n";
+    }
+
+    oss << "                    const float* w0_ci = w0 + ci * w_ci_stride;\n"
+        << "                    const float* w1_ci = w1 + ci * w_ci_stride;\n"
+        << "                    const float* w2_ci = w2 + ci * w_ci_stride;\n"
+        << "                    const float* w3_ci = w3 + ci * w_ci_stride;\n\n"
         << "                    for (int64_t kh = 0; kh < Kh; ++kh) {\n"
-        << "                        int64_t hi = ho * sh - ph + kh * dh;\n"
-        << "                        if (hi < 0 || hi >= H_in) continue;\n"
-        << "                        const float* x_row = x_ci + hi * W_in;\n"
-        << "                        const float* w_row = w_ci + kh * Kw;\n"
+        << "                        const float* in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
+        << "                        const float* w0_row = w0_ci + kh * Kw;\n"
+        << "                        const float* w1_row = w1_ci + kh * Kw;\n"
+        << "                        const float* w2_row = w2_ci + kh * Kw;\n"
+        << "                        const float* w3_row = w3_ci + kh * Kw;\n\n"
         << "                        for (int64_t kw = 0; kw < Kw; ++kw) {\n"
-        << "                            float w_val = w_row[kw];\n"
+        << "                            float v0 = w0_row[kw];\n"
+        << "                            float v1 = w1_row[kw];\n"
+        << "                            float v2 = w2_row[kw];\n"
+        << "                            float v3 = w3_row[kw];\n"
+        << "                            const float* in_ptr = in_row + kw * dw;\n\n"
         << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-        << "                                int64_t wi = wo * sw - pw + kw * dw;\n"
-        << "                                if (wi >= 0 && wi < W_in) {\n"
-        << "                                    sum[wo] += x_row[wi] * w_val;\n"
-        << "                                }\n"
+        << "                                float in_val = in_ptr[wo * sw];\n"
+        << "                                s0[wo] += in_val * v0;\n"
+        << "                                s1[wo] += in_val * v1;\n"
+        << "                                s2[wo] += in_val * v2;\n"
+        << "                                s3[wo] += in_val * v3;\n"
         << "                            }\n"
         << "                        }\n"
         << "                    }\n"
         << "                }\n"
+        << "                float* r0 = out0 + ho * W_out;\n"
+        << "                float* r1 = out1 + ho * W_out;\n"
+        << "                float* r2 = out2 + ho * W_out;\n"
+        << "                float* r3 = out3 + ho * W_out;\n"
         << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n";
     if (fused_relu) {
-        oss << "                    out_row[wo] = (sum[wo] > 0.0f) ? sum[wo] : 0.0f;\n";
+        oss << "                    r0[wo] = (s0[wo] > 0.0f) ? s0[wo] : 0.0f;\n"
+            << "                    r1[wo] = (s1[wo] > 0.0f) ? s1[wo] : 0.0f;\n"
+            << "                    r2[wo] = (s2[wo] > 0.0f) ? s2[wo] : 0.0f;\n"
+            << "                    r3[wo] = (s3[wo] > 0.0f) ? s3[wo] : 0.0f;\n";
     } else {
-        oss << "                    out_row[wo] = sum[wo];\n";
+        oss << "                    r0[wo] = s0[wo];\n"
+            << "                    r1[wo] = s1[wo];\n"
+            << "                    r2[wo] = s2[wo];\n"
+            << "                    r3[wo] = s3[wo];\n";
+    }
+    oss << "                }\n"
+        << "            }\n"
+        << "        }\n\n"
+        << "        for (int64_t co = (C_out / 4) * 4; co < C_out; ++co) {\n"
+        << "            float b_val = (bias != nullptr) ? bias[co] : 0.0f;\n"
+        << "            const float* w_co = W + co * w_co_stride;\n"
+        << "            float* out_co = out_b + co * out_co_stride;\n"
+        << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
+        << "                float s[W_out];\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) s[wo] = b_val;\n"
+        << "                int64_t h_base = ho * sh;\n\n"
+        << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
+
+    if (ph > 0 || pw > 0) {
+        oss << "                    const float* in_ci = pad_buf + ci * H_pad * W_pad;\n";
+    } else {
+        oss << "                    const float* in_ci = x_b + ci * x_c_stride;\n";
+    }
+
+    oss << "                    const float* w_ci = w_co + ci * w_ci_stride;\n"
+        << "                    for (int64_t kh = 0; kh < Kh; ++kh) {\n"
+        << "                        const float* in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
+        << "                        const float* w_row = w_ci + kh * Kw;\n"
+        << "                        for (int64_t kw = 0; kw < Kw; ++kw) {\n"
+        << "                            float w_val = w_row[kw];\n"
+        << "                            const float* in_ptr = in_row + kw * dw;\n"
+        << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+        << "                                s[wo] += in_ptr[wo * sw] * w_val;\n"
+        << "                            }\n"
+        << "                        }\n"
+        << "                    }\n"
+        << "                }\n"
+        << "                float* out_row = out_co + ho * W_out;\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n";
+    if (fused_relu) {
+        oss << "                    out_row[wo] = (s[wo] > 0.0f) ? s[wo] : 0.0f;\n";
+    } else {
+        oss << "                    out_row[wo] = s[wo];\n";
     }
     oss << "                }\n"
         << "            }\n"
@@ -857,6 +962,14 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    return elapsed.count() / static_cast<double>(iters);\n"
             << "}\n";
     }
+
+    oss << "// Native arena allocation tracking\n"
+        << "extern \"C\" FORGETUNE_EXPORT size_t forgetune_get_arena_alloc_count(void) noexcept {\n"
+        << "    return g_thread_arena_pool.get_total_allocations();\n"
+        << "}\n\n"
+        << "extern \"C\" FORGETUNE_EXPORT void forgetune_reset_arena_alloc_count(void) noexcept {\n"
+        << "    g_thread_arena_pool.reset_total_allocations();\n"
+        << "}\n\n";
 }
 
 } // namespace forgetune
