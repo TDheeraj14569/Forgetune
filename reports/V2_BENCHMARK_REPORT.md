@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — BENCHMARK EVALUATION REPORT
 
-**Date:** 2026-10-14 22:59:22
+**Date:** 2026-10-15 00:27:56
 **Host Platform:** Windows 11 (AMD64)
 **Processor:** AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD
 **Python Runtime:** 3.12.14
@@ -21,32 +21,32 @@ ForgeTune v2.0 introduces ahead-of-time C++ code generation, operator fusion (`C
 
 ## 2. Multi-Model Benchmark Data
 
-### Model A (Dynamic TinyMLP) (Compilation Cost: 3.52s)
+### Model A (Dynamic TinyMLP) (Selected: `baseline_naive`, Cost: 3.28s) — *Baseline retained by autotuner (<5% candidate performance difference)*
 
 | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 39.50 | 24.90 | 14.00 | **2.82x** | **1.78x** | 0.298 | 0.294 | **1.01x** | 13.71 | 134.4x* |
-| 4 | 43.25 | 39.95 | 13.40 | **3.23x** | **2.98x** | 1.238 | 1.025 | **1.21x** | 12.38 | 42.2x* |
-| 16 | 49.95 | 40.10 | 16.50 | **3.03x** | **2.43x** | 3.975 | 4.020 | **0.99x** | 12.48 | 12.4x* |
-| 64 | 49.70 | 50.10 | 28.10 | **1.77x** | **1.78x** | 14.277 | 15.779 | **0.90x** | 12.32 | 3.1x* |
+| 1 | 38.80 | 24.70 | 8.30 | **4.67x** | **2.98x** | 0.280 | 0.276 | **1.00x** | 8.02 | 140.6x* |
+| 4 | 44.00 | 37.20 | 12.80 | **3.44x** | **2.91x** | 1.022 | 1.023 | **1.00x** | 11.78 | 43.0x* |
+| 16 | 44.95 | 38.50 | 18.20 | **2.47x** | **2.12x** | 4.007 | 4.077 | **1.00x** | 14.12 | 11.0x* |
+| 64 | 37.60 | 32.05 | 28.50 | **1.32x** | **1.12x** | 15.693 | 15.382 | **1.00x** | 13.12 | 2.4x* |
 
-### Model B (Residual MLP) (Compilation Cost: 6.22s)
-
-| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 41.90 | 41.80 | 8.60 | **4.87x** | **4.86x** | 0.115 | 0.116 | **0.99x** | 8.48 | 361.2x* |
-| 4 | 43.60 | 43.90 | 8.50 | **5.13x** | **5.16x** | 0.354 | 0.358 | **0.99x** | 8.14 | 121.8x* |
-| 16 | 45.30 | 45.30 | 10.80 | **4.19x** | **4.19x** | 1.342 | 1.397 | **0.96x** | 9.40 | 32.4x* |
-| 64 | 76.90 | 48.90 | 20.40 | **3.77x** | **2.40x** | 7.300 | 7.297 | **1.00x** | 13.10 | 10.5x* |
-
-### Model C (Small CNN) (Compilation Cost: 14.34s)
+### Model B (Residual MLP) (Selected: `baseline_naive`, Cost: 6.73s) — *Baseline retained by autotuner (<5% candidate performance difference)*
 
 | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 73.00 | 87.90 | 29.90 | **2.44x** | **2.94x** | 18.475 | 17.079 | **1.08x** | 12.82 | 4.3x* |
-| 4 | 335.50 | 395.20 | 82.65 | **4.06x** | **4.78x** | 73.840 | 68.319 | **1.08x** | 14.33 | 4.9x* |
-| 16 | 372.80 | 345.35 | 285.35 | **1.31x** | **1.21x** | 292.381 | 277.160 | **1.05x** | 8.19 | 1.3x* |
-| 64 | 411.80 | 476.90 | 1117.25 | **0.37x** | **0.43x** | 1065.557 | 927.301 | **1.15x** | 189.95 | 0.4x* |
+| 1 | 42.00 | 41.60 | 9.00 | **4.67x** | **4.62x** | 0.117 | 0.116 | **1.00x** | 8.88 | 362.1x* |
+| 4 | 44.45 | 43.80 | 9.40 | **4.73x** | **4.66x** | 0.357 | 0.355 | **1.00x** | 9.04 | 125.2x* |
+| 16 | 44.70 | 44.60 | 9.60 | **4.66x** | **4.65x** | 1.400 | 1.349 | **1.00x** | 8.25 | 33.1x* |
+| 64 | 76.00 | 67.80 | 14.50 | **5.24x** | **4.68x** | 7.282 | 6.308 | **1.00x** | 8.19 | 12.0x* |
+
+### Model C (Small CNN) (Selected: `loop_ikj`, Cost: 11.37s) — *Autotuner selected `loop_ikj` over `baseline`*
+
+| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 72.60 | 88.70 | 22.00 | **3.30x** | **4.03x** | 9.595 | 8.656 | **1.11x** | 13.34 | 8.4x* |
+| 4 | 320.05 | 390.65 | 49.50 | **6.47x** | **7.89x** | 39.511 | 36.079 | **1.10x** | 13.42 | 8.9x* |
+| 16 | 370.90 | 324.95 | 170.90 | **2.17x** | **1.90x** | 157.571 | 136.160 | **1.16x** | 34.74 | 2.7x* |
+| 64 | 435.25 | 349.00 | 590.75 | **0.74x** | **0.59x** | 644.734 | 539.183 | **1.20x** | 51.57 | 0.8x* |
 
 ---
 

@@ -143,6 +143,9 @@ def run_benchmarks():
             enable_fusion=False
         )
 
+        opt_cand_id = compiled.manifest().get("kernel_config", {}).get("candidate_id", "tuned")
+        base_cand_id = compiled_baseline.manifest().get("kernel_config", {}).get("candidate_id", "baseline_naive")
+
         model_results = []
         for b in batches:
             if "CNN" in name:
@@ -158,19 +161,36 @@ def run_benchmarks():
             ft_e2e_res = compiled.benchmark(warmup_iters=25, measure_iters=100, batch_size=b)
             ft_e2e_median_us = round(ft_e2e_res["median_latency_us"], 2)
 
-            # ForgeTune native in-kernel (Tuned vs Baseline)
-            ft_kernel_us = round(compiled.benchmark_kernel(iters=500, batch_size=b), 3)
-            ft_base_kernel_us = round(compiled_baseline.benchmark_kernel(iters=500, batch_size=b), 3)
+            # ForgeTune native in-kernel (Tuned vs Baseline) with interleaved multi-round measurement
+            compiled.benchmark_kernel(iters=50, batch_size=b)
+            compiled_baseline.benchmark_kernel(iters=50, batch_size=b)
+            k_tuned_samples = []
+            k_base_samples = []
+            for r in range(5):
+                if r % 2 == 0:
+                    k_tuned_samples.append(compiled.benchmark_kernel(iters=500, batch_size=b))
+                    k_base_samples.append(compiled_baseline.benchmark_kernel(iters=500, batch_size=b))
+                else:
+                    k_base_samples.append(compiled_baseline.benchmark_kernel(iters=500, batch_size=b))
+                    k_tuned_samples.append(compiled.benchmark_kernel(iters=500, batch_size=b))
 
-            # Recalculate derived metrics directly from the rounded stored values for complete consistency
+            ft_kernel_us = round(float(np.median(k_tuned_samples)), 3)
+            ft_base_kernel_us = round(float(np.median(k_base_samples)), 3)
+
+            # Recalculate derived metrics directly from stored values for complete consistency
             speedup_e2e = round(pt_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
             speedup_e2e_1th = round(pt_1th_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
-            kernel_opt_speedup = round(ft_base_kernel_us / ft_kernel_us, 2) if ft_kernel_us > 0 else 1.0
+            if opt_cand_id in ("baseline_naive", "baseline") and base_cand_id in ("baseline_naive", "baseline"):
+                kernel_opt_speedup = 1.00
+            else:
+                kernel_opt_speedup = round(ft_base_kernel_us / ft_kernel_us, 2) if ft_kernel_us > 0 else 1.0
             residual_us = round(ft_e2e_median_us - ft_kernel_us, 2)
             diagnostic_ratio = round(pt_median_us / ft_kernel_us, 1) if ft_kernel_us > 0 else 1.0
 
             entry = {
                 "batch_size": b,
+                "opt_candidate_id": opt_cand_id,
+                "base_candidate_id": base_cand_id,
                 "pytorch_eager_median_us": pt_median_us,
                 "pytorch_eager_1thread_us": pt_1th_median_us,
                 "forgetune_e2e_median_us": ft_e2e_median_us,
@@ -222,8 +242,16 @@ def run_benchmarks():
 
     for model_name, entries in benchmark_results["models"].items():
         comp_cost = entries[0]["compilation_cost_s"] if entries else 0.0
+        opt_cand = entries[0].get("opt_candidate_id", "tuned") if entries else "tuned"
+        base_cand = entries[0].get("base_candidate_id", "baseline_naive") if entries else "baseline_naive"
+        tuner_note = ""
+        if opt_cand in ("baseline_naive", "baseline") and base_cand in ("baseline_naive", "baseline"):
+            tuner_note = " — *Baseline retained by autotuner (<5% candidate performance difference)*"
+        else:
+            tuner_note = f" — *Autotuner selected `{opt_cand}` over `{base_cand}`*"
+
         md_lines.extend([
-            f"### {model_name} (Compilation Cost: {comp_cost}s)",
+            f"### {model_name} (Selected: `{opt_cand}`, Cost: {comp_cost}s){tuner_note}",
             "",
             "| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Tuned C++ Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio* |",
             "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",

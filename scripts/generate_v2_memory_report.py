@@ -33,7 +33,7 @@ def generate_memory_report():
 
     planner = cpp.MemoryPlanner(alignment=64)
     md_lines = [
-        "# FORGETUNE V2.0 — INTERMEDIATE BUFFER REUSE & MEMORY REPORT",
+        "# FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT",
         "",
         f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "**Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse",
@@ -46,13 +46,13 @@ def generate_memory_report():
         "In naive neural network execution, every intermediate activation tensor is assigned dedicated storage.",
         "ForgeTune v2.0 performs compile-time liveness interval analysis to determine non-overlapping activation lifetimes,",
         "packing intermediate buffers into a single 64-byte cache-line aligned `thread_local` memory arena.",
-        "Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 60.0% reduction in peak activation buffer memory**.",
+        "Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 60.0% calculated intermediate-buffer storage reduction**.",
         "",
         "---",
         "",
         "## 2. Memory Reduction Overview Table",
         "",
-        "| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Peak Memory Reduction (%) |",
+        "| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Calculated Intermediate-Buffer Storage Reduction (%) |",
         "|---|:---:|:---:|:---:|:---:|:---:|"
     ]
 

@@ -1,6 +1,6 @@
-# FORGETUNE V2.0 — INTERMEDIATE BUFFER REUSE & MEMORY REPORT
+# FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-14 22:59:25
+**Date:** 2026-10-15 00:27:59
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -11,13 +11,13 @@
 In naive neural network execution, every intermediate activation tensor is assigned dedicated storage.
 ForgeTune v2.0 performs compile-time liveness interval analysis to determine non-overlapping activation lifetimes,
 packing intermediate buffers into a single 64-byte cache-line aligned `thread_local` memory arena.
-Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 60.0% reduction in peak activation buffer memory**.
+Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 60.0% calculated intermediate-buffer storage reduction**.
 
 ---
 
 ## 2. Memory Reduction Overview Table
 
-| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Peak Memory Reduction (%) |
+| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Calculated Intermediate-Buffer Storage Reduction (%) |
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Model A (Dynamic TinyMLP)** | 5 tensors | 2 physical slots | 57,344 B (56.0 KB) | 32,768 B (32.0 KB) | **42.9%** |
 | **Model B (Residual MLP)** | 9 tensors | 4 physical slots | 61,440 B (60.0 KB) | 24,576 B (24.0 KB) | **60.0%** |

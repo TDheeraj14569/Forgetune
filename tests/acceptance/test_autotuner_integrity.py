@@ -168,3 +168,132 @@ def test_acceptance_autotuning_cache_hit_and_corruption_resilience(temp_autotune
     )
     assert cand3 is not None
     assert "selected_candidate" in report3
+
+def _make_mock_candidate(
+    candidate_id: str,
+    variant: str = "naive_ijk",
+    opt_level: str = "-O2",
+    tile_m = None,
+    median_e2e_us: float = 10.0,
+    iqr_e2e_us: float = 1.0,
+    in_kernel_us: float = 0.05
+):
+    cand = KernelCandidate(
+        candidate_id=candidate_id,
+        variant=variant,
+        enable_fusion=variant.startswith("fused"),
+        tile_m=tile_m,
+        tile_n=tile_m,
+        tile_k=tile_m,
+        opt_level=opt_level
+    )
+    res_entry = {
+        "candidate": cand.to_dict(),
+        "benchmark": {
+            "median_latency_us": median_e2e_us,
+            "iqr_us": iqr_e2e_us,
+        },
+        "in_kernel_latency_us": in_kernel_us
+    }
+    return (cand, None, res_entry)
+
+def test_acceptance_autotuner_baseline_fallback_on_noise_band():
+    """
+    Verifies that when all alternative candidates perform within the <5% noise band
+    of the baseline kernel, the autotuner strictly retains 'baseline_naive'.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.050)
+    c1 = _make_mock_candidate("loop_ikj", "loop_ikj", "-O2", in_kernel_us=0.048)  # 1.041x speedup (< 1.05x)
+    c2 = _make_mock_candidate("fused_ikj", "fused_ikj", "-O2", in_kernel_us=0.049) # 1.020x speedup (< 1.05x)
+
+    selected, lat, rationale = tuner.select_best_candidate([base, c1, c2])
+    assert selected.candidate_id == "baseline_naive"
+    assert "simpler baseline preferred" in rationale
+
+def test_acceptance_autotuner_selects_faster_candidate_above_threshold():
+    """
+    Verifies that when a candidate genuinely achieves >= 5% in-kernel speedup,
+    the autotuner selects it over baseline_naive.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.050)
+    c1 = _make_mock_candidate("loop_ikj", "loop_ikj", "-O2", in_kernel_us=0.040)  # 1.25x speedup (>= 1.05x)
+
+    selected, lat, rationale = tuner.select_best_candidate([base, c1])
+    assert selected.candidate_id == "loop_ikj"
+    assert "selected loop_ikj" in rationale
+
+def test_acceptance_autotuner_tie_breaking_prefers_o2_over_o3():
+    """
+    Verifies the tie-breaking rule: when -O2 and -O3 candidates are within 5% of
+    the fastest candidate, the autotuner prefers the simpler -O2 candidate and
+    explicitly documents the rationale.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.100)
+    c_o3 = _make_mock_candidate("fused_ikj_o3", "fused_ikj", "-O3", in_kernel_us=0.050)
+    c_o2 = _make_mock_candidate("fused_ikj", "fused_ikj", "-O2", in_kernel_us=0.051) # 0.051 <= 0.050 * 1.05 = 0.0525
+
+    selected, lat, rationale = tuner.select_best_candidate([base, c_o3, c_o2])
+    assert selected.candidate_id == "fused_ikj"
+    assert selected.opt_level == "-O2"
+    assert "simpler -O2 candidate selected over -O3" in rationale
+
+def test_acceptance_autotuner_tie_breaking_prefers_untiled_over_tiled():
+    """
+    Verifies that when an untiled candidate and a tiled candidate are tied within 5%,
+    the simpler untiled candidate is preferred.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.100)
+    c_untiled = _make_mock_candidate("loop_ikj", "loop_ikj", "-O2", tile_m=None, in_kernel_us=0.050)
+    c_tiled = _make_mock_candidate("tiled_8", "tiled", "-O2", tile_m=8, in_kernel_us=0.050)
+
+    selected, lat, rationale = tuner.select_best_candidate([base, c_tiled, c_untiled])
+    assert selected.candidate_id == "loop_ikj"
+    assert selected.tile_m is None
+
+def test_acceptance_autotuner_rejects_slower_candidates():
+    """
+    Verifies that candidates that run slower than baseline are never selected,
+    and baseline_naive is safely retained.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.050)
+    c_slow = _make_mock_candidate("tiled_16", "tiled", "-O2", tile_m=16, in_kernel_us=0.090)
+
+    selected, lat, rationale = tuner.select_best_candidate([base, c_slow])
+    assert selected.candidate_id == "baseline_naive"
+    assert "simpler baseline preferred" in rationale
+
+def test_acceptance_autotuner_cache_key_shape_sensitivity():
+    """
+    Verifies that cache keys strictly differentiate input shapes and are 100% deterministic.
+    """
+    tuner = Autotuner()
+    dummy_graph = '{"nodes": [{"id": 0, "op_type": "INPUT"}]}'
+    k_batch2 = tuner._compute_cache_key(dummy_graph, (2, 16))
+    k_batch4 = tuner._compute_cache_key(dummy_graph, (4, 16))
+    k_batch2_repeat = tuner._compute_cache_key(dummy_graph, (2, 16))
+
+    assert k_batch2 != k_batch4, "Cache key failed to distinguish input batch sizes!"
+    assert k_batch2 == k_batch2_repeat, "Cache key calculation is non-deterministic!"
+
+def test_acceptance_autotuner_deterministic_tie_breaking_repeatability():
+    """
+    Verifies that 50 consecutive selection runs on identical candidate sets
+    yield 100% identical winner IDs and rationale strings.
+    """
+    tuner = Autotuner()
+    base = _make_mock_candidate("baseline_naive", "naive_ijk", "-O2", in_kernel_us=0.100)
+    c1 = _make_mock_candidate("fused_ikj", "fused_ikj", "-O2", in_kernel_us=0.051)
+    c2 = _make_mock_candidate("fused_ikj_o3", "fused_ikj", "-O3", in_kernel_us=0.050)
+    c3 = _make_mock_candidate("loop_ikj", "loop_ikj", "-O2", in_kernel_us=0.055)
+
+    ref_selected, ref_lat, ref_rat = tuner.select_best_candidate([base, c1, c2, c3])
+    for _ in range(50):
+        s, l, r = tuner.select_best_candidate([base, c1, c2, c3])
+        assert s.candidate_id == ref_selected.candidate_id
+        assert r == ref_rat
+

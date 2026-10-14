@@ -102,6 +102,117 @@ class Autotuner:
         h.update(compiler_info.get("version", "").encode("utf-8"))
         return h.hexdigest()
 
+    def select_best_candidate(
+        self,
+        verified_candidates: List[Tuple[KernelCandidate, Any, Dict[str, Any]]]
+    ) -> Tuple[KernelCandidate, float, str]:
+        """
+        Applies statistically defensible, deterministic candidate selection and tie-breaking:
+        1. If macro end-to-end improvement is statistically significant (> max(2.0, base_iqr))
+           and not a micro-workload (< 1.0 us kernel), select fastest e2e candidate.
+        2. Otherwise (differences are noise-dominated), select by reliable in-kernel latency:
+           - Filter candidates improving over baseline kernel by >= 5%.
+           - Group candidates within 5% of fastest in-kernel candidate (tie band).
+           - Break ties in tie band by simplicity: prefer -O2 over -O3, prefer untiled over tiled.
+           - If no candidate improves by >= 5%, retain baseline_naive.
+        """
+        if not verified_candidates:
+            raise AutotuningError("Cannot select candidate from empty verified candidate list.")
+
+        baseline_entry = next((cr for cr in verified_candidates if cr[0].candidate_id == "baseline_naive"), None)
+        baseline_cand = baseline_entry[0] if baseline_entry else verified_candidates[0][0]
+        base_median = (
+            baseline_entry[2]["benchmark"]["median_latency_us"]
+            if (baseline_entry and baseline_entry[2].get("benchmark"))
+            else (verified_candidates[0][2].get("benchmark", {}).get("median_latency_us", 0.0))
+        )
+        base_kernel = baseline_entry[2].get("in_kernel_latency_us") if baseline_entry else None
+        base_iqr = (
+            baseline_entry[2]["benchmark"]["iqr_us"]
+            if (baseline_entry and baseline_entry[2].get("benchmark"))
+            else 1.0
+        )
+
+        best_candidate = baseline_cand
+        best_latency = base_median
+        selection_rationale = "Baseline candidate retained"
+
+        candidates_by_e2e = sorted(
+            verified_candidates,
+            key=lambda x: x[2].get("benchmark", {}).get("median_latency_us", float("inf"))
+            if x[2].get("benchmark")
+            else float("inf")
+        )
+        fastest_e2e_cand, fastest_e2e_rt, fastest_e2e_res = candidates_by_e2e[0]
+        fastest_e2e_lat = (
+            fastest_e2e_res.get("benchmark", {}).get("median_latency_us", base_median)
+            if fastest_e2e_res.get("benchmark")
+            else base_median
+        )
+        e2e_diff = base_median - fastest_e2e_lat
+
+        is_micro_workload = (base_kernel is not None and base_kernel < 1.0)
+        is_e2e_noise = is_micro_workload or (e2e_diff <= max(2.0, base_iqr))
+
+        if not is_e2e_noise and e2e_diff > max(2.0, base_iqr):
+            best_candidate = fastest_e2e_cand
+            best_latency = fastest_e2e_lat
+            selection_rationale = f"Significant end-to-end latency reduction ({e2e_diff:.2f} us delta exceeds noise window)"
+        else:
+            candidates_with_kernel = [
+                c for c in verified_candidates if c[2].get("in_kernel_latency_us") is not None
+            ]
+            if candidates_with_kernel and base_kernel and base_kernel > 0:
+                improving = [
+                    c for c in candidates_with_kernel
+                    if (base_kernel / c[2]["in_kernel_latency_us"]) >= 1.05
+                ]
+                if improving:
+                    improving.sort(key=lambda x: x[2]["in_kernel_latency_us"])
+                    fastest_k = improving[0][2]["in_kernel_latency_us"]
+
+                    top_tier = [
+                        c for c in improving
+                        if (c[2]["in_kernel_latency_us"] <= fastest_k * 1.05)
+                    ]
+
+                    def candidate_simplicity_rank(cand_tuple):
+                        cand, rt, res_entry = cand_tuple
+                        opt_score = 0 if cand.opt_level == "-O2" else 1
+                        tile_score = 0 if cand.tile_m is None else 1
+                        return (opt_score, tile_score, res_entry["in_kernel_latency_us"])
+
+                    top_tier.sort(key=candidate_simplicity_rank)
+                    best_cand_tuple = top_tier[0]
+                    best_candidate = best_cand_tuple[0]
+                    best_k_res = best_cand_tuple[2]
+                    best_latency = (
+                        best_k_res.get("benchmark", {}).get("median_latency_us", base_median)
+                        if best_k_res.get("benchmark")
+                        else base_median
+                    )
+                    k_ratio = base_kernel / best_k_res["in_kernel_latency_us"]
+
+                    simplicity_note = ""
+                    if best_candidate.opt_level == "-O2":
+                        simplicity_note = "; simpler -O2 candidate selected over -O3 (no defensible -O3 advantage)"
+
+                    selection_rationale = (
+                        f"End-to-end differences within ctypes dispatch noise ({e2e_diff:.2f} us); "
+                        f"selected {best_candidate.candidate_id} ({best_candidate.opt_level}) based on genuine {k_ratio:.2f}x in-kernel speedup "
+                        f"({best_k_res['in_kernel_latency_us']*1000:.1f} ns vs {base_kernel*1000:.1f} ns baseline){simplicity_note}"
+                    )
+                else:
+                    best_candidate = baseline_cand
+                    best_latency = base_median
+                    selection_rationale = "All candidate in-kernel differences within measurement noise (<5% speedup); simpler baseline preferred"
+            else:
+                best_candidate = baseline_cand
+                best_latency = base_median
+                selection_rationale = "Differences within measurement noise; simpler baseline preferred"
+
+        return best_candidate, best_latency, selection_rationale
+
     def tune(
         self,
         graph: Graph,
@@ -290,89 +401,11 @@ class Autotuner:
             }
 
         # Phase 3: Statistically Defensible Candidate Selection
+        best_candidate, best_latency, selection_rationale = self.select_best_candidate(verified_candidates)
+        base_median = best_latency
         baseline_entry = next((cr for cr in verified_candidates if cr[0].candidate_id == "baseline_naive"), None)
-        baseline_cand = baseline_entry[0] if baseline_entry else verified_candidates[0][0]
-        base_median = baseline_entry[2]["benchmark"]["median_latency_us"] if baseline_entry else verified_candidates[0][2]["benchmark"]["median_latency_us"]
-        base_kernel = baseline_entry[2].get("in_kernel_latency_us") if baseline_entry else None
-        base_iqr = baseline_entry[2]["benchmark"]["iqr_us"] if baseline_entry else 1.0
-
-        best_candidate = baseline_cand
-        best_latency = base_median
-        selection_rationale = "Baseline candidate retained"
-
-        candidates_by_e2e = sorted(verified_candidates, key=lambda x: x[2]["benchmark"]["median_latency_us"])
-        fastest_e2e_cand, fastest_e2e_rt, fastest_e2e_res = candidates_by_e2e[0]
-        e2e_diff = base_median - fastest_e2e_res["benchmark"]["median_latency_us"]
-
-        # Check whether end-to-end differences are noise-dominated:
-        # Micro-workloads (< 1.0 us kernel latency) are dominated >90% by ctypes invocation and Python overhead.
-        # Under such regimes, Python-level timing jitter (0.5 - 2.0 us) exceeds the total compute duration.
-        is_micro_workload = (base_kernel is not None and base_kernel < 1.0)
-        is_e2e_noise = is_micro_workload or (e2e_diff <= max(2.0, base_iqr))
-
-        if not is_e2e_noise and e2e_diff > max(2.0, base_iqr):
-            # Statistically significant macro-level end-to-end improvement
-            best_candidate = fastest_e2e_cand
-            best_latency = fastest_e2e_res["benchmark"]["median_latency_us"]
-            selection_rationale = f"Significant end-to-end latency reduction ({e2e_diff:.2f} us delta exceeds noise window)"
-        else:
-            # End-to-end differences are noise-dominated. Select by reliable native in-kernel latency:
-            candidates_with_kernel = [
-                c for c in verified_candidates if c[2].get("in_kernel_latency_us") is not None
-            ]
-            if candidates_with_kernel and base_kernel:
-                # Filter candidates that improve over baseline kernel by >= 5%
-                improving = [
-                    c for c in candidates_with_kernel
-                    if (base_kernel / c[2]["in_kernel_latency_us"]) >= 1.05
-                ]
-                if improving:
-                    # Sort primarily by lowest in-kernel latency
-                    improving.sort(key=lambda x: x[2]["in_kernel_latency_us"])
-                    fastest_k = improving[0][2]["in_kernel_latency_us"]
-
-                    # Group candidates within 5% of the absolute fastest in-kernel latency (statistical tie band)
-                    top_tier = [
-                        c for c in improving
-                        if (c[2]["in_kernel_latency_us"] <= fastest_k * 1.05)
-                    ]
-
-                    # Tie-breaking policy:
-                    # 1. Prefer simpler optimization level (-O2 over -O3) when performance is within 5%.
-                    #    Never force -O3 to win without defensible performance advantage.
-                    # 2. Prefer untiled over tiled if performance is within 5% (simpler loop structure).
-                    def candidate_simplicity_rank(cand_tuple):
-                        cand, rt, res_entry = cand_tuple
-                        # 0 if -O2, 1 if -O3 (prefer -O2)
-                        opt_score = 0 if cand.opt_level == "-O2" else 1
-                        # 0 if untiled, 1 if tiled (prefer untiled)
-                        tile_score = 1 if cand.tile_m is not None else 0
-                        return (res_entry["in_kernel_latency_us"], opt_score, tile_score)
-
-                    top_tier.sort(key=candidate_simplicity_rank)
-                    best_cand_tuple = top_tier[0]
-                    best_candidate = best_cand_tuple[0]
-                    best_k_res = best_cand_tuple[2]
-                    best_latency = best_k_res["benchmark"]["median_latency_us"]
-                    k_ratio = base_kernel / best_k_res["in_kernel_latency_us"]
-
-                    simplicity_note = ""
-                    if best_candidate.opt_level == "-O2":
-                        simplicity_note = "; simpler -O2 candidate selected over -O3 (no defensible -O3 advantage)"
-
-                    selection_rationale = (
-                        f"End-to-end differences within ctypes dispatch noise ({e2e_diff:.2f} us); "
-                        f"selected {best_candidate.candidate_id} ({best_candidate.opt_level}) based on genuine {k_ratio:.2f}x in-kernel speedup "
-                        f"({best_k_res['in_kernel_latency_us']*1000:.1f} ns vs {base_kernel*1000:.1f} ns baseline){simplicity_note}"
-                    )
-                else:
-                    best_candidate = baseline_cand
-                    best_latency = base_median
-                    selection_rationale = "All candidate in-kernel differences within measurement noise (<5% speedup); simpler baseline preferred"
-            else:
-                best_candidate = baseline_cand
-                best_latency = base_median
-                selection_rationale = "Differences within measurement noise; simpler baseline preferred"
+        if baseline_entry and "benchmark" in baseline_entry[2] and baseline_entry[2]["benchmark"]:
+            base_median = baseline_entry[2]["benchmark"]["median_latency_us"]
 
         speedup = (base_median / best_latency) if base_median and best_latency else 1.0
 
