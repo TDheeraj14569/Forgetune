@@ -12,8 +12,8 @@
 
 ### A.1 Exact Git Fingerprints
 - **Active Release Branch:** `v2.0-dev`
-- **Active Release Commit Hash:** `118e677d7434542d8f3b47c43b920249a0a30c36`
-- **Active Git Tree Fingerprint:** `ab0ae47fdc332404fceb3bbf0c2f320febf287a7`
+- **Active Release Commit Hash:** `fa43745a99e0bbdcb1a4e5d97414c74733f02d43`
+- **Active Git Tree Fingerprint:** `dca8e354c610ffe22847a485effc0657a8f0ef56`
 - **Working Tree Cleanliness:** Clean (0 uncommitted files, verified via `git status --porcelain`).
 - **Preserved Frozen Baseline:**
   - Branch `master` is frozen at tagged release `v1.0.0`.
