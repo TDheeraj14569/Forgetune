@@ -83,7 +83,7 @@ class NativeCompiler:
         cpp_source_path: str,
         output_dll_path: str,
         opt_level: str = "-O2",
-        timeout_seconds: int = 180
+        timeout_seconds: int = 300
     ) -> Dict[str, Any]:
         """
         Compiles a C++ source file into a shared library.
