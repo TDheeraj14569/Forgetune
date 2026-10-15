@@ -34,7 +34,14 @@ class NativeRuntime:
         if not os.path.isfile(self.original_dll_path):
             raise FileNotFoundError(f"Shared library not found: {self.original_dll_path}")
 
-        # On Windows, always copy the DLL to a unique temporary file in %TEMP%
+        # Attempt direct loading first without copying
+        try:
+            return ctypes.CDLL(self.original_dll_path)
+        except OSError:
+            if sys.platform != "win32":
+                raise
+
+        # On Windows, copy the DLL to a unique temporary file in %TEMP%
         # to prevent Windows from locking the build artifact on disk and to comply with WDAC policies.
         if sys.platform == "win32":
             temp_dir = os.path.join(tempfile.gettempdir(), "forgetune_runtime")
@@ -53,12 +60,12 @@ class NativeRuntime:
 
             # Windows Defender / SmartScreen evaluates newly created binaries asynchronously.
             # If WinError 4551 (STATUS_NEEDS_REMEDIATION) occurs, retry with backoff.
-            for attempt in range(30):
+            for attempt in range(15):
                 try:
                     return ctypes.CDLL(staged_path)
                 except OSError as e:
-                    if "4551" in str(e) and attempt < 29:
-                        if attempt == 2 or attempt == 10:
+                    if "4551" in str(e) and attempt < 14:
+                        if attempt == 1 or attempt == 5:
                             try:
                                 subprocess.run(
                                     ["powershell", "-NoProfile", "-Command", f"Unblock-File -LiteralPath '{staged_path}'"],
