@@ -12,8 +12,8 @@
 
 ### A.1 Exact Git Fingerprints
 - **Active Release Branch:** `v2.0-dev`
-- **Current Verified Commit Hash:** `485ba1c2882ebf1090e680016f25a8703916abed`
-- **Current Verified Tree Fingerprint:** `2187ec8ea64ac72fed11fcfbf49e228af7c8dcaa`
+- **Current Verified Commit Hash:** `65e823839c6d189cfb7dafc28fd2350b3866bc9e`
+- **Current Verified Tree Fingerprint:** `f9828fb7762c813240ba97162d79e22cfc12cfc2`
 - **Verification Baseline Commit Hash:** `fa43745a99e0bbdcb1a4e5d97414c74733f02d43`
 - **Verification Baseline Tree Fingerprint:** `dca8e354c610ffe22847a485effc0657a8f0ef56`
 - **Git Reconciliation History:**
@@ -21,6 +21,7 @@
   - `30c2426bcd830dedd34c1e6a934d6a4c8ba7e84f` -> `4b7c37868141f02122d69d512b4475d65f330bc4` (interleaved autotuning & test suite expansion)
   - `4b7c37868141f02122d69d512b4475d65f330bc4` -> `10d6a97e25b69e0074b7431f12c53c71e5cc7775` (performance forensics & autotuner noise-band preference)
   - `10d6a97e25b69e0074b7431f12c53c71e5cc7775` -> `485ba1c2882ebf1090e680016f25a8703916abed` (autotuner selection proof & in-kernel speedup threshold, zero-copy output optimization, container block growth allocation tracking, injected-allocation regression test, Model C B=64 30-sample distribution, and three-round master verification protocol)
+  - `485ba1c2882ebf1090e680016f25a8703916abed` -> `65e823839c6d189cfb7dafc28fd2350b3866bc9e` (WDAC test DLL staging compatibility, tmp_path test isolation for differential suite, full 190 automated test matrix verification)
 - **Preserved Frozen Baseline:**
   - Branch `master` is frozen at tagged release `v1.0.0`.
   - Annotated tag `v1.0.0` points to commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032` (tag object `9bdc0c96df24b43b035ed241f5e7334ac60b4150`).
