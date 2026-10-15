@@ -738,7 +738,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
             }
         }
 
-        bool ensure_capacity(size_t required_bytes) noexcept {
+        bool ensure_capacity(size_t required_bytes, bool* did_allocate = nullptr) noexcept {
             if (required_bytes > std::numeric_limits<size_t>::max() - 63) return false;
             size_t alloc_bytes = ((required_bytes + 63) / 64) * 64;
             if (alloc_bytes == 0) alloc_bytes = 64;
@@ -762,6 +762,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
             alloc_count++;
             if (aligned_ptr) {
                 capacity_bytes = alloc_bytes;
+                if (did_allocate) *did_allocate = true;
                 return true;
             }
             return false;
@@ -853,21 +854,25 @@ bool test_aligned_arena_pool_and_reentrancy() {
             for (size_t i = 0; i < blocks.size(); ++i) {
                 if (!blocks[i].in_use) {
                     blocks[i].in_use = true;
-                    if (!blocks[i].ensure_capacity(required_bytes)) {
+                    bool did_alloc = false;
+                    if (!blocks[i].ensure_capacity(required_bytes, &did_alloc)) {
                         blocks[i].in_use = false;
                         return Lease{nullptr, 0, nullptr};
                     }
+                    if (did_alloc) total_allocations++;
                     return Lease{this, i, blocks[i].aligned_ptr};
                 }
             }
             blocks.emplace_back();
+            total_allocations++;
             size_t idx = blocks.size() - 1;
             blocks[idx].in_use = true;
-            if (!blocks[idx].ensure_capacity(required_bytes)) {
+            bool did_alloc = false;
+            if (!blocks[idx].ensure_capacity(required_bytes, &did_alloc)) {
                 blocks[idx].in_use = false;
                 return Lease{nullptr, 0, nullptr};
             }
-            total_allocations++;
+            if (did_alloc) total_allocations++;
             return Lease{this, idx, blocks[idx].aligned_ptr};
         }
     };
@@ -881,7 +886,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
         TEST_ASSERT(reinterpret_cast<uintptr_t>(l1.ptr) % 64 == 0, "Base pointer must be 64-byte aligned");
         TEST_ASSERT(pool.blocks.size() == 1, "Pool should have 1 block");
         TEST_ASSERT(pool.blocks[0].alloc_count == 1, "Warm-up allocates exactly once");
-        TEST_ASSERT(pool.total_allocations == 1, "Total allocations during warmup must be 1");
+        TEST_ASSERT(pool.total_allocations == 2, "Total allocations during warmup must be 2 (1 block lease + 1 payload)");
     } // l1 destructs here, releasing block 0
 
     // Phase 2: Steady-state dynamic batch inferences perform EXACTLY ZERO allocations
@@ -898,6 +903,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
                 "Steady-state inference across alternating batch sizes must perform ZERO allocations");
 
     // Phase 3: Test nested re-entrancy
+    size_t allocs_before_nested = pool.total_allocations;
     {
         auto outer = pool.acquire(32768);
         TEST_ASSERT(outer.ptr != nullptr, "Outer lease must succeed");
@@ -920,6 +926,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
     // Both outer and moved_inner out of scope
     TEST_ASSERT(pool.blocks[0].in_use == false, "Block 0 must be free after outer scope exit");
     TEST_ASSERT(pool.blocks[1].in_use == false, "Block 1 must be free after inner scope exit");
+    TEST_ASSERT(pool.total_allocations == allocs_before_nested + 2, "Nested lease must record pool container and payload allocation");
 
     // Phase 4: Injected allocation detection regression test
     // Confirms that if an unexpected allocation were made during the steady state, the test detects it

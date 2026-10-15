@@ -137,75 +137,74 @@ class Autotuner:
         best_latency = base_median
         selection_rationale = "Baseline candidate retained"
 
-        candidates_by_e2e = sorted(
-            verified_candidates,
-            key=lambda x: x[2].get("benchmark", {}).get("median_latency_us", float("inf"))
-            if x[2].get("benchmark")
-            else float("inf")
-        )
-        fastest_e2e_cand, fastest_e2e_rt, fastest_e2e_res = candidates_by_e2e[0]
-        fastest_e2e_lat = (
-            fastest_e2e_res.get("benchmark", {}).get("median_latency_us", base_median)
-            if fastest_e2e_res.get("benchmark")
-            else base_median
-        )
-        e2e_diff = base_median - fastest_e2e_lat
+        candidates_with_kernel = [
+            c for c in verified_candidates if c[2].get("in_kernel_latency_us") is not None
+        ]
 
-        is_micro_workload = (base_kernel is not None and base_kernel < 1.0)
-        is_e2e_noise = is_micro_workload or (e2e_diff <= max(2.0, base_iqr))
-
-        if not is_e2e_noise and e2e_diff > max(2.0, base_iqr):
-            best_candidate = fastest_e2e_cand
-            best_latency = fastest_e2e_lat
-            selection_rationale = f"Significant end-to-end latency reduction ({e2e_diff:.2f} us delta exceeds noise window)"
-        else:
-            candidates_with_kernel = [
-                c for c in verified_candidates if c[2].get("in_kernel_latency_us") is not None
+        if candidates_with_kernel and base_kernel and base_kernel > 0:
+            # Enforce that candidates must show genuine >= 5% in-kernel speedup over baseline
+            improving = [
+                c for c in candidates_with_kernel
+                if (base_kernel / c[2]["in_kernel_latency_us"]) >= 1.05
             ]
-            if candidates_with_kernel and base_kernel and base_kernel > 0:
-                improving = [
-                    c for c in candidates_with_kernel
-                    if (base_kernel / c[2]["in_kernel_latency_us"]) >= 1.05
+            if improving:
+                improving.sort(key=lambda x: x[2]["in_kernel_latency_us"])
+                fastest_k = improving[0][2]["in_kernel_latency_us"]
+
+                # Group candidates within 5% of the fastest candidate (tie band)
+                top_tier = [
+                    c for c in improving
+                    if (c[2]["in_kernel_latency_us"] <= fastest_k * 1.05)
                 ]
-                if improving:
-                    improving.sort(key=lambda x: x[2]["in_kernel_latency_us"])
-                    fastest_k = improving[0][2]["in_kernel_latency_us"]
 
-                    top_tier = [
-                        c for c in improving
-                        if (c[2]["in_kernel_latency_us"] <= fastest_k * 1.05)
-                    ]
+                def candidate_simplicity_rank(cand_tuple):
+                    cand, rt, res_entry = cand_tuple
+                    opt_score = 0 if cand.opt_level == "-O2" else 1
+                    tile_score = 0 if cand.tile_m is None else 1
+                    return (opt_score, tile_score, res_entry["in_kernel_latency_us"])
 
-                    def candidate_simplicity_rank(cand_tuple):
-                        cand, rt, res_entry = cand_tuple
-                        opt_score = 0 if cand.opt_level == "-O2" else 1
-                        tile_score = 0 if cand.tile_m is None else 1
-                        return (opt_score, tile_score, res_entry["in_kernel_latency_us"])
+                top_tier.sort(key=candidate_simplicity_rank)
+                best_cand_tuple = top_tier[0]
+                best_candidate = best_cand_tuple[0]
+                best_k_res = best_cand_tuple[2]
+                best_latency = (
+                    best_k_res.get("benchmark", {}).get("median_latency_us", base_median)
+                    if best_k_res.get("benchmark")
+                    else base_median
+                )
+                k_ratio = base_kernel / best_k_res["in_kernel_latency_us"]
 
-                    top_tier.sort(key=candidate_simplicity_rank)
-                    best_cand_tuple = top_tier[0]
-                    best_candidate = best_cand_tuple[0]
-                    best_k_res = best_cand_tuple[2]
-                    best_latency = (
-                        best_k_res.get("benchmark", {}).get("median_latency_us", base_median)
-                        if best_k_res.get("benchmark")
-                        else base_median
-                    )
-                    k_ratio = base_kernel / best_k_res["in_kernel_latency_us"]
+                simplicity_note = ""
+                if best_candidate.opt_level == "-O2":
+                    simplicity_note = "; simpler -O2 candidate selected over -O3 (no defensible -O3 advantage)"
 
-                    simplicity_note = ""
-                    if best_candidate.opt_level == "-O2":
-                        simplicity_note = "; simpler -O2 candidate selected over -O3 (no defensible -O3 advantage)"
-
-                    selection_rationale = (
-                        f"End-to-end differences within ctypes dispatch noise ({e2e_diff:.2f} us); "
-                        f"selected {best_candidate.candidate_id} ({best_candidate.opt_level}) based on genuine {k_ratio:.2f}x in-kernel speedup "
-                        f"({best_k_res['in_kernel_latency_us']*1000:.1f} ns vs {base_kernel*1000:.1f} ns baseline){simplicity_note}"
-                    )
-                else:
-                    best_candidate = baseline_cand
-                    best_latency = base_median
-                    selection_rationale = "All candidate in-kernel differences within measurement noise (<5% speedup); simpler baseline preferred"
+                selection_rationale = (
+                    f"selected {best_candidate.candidate_id} ({best_candidate.opt_level}) based on genuine {k_ratio:.2f}x in-kernel speedup "
+                    f"({best_k_res['in_kernel_latency_us']*1000:.1f} ns vs {base_kernel*1000:.1f} ns baseline){simplicity_note}"
+                )
+            else:
+                best_candidate = baseline_cand
+                best_latency = base_median
+                selection_rationale = "All candidate in-kernel differences within measurement noise (<5% speedup) or slower; simpler baseline preferred"
+        else:
+            # Fallback when in-kernel timings are not available (e.g. mock runtimes)
+            candidates_by_e2e = sorted(
+                verified_candidates,
+                key=lambda x: x[2].get("benchmark", {}).get("median_latency_us", float("inf"))
+                if x[2].get("benchmark")
+                else float("inf")
+            )
+            fastest_e2e_cand, fastest_e2e_rt, fastest_e2e_res = candidates_by_e2e[0]
+            fastest_e2e_lat = (
+                fastest_e2e_res.get("benchmark", {}).get("median_latency_us", base_median)
+                if fastest_e2e_res.get("benchmark")
+                else base_median
+            )
+            e2e_diff = base_median - fastest_e2e_lat
+            if base_median > 0 and (base_median / fastest_e2e_lat) >= 1.05 and e2e_diff > max(2.0, base_iqr):
+                best_candidate = fastest_e2e_cand
+                best_latency = fastest_e2e_lat
+                selection_rationale = f"Significant end-to-end latency reduction ({e2e_diff:.2f} us delta exceeds noise window)"
             else:
                 best_candidate = baseline_cand
                 best_latency = base_median
@@ -266,8 +265,10 @@ class Autotuner:
             ref_dict = graph.evaluate({graph.inputs[0]: tin})
             test_ground_truths.append(ref_dict[graph.outputs[0]])
 
-        # Path to C++ compiler engine binary
-        engine_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+        bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
+        engine_exe = os.path.join(bin_dir, "forgetune_test_engine.exe")
+        if not os.path.isfile(engine_exe):
+            engine_exe = os.path.join(bin_dir, "forgetune_engine.exe")
 
         import subprocess
 

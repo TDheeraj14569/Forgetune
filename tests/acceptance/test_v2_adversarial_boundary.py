@@ -10,6 +10,7 @@ Implements Round 2 Verification:
 
 import os
 import ctypes
+import concurrent.futures
 import numpy as np
 import pytest
 import torch
@@ -228,6 +229,44 @@ def test_zero_allocation_inference_sequence(compiled_dynamic_model):
     # Prove zero native allocations occurred during steady state across all dynamic batch sizes
     steady_state_allocs = compiled.get_arena_alloc_count()
     assert steady_state_allocs == 0, f"Expected 0 steady-state arena allocations, got {steady_state_allocs}"
+
+
+def test_steady_state_injected_allocation_detection(compiled_dynamic_model):
+    """
+    Verifies that the allocation monitoring instrumentation strictly detects any unexpected
+    native allocation during steady state, and confirms thread-local pool isolation.
+    """
+    compiled, pt_model = compiled_dynamic_model
+    x1 = torch.randn(1, 8)
+    _ = compiled.run(x1)
+    compiled.reset_arena_alloc_count()
+    assert compiled.get_arena_alloc_count() == 0
+
+    # Normal steady-state call performs 0 allocations
+    _ = compiled.run(x1)
+    assert compiled.get_arena_alloc_count() == 0
+
+    # Test that allocations on a new thread are detected by the monitor
+    def worker():
+        compiled.reset_arena_alloc_count()
+        assert compiled.get_arena_alloc_count() == 0
+        # Cold inference on new thread forces block/payload allocation
+        _ = compiled.run(torch.randn(2, 8))
+        allocs = compiled.get_arena_alloc_count()
+        assert allocs > 0, "Cold thread-local pool must record initial container and payload allocation"
+        # Reset and verify steady-state zero allocation on this worker thread
+        compiled.reset_arena_alloc_count()
+        _ = compiled.run(torch.randn(4, 8))
+        assert compiled.get_arena_alloc_count() == 0, "Steady state on worker thread must be zero allocation"
+        return allocs
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(worker)
+        worker_allocs = future.result()
+        assert worker_allocs > 0, "Instrumentation must detect initial heap allocation on cold thread"
+
+    # Main thread allocation count remains strictly zero
+    assert compiled.get_arena_alloc_count() == 0
 
 
 def test_c_abi_explicit_v1_and_v2_on_all_models(compiled_dynamic_model, compiled_static_model):

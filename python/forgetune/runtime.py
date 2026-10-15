@@ -40,7 +40,7 @@ class NativeRuntime:
             temp_dir = os.path.join(tempfile.gettempdir(), "forgetune_runtime")
             os.makedirs(temp_dir, exist_ok=True)
             import uuid
-            unique_name = f"{os.path.splitext(os.path.basename(self.original_dll_path))[0]}_{uuid.uuid4().hex[:8]}.dll"
+            unique_name = f"forgetune_test_{os.path.splitext(os.path.basename(self.original_dll_path))[0]}_{uuid.uuid4().hex[:8]}.dll"
             staged_path = os.path.join(temp_dir, unique_name)
             shutil.copy2(self.original_dll_path, staged_path)
             # Remove Zone.Identifier NTFS alternate stream if present to unblock without slow PowerShell process spawn
@@ -200,7 +200,7 @@ class NativeRuntime:
                 input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
             output_shape = (actual_batch, *self.expected_output_shape[1:])
-            output_tensor = np.zeros(output_shape, dtype=np.float32)
+            output_tensor = np.empty(output_shape, dtype=np.float32)
 
             inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
             out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
@@ -236,7 +236,7 @@ class NativeRuntime:
                 input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
             # Allocate output buffer
-            output_tensor = np.zeros(self.expected_output_shape, dtype=np.float32)
+            output_tensor = np.empty(self.expected_output_shape, dtype=np.float32)
 
             inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
             out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
@@ -294,7 +294,7 @@ class NativeRuntime:
         if input_tensor.dtype != np.float32 or not input_tensor.flags["C_CONTIGUOUS"]:
             input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
-        output_tensor = np.zeros(output_shape, dtype=np.float32)
+        output_tensor = np.empty(output_shape, dtype=np.float32)
         inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
         out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 

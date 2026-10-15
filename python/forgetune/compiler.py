@@ -16,6 +16,14 @@ from .autotuner import Autotuner, KernelCandidate
 from .manifest import create_manifest, write_atomic_json, read_manifest
 from .benchmark import benchmark_function
 
+def get_engine_executable() -> str:
+    bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
+    for name in ("forgetune_test_engine.exe", "forgetune_engine.exe"):
+        cand = os.path.join(bin_dir, name)
+        if os.path.isfile(cand):
+            return cand
+    return os.path.join(bin_dir, "forgetune_engine.exe")
+
 class CompiledModel:
     def __init__(
         self,
@@ -150,7 +158,7 @@ def compile_model(
             cand_json_path = os.path.join(cand_dir, "graph.json")
             with open(cand_json_path, "w", encoding="utf-8") as f:
                 f.write(ir_graph.to_json())
-            engine_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+            engine_exe = get_engine_executable()
             import subprocess
             cmd = [
                 engine_exe, "--compile", cand_json_path, "-o", final_cpp_path,
@@ -189,7 +197,7 @@ def compile_model(
         with open(final_json_path, "w", encoding="utf-8") as f:
             f.write(ir_graph.to_json())
 
-        engine_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+        engine_exe = get_engine_executable()
         import subprocess
         cmd = [
             engine_exe, "--compile", final_json_path, "-o", final_cpp_path,

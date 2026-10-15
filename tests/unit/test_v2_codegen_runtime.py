@@ -20,7 +20,8 @@ from forgetune.runtime import NativeRuntime
 from forgetune.errors import InvalidShapeError, RuntimeError
 import forgetune._forgetune_cpp as cpp
 
-ENGINE_EXE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+_test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
+ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
 
 @pytest.fixture(scope="module")
 def dynamic_mlp_runtime(tmp_path_factory):

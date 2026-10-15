@@ -14,7 +14,8 @@ from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
 
-ENGINE_EXE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+_test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
+ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
 
 # Difficult float32 values including small magnitudes, subnormals, boundary values, and negative zero
 TEST_FLOAT_VALUES = [

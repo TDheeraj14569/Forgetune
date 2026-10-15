@@ -190,6 +190,7 @@ void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
         << "            }\n"
         << "        }\n"
         << "        blocks_.emplace_back();\n"
+        << "        total_allocations_++;\n"
         << "        size_t idx = blocks_.size() - 1;\n"
         << "        blocks_[idx].in_use = true;\n"
         << "        bool did_alloc = false;\n"

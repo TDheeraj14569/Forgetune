@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-15 03:07:21
+**Date:** 2026-10-15 14:01:46
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -91,4 +91,4 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 2. **Heap Alignment Guarantee (D1):** Standard `std::vector` aligns the stack control block, not heap storage. ForgeTune v2.0 allocates intermediate arena buffers via `_aligned_malloc(alloc_bytes, 64)` (MSVC/Windows) or `posix_memalign` (POSIX), guaranteeing that base pointers and all 64-byte planned offsets are strictly 64-byte aligned to cache lines (`ptr % 64 == 0`).
 3. **Thread-Safety & Re-Entrant Leasing (D2):** Storage is managed by `AlignedArenaPool` with thread-local pool instances and RAII `AlignedArenaPool::Lease`. Concurrent OS threads execute in total isolation without lock contention. Furthermore, nested or recursive same-thread calls safely lease independent arena blocks from the pool, eliminating same-thread re-entrancy memory corruption.
 4. **Stack Overflow Mitigation:** On Windows environments with 1MB default thread stack limits, large convolutional feature maps at $B=128$ (exceeding 900 KB) would trigger `STATUS_STACK_OVERFLOW`. The heap-backed `AlignedArenaPool` completely eliminates stack allocation risks.
-5. **Zero Heap Allocation Post-Warmup (D3):** Sizing the arena pool to $B_{max}=128$ capacity during initial warm-up ensures that all subsequent dynamic batch invocations ($B \in [1, 128]$) perform zero heap allocations, zero buffer resizing, and deterministic execution latency.
+5. **Zero Arena Payload Allocations and Zero Pool Growth during Warmed Steady-State Inference (D3):** Sizing the arena pool to $B_{max}=128$ capacity during initial warm-up ensures that all subsequent dynamic batch invocations ($B \in [1, 128]$) perform zero arena payload allocations and zero pool container growth during steady-state execution.

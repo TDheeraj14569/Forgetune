@@ -20,7 +20,8 @@ import numpy as np
 from forgetune.graph_adapter import Graph, Node
 import forgetune._forgetune_cpp as cpp
 
-ENGINE_EXE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+_test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
+ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
 
 @pytest.fixture
 def temp_opt_dir():

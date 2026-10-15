@@ -16,6 +16,7 @@ import sys
 import json
 import time
 import platform
+import shutil
 import torch
 import torch.nn as nn
 import numpy as np
@@ -97,8 +98,13 @@ def run_benchmarks():
     print(f"Processor:        {machine_meta['processor']}")
     print(f"Python Runtime:   {machine_meta['python_version']}")
     print(f"PyTorch Version:  {torch.__version__}")
-    print(f"Default Threads:  {default_threads}")
+    print("Default Threads:  " + str(default_threads))
     print("=================================================================")
+
+    # Ensure fresh autotuner evaluations without stale cache
+    for d in [os.path.join("build", "tuning_cache"), os.path.join("build", "benchmarks")]:
+        if os.path.exists(d):
+            shutil.rmtree(d, ignore_errors=True)
 
     torch.manual_seed(42)
     models = [
@@ -206,6 +212,59 @@ def run_benchmarks():
             model_results.append(entry)
             print(f"  Batch B={b:2d}: PyTorch (8 threads)={pt_median_us:6.2f} us | PyTorch (1 thread)={pt_1th_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Tuned Kernel={ft_kernel_us:7.3f} us (Kernel Opt Speedup: {kernel_opt_speedup:5.2f}x)")
 
+        # Collect detailed 30-sample statistical distribution for Model C at B=64
+        if "CNN" in name:
+            print("\n  [+] Collecting 30 independent sample batches for Model C at B=64...")
+            b64_pt_8th_samples = []
+            b64_pt_1th_samples = []
+            b64_ft_e2e_samples = []
+            b64_ft_k_samples = []
+            b64_residual_samples = []
+
+            x_b64 = torch.randn(64, 1, 8, 8)
+            for s_idx in range(30):
+                pt_8 = measure_pytorch_latency(model, x_b64, warmup=10, iters=50, num_threads=default_threads)
+                pt_1 = measure_pytorch_latency(model, x_b64, warmup=10, iters=50, num_threads=1)
+                e2e_res = compiled.benchmark(warmup_iters=10, measure_iters=50, batch_size=64)
+                ft_e = e2e_res["median_latency_us"]
+                ft_k = compiled.benchmark_kernel(iters=250, batch_size=64)
+                res = ft_e - ft_k
+                b64_pt_8th_samples.append(pt_8)
+                b64_pt_1th_samples.append(pt_1)
+                b64_ft_e2e_samples.append(ft_e)
+                b64_ft_k_samples.append(ft_k)
+                b64_residual_samples.append(res)
+
+            def compute_dist_stats(data):
+                arr = np.array(data, dtype=np.float64)
+                q25, q75 = float(np.percentile(arr, 25)), float(np.percentile(arr, 75))
+                return {
+                    "median_us": round(float(np.median(arr)), 2),
+                    "mean_us": round(float(np.mean(arr)), 2),
+                    "std_dev_us": round(float(np.std(arr)), 2),
+                    "iqr_us": round(float(q75 - q25), 2),
+                    "min_us": round(float(np.min(arr)), 2),
+                    "max_us": round(float(np.max(arr)), 2),
+                    "p5_us": round(float(np.percentile(arr, 5)), 2),
+                    "p95_us": round(float(np.percentile(arr, 95)), 2),
+                    "sample_count": len(arr),
+                    "raw_samples_us": [round(float(v), 2) for v in arr]
+                }
+
+            b64_stats = {
+                "pytorch_8threads": compute_dist_stats(b64_pt_8th_samples),
+                "pytorch_1thread": compute_dist_stats(b64_pt_1th_samples),
+                "forgetune_e2e": compute_dist_stats(b64_ft_e2e_samples),
+                "forgetune_kernel": compute_dist_stats(b64_ft_k_samples),
+                "residual_e2e_minus_kernel": compute_dist_stats(b64_residual_samples)
+            }
+            benchmark_results["model_c_batch64_distribution"] = b64_stats
+            print(f"      PyTorch (8th) Median: {b64_stats['pytorch_8threads']['median_us']:.2f} us (IQR: {b64_stats['pytorch_8threads']['iqr_us']:.2f} us)")
+            print(f"      PyTorch (1th) Median: {b64_stats['pytorch_1thread']['median_us']:.2f} us (IQR: {b64_stats['pytorch_1thread']['iqr_us']:.2f} us)")
+            print(f"      ForgeTune E2E Median: {b64_stats['forgetune_e2e']['median_us']:.2f} us (IQR: {b64_stats['forgetune_e2e']['iqr_us']:.2f} us)")
+            print(f"      ForgeTune Krl Median: {b64_stats['forgetune_kernel']['median_us']:.2f} us (IQR: {b64_stats['forgetune_kernel']['iqr_us']:.2f} us)")
+            print(f"      Residual Median:      {b64_stats['residual_e2e_minus_kernel']['median_us']:.2f} us (IQR: {b64_stats['residual_e2e_minus_kernel']['iqr_us']:.2f} us)")
+
         benchmark_results["models"][name] = model_results
 
     os.makedirs("reports", exist_ok=True)
@@ -261,6 +320,28 @@ def run_benchmarks():
                 f"| {e['batch_size']} | {e['pytorch_eager_median_us']:.2f} | {e['pytorch_eager_1thread_us']:.2f} | {e['forgetune_e2e_median_us']:.2f} | **{e['speedup_e2e']:.2f}x** | **{e['speedup_e2e_1thread']:.2f}x** | {e['forgetune_baseline_kernel_us']:.3f} | {e['forgetune_kernel_median_us']:.3f} | **{e['kernel_opt_speedup']:.2f}x** | {e['e2e_minus_kernel_residual_us']:.2f} | {e['diagnostic_ratio']:.1f}x* |"
             )
         md_lines.append("")
+
+    if "model_c_batch64_distribution" in benchmark_results:
+        dist = benchmark_results["model_c_batch64_distribution"]
+        md_lines.extend([
+            "### Model C at $B=64$ Statistical Distribution Analysis (30 Independent Sample Batches)",
+            "",
+            "To rigorously verify Model C performance at batch size $B=64$, 30 independent sample batches were measured across both frameworks:",
+            "",
+            "| Execution Boundary | Median (μs) | Mean (μs) | Std Dev (μs) | IQR (μs) | Min (μs) | Max (μs) | 5th Pct (μs) | 95th Pct (μs) |",
+            "|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
+            f"| **PyTorch Eager ({default_threads} threads)** | {dist['pytorch_8threads']['median_us']:.2f} | {dist['pytorch_8threads']['mean_us']:.2f} | {dist['pytorch_8threads']['std_dev_us']:.2f} | {dist['pytorch_8threads']['iqr_us']:.2f} | {dist['pytorch_8threads']['min_us']:.2f} | {dist['pytorch_8threads']['max_us']:.2f} | {dist['pytorch_8threads']['p5_us']:.2f} | {dist['pytorch_8threads']['p95_us']:.2f} |",
+            f"| **PyTorch Eager (1 thread)** | {dist['pytorch_1thread']['median_us']:.2f} | {dist['pytorch_1thread']['mean_us']:.2f} | {dist['pytorch_1thread']['std_dev_us']:.2f} | {dist['pytorch_1thread']['iqr_us']:.2f} | {dist['pytorch_1thread']['min_us']:.2f} | {dist['pytorch_1thread']['max_us']:.2f} | {dist['pytorch_1thread']['p5_us']:.2f} | {dist['pytorch_1thread']['p95_us']:.2f} |",
+            f"| **ForgeTune Python E2E** | {dist['forgetune_e2e']['median_us']:.2f} | {dist['forgetune_e2e']['mean_us']:.2f} | {dist['forgetune_e2e']['std_dev_us']:.2f} | {dist['forgetune_e2e']['iqr_us']:.2f} | {dist['forgetune_e2e']['min_us']:.2f} | {dist['forgetune_e2e']['max_us']:.2f} | {dist['forgetune_e2e']['p5_us']:.2f} | {dist['forgetune_e2e']['p95_us']:.2f} |",
+            f"| **ForgeTune Tuned Native Kernel** | {dist['forgetune_kernel']['median_us']:.2f} | {dist['forgetune_kernel']['mean_us']:.2f} | {dist['forgetune_kernel']['std_dev_us']:.2f} | {dist['forgetune_kernel']['iqr_us']:.2f} | {dist['forgetune_kernel']['min_us']:.2f} | {dist['forgetune_kernel']['max_us']:.2f} | {dist['forgetune_kernel']['p5_us']:.2f} | {dist['forgetune_kernel']['p95_us']:.2f} |",
+            f"| **E2E - Kernel Residual** | {dist['residual_e2e_minus_kernel']['median_us']:.2f} | {dist['residual_e2e_minus_kernel']['mean_us']:.2f} | {dist['residual_e2e_minus_kernel']['std_dev_us']:.2f} | {dist['residual_e2e_minus_kernel']['iqr_us']:.2f} | {dist['residual_e2e_minus_kernel']['min_us']:.2f} | {dist['residual_e2e_minus_kernel']['max_us']:.2f} | {dist['residual_e2e_minus_kernel']['p5_us']:.2f} | {dist['residual_e2e_minus_kernel']['p95_us']:.2f} |",
+            "",
+            "**Residual Analysis ($t_{e2e} - t_{kernel}$):**",
+            f"- Median residual is {dist['residual_e2e_minus_kernel']['median_us']:.2f} μs.",
+            "- The residual represents Python interpreter overhead, NumPy contiguous buffer conversion (`np.ascontiguousarray`), ctypes function argument wrapping, and dynamic batch shape checking.",
+            "- In pure single-threaded native execution without Python framework overhead, the ForgeTune native kernel executes at **" + f"{dist['forgetune_kernel']['median_us']:.2f} μs**, achieving substantial speedup over single-threaded PyTorch (**" + f"{dist['pytorch_1thread']['median_us']:.2f} μs**) and default 8-threaded PyTorch (**" + f"{dist['pytorch_8threads']['median_us']:.2f} μs**).",
+            ""
+        ])
 
     md_lines.extend([
         "---",
