@@ -12,8 +12,8 @@
 
 ### A.1 Exact Git Fingerprints
 - **Active Release Branch:** `v2.0-dev`
-- **Current Verified Commit Hash:** `8afb9db9d95f79c76153abded8f0ced5ce6caa90`
-- **Current Verified Tree Fingerprint:** `ca72bc53542db0cee3b3422f9372b8f8895c8025`
+- **Current Verified Commit Hash:** `2f93f5355e7246c6d3aaf470d24b866cf9415f87`
+- **Current Verified Tree Fingerprint:** `701694bcfc3c4745b6e888a2399274709a6aeb1d`
 - **Verification Baseline Commit Hash:** `fa43745a99e0bbdcb1a4e5d97414c74733f02d43`
 - **Verification Baseline Tree Fingerprint:** `dca8e354c610ffe22847a485effc0657a8f0ef56`
 - **Git Reconciliation History:**
