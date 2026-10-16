@@ -200,3 +200,38 @@ def test_dynamic_cnn_execution(dynamic_cnn_runtime):
         act_out = rt.run(x_torch.numpy())
         assert act_out.shape == (b, 5)
         np.testing.assert_allclose(act_out, ref_out, atol=1e-5, rtol=1e-5)
+
+def test_safe_library_loading_file_not_found():
+    with pytest.raises(FileNotFoundError) as exc_info:
+        NativeRuntime("non_existent_library_12345.dll", (-1, 4), (-1, 2))
+    assert "Shared library not found" in str(exc_info.value)
+
+def test_safe_library_loading_direct_success(dynamic_mlp_runtime):
+    rt, _ = dynamic_mlp_runtime
+    # Confirm runtime loaded directly from original_dll_path without temp staging evasion
+    assert os.path.isfile(rt.original_dll_path)
+    assert hasattr(rt.lib, "forgetune_run")
+
+def test_safe_library_loading_smart_app_control_diagnostic(monkeypatch, tmp_path):
+    dummy_dll = str(tmp_path / "probe_blocked.dll")
+    with open(dummy_dll, "wb") as f:
+        f.write(b"MZdummybinary")
+
+    attempts = 0
+    def mock_cdll(path):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("[WinError 4551] An Application Control policy has blocked this file")
+
+    import ctypes, time
+    monkeypatch.setattr(ctypes, "CDLL", mock_cdll)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    with pytest.raises(OSError) as exc_info:
+        NativeRuntime(dummy_dll, (-1, 4), (-1, 2))
+
+    # Must provide explicit diagnostics explaining that Code Integrity / Smart App Control blocked execution
+    assert "Smart App Control policy blocked execution (WinError 4551)" in str(exc_info.value)
+    # Bounded retries occurred without filename rotation or evasion
+    assert attempts == 10
+

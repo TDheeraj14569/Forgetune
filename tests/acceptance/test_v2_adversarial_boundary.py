@@ -227,26 +227,46 @@ def test_zero_allocation_inference_sequence(compiled_dynamic_model):
         np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
 
     # Prove zero native allocations occurred during steady state across all dynamic batch sizes
+    # Prove zero native allocations occurred during steady state across all dynamic batch sizes
     steady_state_allocs = compiled.get_arena_alloc_count()
     assert steady_state_allocs == 0, f"Expected 0 steady-state arena allocations, got {steady_state_allocs}"
+    assert compiled.get_arena_payload_alloc_count() == 0, "Payload allocation count must be 0"
+    assert compiled.get_arena_block_insertion_count() == 0, "Block insertion count must be 0"
 
 
 def test_steady_state_injected_allocation_detection(compiled_dynamic_model):
     """
     Verifies that the allocation monitoring instrumentation strictly detects any unexpected
-    native allocation during steady state, and confirms thread-local pool isolation.
+    native allocation during steady state, confirms active injection detection, and confirms thread-local pool isolation.
     """
     compiled, pt_model = compiled_dynamic_model
     x1 = torch.randn(1, 8)
     _ = compiled.run(x1)
     compiled.reset_arena_alloc_count()
     assert compiled.get_arena_alloc_count() == 0
+    assert compiled.get_arena_payload_alloc_count() == 0
+    assert compiled.get_arena_block_insertion_count() == 0
 
     # Normal steady-state call performs 0 allocations
     _ = compiled.run(x1)
     assert compiled.get_arena_alloc_count() == 0
 
-    # Test that allocations on a new thread are detected by the monitor
+    # 1. Active Native Injection Detection:
+    # Explicitly trigger an allocation in the native arena pool and verify the monitor catches it immediately
+    compiled.inject_test_arena_alloc()
+    injected_allocs = compiled.get_arena_alloc_count()
+    assert injected_allocs > 0, "Native instrumentation must detect active test injection"
+    assert compiled.get_arena_payload_alloc_count() > 0, "Payload allocation counter must record injection"
+
+    # Reset after injection
+    compiled.reset_arena_alloc_count()
+    assert compiled.get_arena_alloc_count() == 0
+
+    # Steady-state inference after reset remains zero-allocation
+    _ = compiled.run(x1)
+    assert compiled.get_arena_alloc_count() == 0
+
+    # 2. Cold Thread Isolation Detection:
     def worker():
         compiled.reset_arena_alloc_count()
         assert compiled.get_arena_alloc_count() == 0

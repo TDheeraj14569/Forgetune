@@ -87,12 +87,24 @@ class CompiledModel:
         return self._runtime.benchmark_kernel(dummy_input, iters)
 
     def get_arena_alloc_count(self) -> int:
-        """Returns total native allocations performed by the arena pool."""
+        """Returns total native allocations (payload + block insertions) performed by the arena pool."""
         return self._runtime.get_arena_alloc_count()
 
+    def get_arena_payload_alloc_count(self) -> int:
+        """Returns total payload buffer allocations performed by the arena pool."""
+        return self._runtime.get_arena_payload_alloc_count()
+
+    def get_arena_block_insertion_count(self) -> int:
+        """Returns total block container growth insertions performed by the arena pool."""
+        return self._runtime.get_arena_block_insertion_count()
+
     def reset_arena_alloc_count(self) -> None:
-        """Resets the arena allocation counter."""
+        """Resets the arena allocation counters."""
         self._runtime.reset_arena_alloc_count()
+
+    def inject_test_arena_alloc(self) -> None:
+        """Forces an allocation in the native arena pool for regression testing."""
+        self._runtime.inject_test_arena_alloc()
 
 
 def compile_model(

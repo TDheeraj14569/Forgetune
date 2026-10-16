@@ -167,17 +167,6 @@ class NativeCompiler:
                 command=cmd
             )
 
-        # On Windows, unblock the file if PowerShell is available
-        if sys.platform == "win32":
-            try:
-                subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", f"Unblock-File -LiteralPath '{output_dll_path}'"],
-                    capture_output=True,
-                    timeout=5,
-                    shell=False
-                )
-            except Exception:
-                pass
 
         return {
             "success": True,

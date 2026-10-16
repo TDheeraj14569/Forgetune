@@ -95,11 +95,15 @@ class Autotuner:
 
     def _compute_cache_key(self, graph_json: str, input_shape: Tuple[int, ...]) -> str:
         h = hashlib.sha256()
-        h.update(b"forgetune_v4_defensible_decision_")
+        h.update(b"forgetune_v5_defensible_provenance_2.0_")
         h.update(graph_json.encode("utf-8"))
         h.update(str(input_shape).encode("utf-8"))
         compiler_info = self.compiler.get_compiler_info()
-        h.update(compiler_info.get("version", "").encode("utf-8"))
+        h.update(str(compiler_info.get("type", "")).encode("utf-8"))
+        h.update(str(compiler_info.get("version", "")).encode("utf-8"))
+        machine_meta = get_machine_metadata()
+        h.update(str(machine_meta.get("processor", "")).encode("utf-8"))
+        h.update(str(machine_meta.get("machine", "")).encode("utf-8"))
         return h.hexdigest()
 
     def select_best_candidate(
@@ -363,13 +367,27 @@ class Autotuner:
             for _ in range(25):
                 rt.run(example_input)
 
-        # 2. Pure in-kernel isolated execution timing (3 interleaved rounds x 10,000 iterations inside C++ via steady_clock)
+        # 2. Pure in-kernel isolated execution timing (3 interleaved rounds inside C++ via steady_clock)
+        is_dyn = graph.has_dynamic_batch()
+        if is_dyn:
+            eval_batches = [1, 4, 16, 64]
+            eval_inputs = [
+                np.ascontiguousarray(np.tile(example_input[:1], (b, *([1] * (example_input.ndim - 1)))))
+                for b in eval_batches
+            ]
+            k_iters = 2000
+        else:
+            eval_inputs = [example_input]
+            k_iters = 10000
+
         k_samples = {cand.candidate_id: [] for cand, _, _ in verified_candidates}
         for _ in range(3):
             for cand, rt, _ in verified_candidates:
                 try:
-                    k_lat = rt.benchmark_kernel(example_input, iters=10000)
-                    k_samples[cand.candidate_id].append(k_lat)
+                    total_k_lat = 0.0
+                    for inp in eval_inputs:
+                        total_k_lat += rt.benchmark_kernel(inp, iters=k_iters)
+                    k_samples[cand.candidate_id].append(total_k_lat)
                 except Exception:
                     pass
 

@@ -255,7 +255,7 @@ def main():
         "",
         "| Verification Round | Scope | Checks Executed | Status | Evidence |",
         "|---|---|:---:|:---:|---|",
-        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (177 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
+        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (180 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
         "| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), contract rejection (B=0, 129), Dual ABI wrappers, Benchmarks, Memory reports | **PASS** | `test_v2_adversarial_boundary.py` (11 tests), `V2_BENCHMARK_REPORT.md`, `V2_MEMORY_REPORT.md` |",
         "| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun, full pytest suite rerun, acceptance rerun, Models A/B/C rerun, 65,536 float bitwise comparison | **PASS** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |",
         "",

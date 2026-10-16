@@ -34,48 +34,36 @@ class NativeRuntime:
         if not os.path.isfile(self.original_dll_path):
             raise FileNotFoundError(f"Shared library not found: {self.original_dll_path}")
 
-        # On Windows, always copy the DLL to a unique temporary file in %TEMP%
-        # with prefix forgetune_test_ to comply with Smart App Control / WDAC policies.
-        if sys.platform == "win32":
-            temp_dir = os.path.join(tempfile.gettempdir(), "forgetune_runtime")
-            os.makedirs(temp_dir, exist_ok=True)
-            import uuid
+        # Attempt direct library loading.
+        # On Windows, if a transient WinError 4551 occurs during asynchronous security scan,
+        # perform a small, bounded retry on the exact same artifact.
+        # Security metadata is preserved and no evasion techniques (such as stream deletion
+        # or randomized filename rotation) are performed.
+        max_attempts = 10 if sys.platform == "win32" else 1
+        last_error = None
 
-            def make_staged():
-                uid = uuid.uuid4().hex[:8]
-                uname = f"forgetune_test_{os.path.splitext(os.path.basename(self.original_dll_path))[0]}_{uid}.dll"
-                spath = os.path.join(temp_dir, uname)
-                shutil.copy2(self.original_dll_path, spath)
-                try:
-                    z = spath + ":Zone.Identifier"
-                    if os.path.exists(z):
-                        os.remove(z)
-                except Exception:
-                    pass
-                return spath
+        for attempt in range(max_attempts):
+            try:
+                return ctypes.CDLL(self.original_dll_path)
+            except OSError as e:
+                last_error = e
+                # Check for documented transient security scan evaluation delay
+                if sys.platform == "win32" and "4551" in str(e) and attempt < max_attempts - 1:
+                    time.sleep(min(0.25 * (attempt + 1), 1.0))
+                    continue
+                # If error is not transient or retries exhausted, diagnose and raise
+                break
 
-            staged_path = make_staged()
+        if last_error is not None:
+            if sys.platform == "win32" and "4551" in str(last_error):
+                raise OSError(
+                    f"Failed to load shared library '{self.original_dll_path}': "
+                    f"Windows Application Control / Smart App Control policy blocked execution (WinError 4551). "
+                    f"The binary did not meet system code integrity signing or reputation requirements."
+                ) from last_error
+            raise last_error
 
-            # Windows Defender / SmartScreen evaluates newly created binaries asynchronously.
-            # If WinError 4551 (STATUS_NEEDS_REMEDIATION) occurs, retry with backoff and re-stage if needed.
-            for attempt in range(35):
-                try:
-                    return ctypes.CDLL(staged_path)
-                except OSError as e:
-                    if "4551" in str(e) and attempt < 34:
-                        if attempt in (3, 10, 20):
-                            staged_path = make_staged()
-                        time.sleep(0.1 * min(attempt + 1, 10))
-                        continue
-                    # Fallback: try loading the original DLL directly
-                    try:
-                        return ctypes.CDLL(self.original_dll_path)
-                    except Exception:
-                        pass
-                    raise
-            return ctypes.CDLL(staged_path)
-        else:
-            return ctypes.CDLL(self.original_dll_path)
+        raise RuntimeError(f"Unexpected failure loading shared library '{self.original_dll_path}'")
 
     def _init_entry_point(self) -> None:
         if not hasattr(self.lib, "forgetune_run"):
@@ -96,11 +84,12 @@ class NativeRuntime:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 
         if self.is_dynamic:
+            self._output_shape_tail = tuple(self.expected_output_shape[1:])
             self.run_dynamic_fn = self.lib.forgetune_run
             self.run_dynamic_fn.argtypes = [
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t,
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t,
                 ctypes.c_int64
             ]
@@ -117,18 +106,18 @@ class NativeRuntime:
             if hasattr(self.lib, "forgetune_run_v1"):
                 self.run_v1_fn = self.lib.forgetune_run_v1
                 self.run_v1_fn.argtypes = [
-                    ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_void_p,
                     ctypes.c_size_t,
-                    ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_void_p,
                     ctypes.c_size_t
                 ]
                 self.run_v1_fn.restype = ctypes.c_int
         else:
             self.run_static_fn = self.lib.forgetune_run
             self.run_static_fn.argtypes = [
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t,
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t
             ]
             self.run_static_fn.restype = ctypes.c_int
@@ -144,9 +133,9 @@ class NativeRuntime:
             if hasattr(self.lib, "forgetune_run_v2"):
                 self.run_v2_fn = self.lib.forgetune_run_v2
                 self.run_v2_fn.argtypes = [
-                    ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_void_p,
                     ctypes.c_size_t,
-                    ctypes.POINTER(ctypes.c_float),
+                    ctypes.c_void_p,
                     ctypes.c_size_t,
                     ctypes.c_int64
                 ]
@@ -155,9 +144,9 @@ class NativeRuntime:
         if hasattr(self.lib, "forgetune_benchmark_kernel"):
             self.benchmark_fn = self.lib.forgetune_benchmark_kernel
             self.benchmark_fn.argtypes = [
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t,
-                ctypes.POINTER(ctypes.c_float),
+                ctypes.c_void_p,
                 ctypes.c_size_t,
                 ctypes.c_int
             ]
@@ -197,16 +186,13 @@ class NativeRuntime:
             if input_tensor.dtype != np.float32 or not input_tensor.flags["C_CONTIGUOUS"]:
                 input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
-            output_shape = (actual_batch, *self.expected_output_shape[1:])
+            output_shape = (actual_batch, *self._output_shape_tail)
             output_tensor = np.empty(output_shape, dtype=np.float32)
 
-            inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-
             status = self.run_dynamic_fn(
-                inp_ptr,
+                input_tensor.ctypes.data,
                 int(input_tensor.size),
-                out_ptr,
+                output_tensor.ctypes.data,
                 int(output_tensor.size),
                 actual_batch
             )
@@ -236,14 +222,11 @@ class NativeRuntime:
             # Allocate output buffer
             output_tensor = np.empty(self.expected_output_shape, dtype=np.float32)
 
-            inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-
             # Execute native function
             status = self.run_static_fn(
-                inp_ptr,
+                input_tensor.ctypes.data,
                 self.total_input_count,
-                out_ptr,
+                output_tensor.ctypes.data,
                 self.total_output_count
             )
 
@@ -281,7 +264,7 @@ class NativeRuntime:
                 raise InvalidShapeError(
                     f"Dynamic batch size {actual_batch} out of valid range [1, {self.max_batch_size}]"
                 )
-            output_shape = (actual_batch, *self.expected_output_shape[1:])
+            output_shape = (actual_batch, *self._output_shape_tail)
         else:
             if tuple(input_tensor.shape) != self.expected_input_shape:
                 raise InvalidShapeError(
@@ -293,13 +276,11 @@ class NativeRuntime:
             input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
         output_tensor = np.empty(output_shape, dtype=np.float32)
-        inp_ptr = input_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-        out_ptr = output_tensor.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 
         lat_us = self.benchmark_fn(
-            inp_ptr,
+            input_tensor.ctypes.data,
             int(input_tensor.size),
-            out_ptr,
+            output_tensor.ctypes.data,
             int(output_tensor.size),
             iters
         )
@@ -308,7 +289,7 @@ class NativeRuntime:
         return float(lat_us)
 
     def get_arena_alloc_count(self) -> int:
-        """Returns total native heap allocations performed by thread-local arena pool."""
+        """Returns total native heap allocations (payload + block insertions) performed by arena pool."""
         if hasattr(self.lib, "forgetune_get_arena_alloc_count"):
             fn = getattr(self.lib, "forgetune_get_arena_alloc_count")
             fn.restype = ctypes.c_size_t
@@ -316,10 +297,36 @@ class NativeRuntime:
             return int(fn())
         return 0
 
+    def get_arena_payload_alloc_count(self) -> int:
+        """Returns total payload buffer allocations performed by arena pool."""
+        if hasattr(self.lib, "forgetune_get_arena_payload_alloc_count"):
+            fn = getattr(self.lib, "forgetune_get_arena_payload_alloc_count")
+            fn.restype = ctypes.c_size_t
+            fn.argtypes = []
+            return int(fn())
+        return 0
+
+    def get_arena_block_insertion_count(self) -> int:
+        """Returns total block container growth insertions performed by arena pool."""
+        if hasattr(self.lib, "forgetune_get_arena_block_insertion_count"):
+            fn = getattr(self.lib, "forgetune_get_arena_block_insertion_count")
+            fn.restype = ctypes.c_size_t
+            fn.argtypes = []
+            return int(fn())
+        return 0
+
     def reset_arena_alloc_count(self) -> None:
-        """Resets the thread-local arena allocation counter to zero."""
+        """Resets the thread-local arena allocation counters to zero."""
         if hasattr(self.lib, "forgetune_reset_arena_alloc_count"):
             fn = getattr(self.lib, "forgetune_reset_arena_alloc_count")
+            fn.restype = None
+            fn.argtypes = []
+            fn()
+
+    def inject_test_arena_alloc(self) -> None:
+        """Forces an allocation in the thread-local arena pool for regression testing."""
+        if hasattr(self.lib, "forgetune_test_inject_arena_alloc"):
+            fn = getattr(self.lib, "forgetune_test_inject_arena_alloc")
             fn.restype = None
             fn.argtypes = []
             fn()

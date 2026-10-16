@@ -59,7 +59,10 @@ FORGETUNE_EXPORT double forgetune_benchmark_kernel(
 
 // Native Allocation Inspection Entry Points:
 FORGETUNE_EXPORT size_t forgetune_get_arena_alloc_count(void);
+FORGETUNE_EXPORT size_t forgetune_get_arena_payload_alloc_count(void);
+FORGETUNE_EXPORT size_t forgetune_get_arena_block_insertion_count(void);
 FORGETUNE_EXPORT void forgetune_reset_arena_alloc_count(void);
+FORGETUNE_EXPORT void forgetune_test_inject_arena_alloc(void);
 
 #ifdef __cplusplus
 }
