@@ -22,7 +22,7 @@ class NonTiledModel(nn.Module):
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
 
-def test_prime_dimensions_and_partial_tiles():
+def test_prime_dimensions_and_partial_tiles(tmp_path):
     torch.manual_seed(101)
     model = NonTiledModel().eval()
     # Batch size 3 (prime), input width 7
@@ -31,7 +31,7 @@ def test_prime_dimensions_and_partial_tiles():
     compiled = compile_model(
         model=model,
         example_inputs=(x,),
-        output_dir="build/artifacts/prime_dims",
+        output_dir=str(tmp_path / "prime_dims"),
         autotune=True
     )
 
@@ -42,7 +42,7 @@ def test_prime_dimensions_and_partial_tiles():
     assert native_out.shape == (3, 13)
     assert np.allclose(native_out, expected, atol=1e-4)
 
-def test_batch_size_one():
+def test_batch_size_one(tmp_path):
     torch.manual_seed(202)
     model = NonTiledModel().eval()
     # Batch size 1
@@ -51,7 +51,7 @@ def test_batch_size_one():
     compiled = compile_model(
         model=model,
         example_inputs=(x,),
-        output_dir="build/artifacts/batch_one",
+        output_dir=str(tmp_path / "batch_one"),
         autotune=True
     )
 
@@ -62,7 +62,7 @@ def test_batch_size_one():
     assert native_out.shape == (1, 13)
     assert np.allclose(native_out, expected, atol=1e-4)
 
-def test_all_zeros_and_all_negatives():
+def test_all_zeros_and_all_negatives(tmp_path):
     torch.manual_seed(303)
     model = NonTiledModel().eval()
     x_zeros = torch.zeros(3, 7)
@@ -71,7 +71,7 @@ def test_all_zeros_and_all_negatives():
     compiled = compile_model(
         model=model,
         example_inputs=(x_zeros,),
-        output_dir="build/artifacts/zeros_and_negs",
+        output_dir=str(tmp_path / "zeros_and_negs"),
         autotune=False
     )
 

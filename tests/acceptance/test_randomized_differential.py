@@ -76,19 +76,10 @@ def build_fused_mlp_graph(M: int, K: int, N: int, w_data: np.ndarray, bias_data:
     return g
 
 @pytest.fixture
-def temp_diff_dir():
-    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_diff"))
-    if os.path.exists(d):
-        try:
-            shutil.rmtree(d)
-        except Exception:
-            pass
+def temp_diff_dir(tmp_path):
+    d = str(tmp_path / "acceptance_diff")
     os.makedirs(d, exist_ok=True)
-    yield d
-    try:
-        shutil.rmtree(d)
-    except Exception:
-        pass
+    return d
 
 # Dimension test cases covering requested dimensions: {1, 3, 7, 8, 15, 16, 17, 31, 32, 33}
 DIMENSION_TEST_CASES = [

@@ -19,12 +19,12 @@ class TinyMLP(nn.Module):
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
 
-def test_tinymlp_full_lifecycle():
+def test_tinymlp_full_lifecycle(tmp_path):
     torch.manual_seed(42)
     model = TinyMLP().eval()
     x = torch.randn(2, 4)
 
-    output_dir = "build/artifacts/e2e_tinymlp"
+    output_dir = str(tmp_path / "e2e_tinymlp")
     compiled = compile_model(
         model=model,
         example_inputs=(x,),

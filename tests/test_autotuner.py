@@ -27,12 +27,12 @@ def test_autotuner_budget_and_candidates():
     assert len(cands_8) == 8
     assert cands_4[0].candidate_id == "baseline_naive"
 
-def test_autotuning_report_generation():
+def test_autotuning_report_generation(tmp_path):
     torch.manual_seed(99)
     model = SimpleModel().eval()
     x = torch.randn(2, 4)
 
-    output_dir = "build/artifacts/test_autotuner_run"
+    output_dir = str(tmp_path / "test_autotuner_run")
     compiled = compile_model(
         model=model,
         example_inputs=(x,),

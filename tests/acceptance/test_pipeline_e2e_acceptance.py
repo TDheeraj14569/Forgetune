@@ -49,19 +49,10 @@ class ThreeLayerMLP(nn.Module):
         return self.fc3(h2)
 
 @pytest.fixture
-def temp_output_dir():
-    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_e2e"))
-    if os.path.exists(d):
-        try:
-            shutil.rmtree(d)
-        except Exception:
-            pass
+def temp_output_dir(tmp_path):
+    d = str(tmp_path / "acceptance_e2e")
     os.makedirs(d, exist_ok=True)
-    yield d
-    try:
-        shutil.rmtree(d)
-    except Exception:
-        pass
+    return d
 
 def test_acceptance_single_linear_no_bias(temp_output_dir):
     torch.manual_seed(101)

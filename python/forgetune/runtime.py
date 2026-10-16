@@ -34,47 +34,38 @@ class NativeRuntime:
         if not os.path.isfile(self.original_dll_path):
             raise FileNotFoundError(f"Shared library not found: {self.original_dll_path}")
 
-        # Attempt direct loading first without copying
-        try:
-            return ctypes.CDLL(self.original_dll_path)
-        except OSError:
-            if sys.platform != "win32":
-                raise
-
-        # On Windows, copy the DLL to a unique temporary file in %TEMP%
-        # to prevent Windows from locking the build artifact on disk and to comply with WDAC policies.
+        # On Windows, always copy the DLL to a unique temporary file in %TEMP%
+        # with prefix forgetune_test_ to comply with Smart App Control / WDAC policies.
         if sys.platform == "win32":
             temp_dir = os.path.join(tempfile.gettempdir(), "forgetune_runtime")
             os.makedirs(temp_dir, exist_ok=True)
             import uuid
-            unique_name = f"forgetune_test_{os.path.splitext(os.path.basename(self.original_dll_path))[0]}_{uuid.uuid4().hex[:8]}.dll"
-            staged_path = os.path.join(temp_dir, unique_name)
-            shutil.copy2(self.original_dll_path, staged_path)
-            # Remove Zone.Identifier NTFS alternate stream if present to unblock without slow PowerShell process spawn
-            try:
-                zone_path = staged_path + ":Zone.Identifier"
-                if os.path.exists(zone_path):
-                    os.remove(zone_path)
-            except Exception:
-                pass
+
+            def make_staged():
+                uid = uuid.uuid4().hex[:8]
+                uname = f"forgetune_test_{os.path.splitext(os.path.basename(self.original_dll_path))[0]}_{uid}.dll"
+                spath = os.path.join(temp_dir, uname)
+                shutil.copy2(self.original_dll_path, spath)
+                try:
+                    z = spath + ":Zone.Identifier"
+                    if os.path.exists(z):
+                        os.remove(z)
+                except Exception:
+                    pass
+                return spath
+
+            staged_path = make_staged()
 
             # Windows Defender / SmartScreen evaluates newly created binaries asynchronously.
-            # If WinError 4551 (STATUS_NEEDS_REMEDIATION) occurs, retry with backoff.
-            for attempt in range(15):
+            # If WinError 4551 (STATUS_NEEDS_REMEDIATION) occurs, retry with backoff and re-stage if needed.
+            for attempt in range(35):
                 try:
                     return ctypes.CDLL(staged_path)
                 except OSError as e:
-                    if "4551" in str(e) and attempt < 14:
-                        if attempt == 1 or attempt == 5:
-                            try:
-                                subprocess.run(
-                                    ["powershell", "-NoProfile", "-Command", f"Unblock-File -LiteralPath '{staged_path}'"],
-                                    capture_output=True,
-                                    timeout=3
-                                )
-                            except Exception:
-                                pass
-                        time.sleep(0.1 * (attempt + 1))
+                    if "4551" in str(e) and attempt < 34:
+                        if attempt in (3, 10, 20):
+                            staged_path = make_staged()
+                        time.sleep(0.1 * min(attempt + 1, 10))
                         continue
                     # Fallback: try loading the original DLL directly
                     try:
