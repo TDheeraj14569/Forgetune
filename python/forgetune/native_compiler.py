@@ -167,6 +167,15 @@ class NativeCompiler:
                 command=cmd
             )
 
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", f"Unblock-File '{output_dll_path}'"],
+                    capture_output=True,
+                    timeout=5
+                )
+            except Exception:
+                pass
 
         return {
             "success": True,

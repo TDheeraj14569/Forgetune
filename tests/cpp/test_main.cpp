@@ -944,7 +944,7 @@ bool test_aligned_arena_pool_and_reentrancy() {
     return true;
 }
 
-int main() {
+int run_cpp_test_suite() {
     std::cout << "========================================" << std::endl;
     std::cout << "Running ForgeTune C++ Test Suite" << std::endl;
     std::cout << "========================================" << std::endl;
@@ -981,3 +981,9 @@ int main() {
 
     return (passed == total) ? 0 : 1;
 }
+
+#ifndef FORGETUNE_EXCLUDE_MAIN
+int main() {
+    return run_cpp_test_suite();
+}
+#endif

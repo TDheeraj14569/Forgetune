@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ForgeTune VERSION 1.0.0 LANGUAGES CXX)
+project(ForgeTune VERSION 2.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,7 @@ set(FORGETUNE_SOURCES
     src/fusion.cpp
     src/codegen.cpp
     src/json_io.cpp
+    src/memory_planner.cpp
 )
 
 # Library target

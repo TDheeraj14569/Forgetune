@@ -24,19 +24,10 @@ _test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
 
 @pytest.fixture
-def temp_opt_dir():
-    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_opt"))
-    if os.path.exists(d):
-        try:
-            shutil.rmtree(d)
-        except Exception:
-            pass
+def temp_opt_dir(tmp_path):
+    d = os.path.abspath(str(tmp_path / "acceptance_opt"))
     os.makedirs(d, exist_ok=True)
     yield d
-    try:
-        shutil.rmtree(d)
-    except Exception:
-        pass
 
 def run_optimizer(graph: Graph, output_dir: str, enable_fusion: bool = False) -> Graph:
     os.makedirs(output_dir, exist_ok=True)

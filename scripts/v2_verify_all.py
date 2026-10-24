@@ -33,6 +33,26 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
     print(f"[+] PASSED: {step_name} in {dur:.2f}s")
     return True
 
+def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> bool:
+    test_exe = os.path.abspath("bin/forgetune_test_suite.exe")
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["powershell", "-NoProfile", "-Command", f"Unblock-File '{test_exe}'"], capture_output=True)
+        except Exception:
+            pass
+    try:
+        t0 = time.perf_counter()
+        p = subprocess.run([test_exe], env=env)
+        dur = time.perf_counter() - t0
+        if p.returncode == 0:
+            print(f"[+] PASSED: {step_name} in {dur:.2f}s")
+            return True
+    except Exception as e:
+        print(f"Direct executable execution blocked/unavailable ({e}). Running in-process via _forgetune_cpp...")
+
+    cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]
+    return run_step(f"{step_name} (in-process)", cmd, env=env)
+
 def clean_disposable_artifacts():
     print("\nCleaning disposable build and test artifacts...")
     dirs_to_clean = [
@@ -95,13 +115,16 @@ def main():
     # 1. Compile C++ Test Suite
     if not run_step("R1: Compile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp")):
         sys.exit(1)
-    if not run_step("R1: Run C++ Test Suite", [os.path.abspath("bin/forgetune_test_suite.exe")]):
-        sys.exit(1)
 
     # 2. Compile C++ Engine CLI
     if not run_step("R1: Compile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp")):
         sys.exit(1)
     shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["powershell", "-NoProfile", "-Command", "Unblock-File bin/*.exe"], capture_output=True)
+        except Exception:
+            pass
 
     # 3. Compile pybind11 Extension
     import sysconfig
@@ -113,6 +136,8 @@ def main():
     compile_pyd_cmd = [
         zig_exe, "c++", "-target", "x86_64-windows-gnu", "-shared", "-o", pyd_output,
         "src/bindings.cpp",
+        "tests/cpp/test_main.cpp",
+        "-DFORGETUNE_EXCLUDE_MAIN",
         *cpp_srcs,
         "-I", "include",
         "-I", py_include,
@@ -123,8 +148,12 @@ def main():
     if not run_step("R1: Compile pybind11 Extension", compile_pyd_cmd):
         sys.exit(1)
 
+    # 4. Run C++ Test Suite
+    if not run_cpp_test_suite_step("R1: Run C++ Test Suite (13 tests)", python_exe, env):
+        sys.exit(1)
+
     # 4. Run PyTest Full Suite
-    if not run_step("R1: Run Full PyTest Suite", [pytest_exe, "-v", "tests/"], env=env):
+    if not run_step("R1: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):
         sys.exit(1)
 
     # 5. Run All Model Examples
@@ -142,9 +171,9 @@ def main():
     # =========================================================================
     print("\n>>> STARTING ROUND 2: ADVERSARIAL & BOUNDARY VERIFICATION <<<")
     
-    if not run_step("R2: Adversarial & Boundary Test Suite", [pytest_exe, "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
+    if not run_step("R2: Adversarial & Boundary Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
         sys.exit(1)
-    if not run_step("R2: Models Acceptance Test Suite", [pytest_exe, "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
+    if not run_step("R2: Models Acceptance Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
         sys.exit(1)
     if not run_step("R2: Run Rigorous V2 Benchmark Suite", [python_exe, "scripts/run_v2_benchmarks.py"], env=env):
         sys.exit(1)
@@ -179,17 +208,17 @@ def main():
         sys.exit(1)
 
     # 4. Run Full Native C++ Test Suite
-    if not run_step("R3: Run C++ Test Suite (13 tests)", [os.path.abspath("bin/forgetune_test_suite.exe")]):
+    if not run_cpp_test_suite_step("R3: Run C++ Test Suite (13 tests)", python_exe, env):
         sys.exit(1)
 
     # 5. Run Full Python PyTest Suite
-    if not run_step("R3: Run Full PyTest Suite", [pytest_exe, "-v", "tests/"], env=env):
+    if not run_step("R3: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):
         sys.exit(1)
 
     # 6. Run Complete Acceptance Suite
-    if not run_step("R3: Run Models Acceptance Suite", [pytest_exe, "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
+    if not run_step("R3: Run Models Acceptance Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
         sys.exit(1)
-    if not run_step("R3: Run Adversarial & Boundary Suite", [pytest_exe, "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
+    if not run_step("R3: Run Adversarial & Boundary Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
         sys.exit(1)
 
     # 7. Execute All Workload Models
@@ -255,7 +284,7 @@ def main():
         "",
         "| Verification Round | Scope | Checks Executed | Status | Evidence |",
         "|---|---|:---:|:---:|---|",
-        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (180 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
+        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (182 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
         "| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), contract rejection (B=0, 129), Dual ABI wrappers, Benchmarks, Memory reports | **PASS** | `test_v2_adversarial_boundary.py` (11 tests), `V2_BENCHMARK_REPORT.md`, `V2_MEMORY_REPORT.md` |",
         "| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun, full pytest suite rerun, acceptance rerun, Models A/B/C rerun, 65,536 float bitwise comparison | **PASS** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |",
         "",

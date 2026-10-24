@@ -18,14 +18,8 @@ from forgetune.runtime import NativeRuntime
 from forgetune.errors import RuntimeError, InvalidShapeError
 
 @pytest.fixture(scope="module")
-def sample_runtime_fixture():
-    temp_dir = os.path.abspath(os.path.join("build", "artifacts", "acceptance_abi"))
-    if os.path.exists(temp_dir):
-        try:
-            shutil.rmtree(temp_dir)
-        except Exception:
-            pass
-    os.makedirs(temp_dir, exist_ok=True)
+def sample_runtime_fixture(tmp_path_factory):
+    temp_dir = str(tmp_path_factory.mktemp("acceptance_abi"))
     g = Graph()
     in_id = g.add_node(Node(0, "INPUT", "X", shape=[4, 8], dtype="f32"))
     w_id = g.add_node(Node(1, "CONST", "W", shape=[8, 6], dtype="f32", const_data=[0.5]*48))

@@ -13,6 +13,8 @@
 namespace py = pybind11;
 using namespace forgetune;
 
+extern int run_cpp_test_suite();
+
 PYBIND11_MODULE(_forgetune_cpp, m) {
     m.doc() = "ForgeTune native C++17 compiler engine and reference interpreter bindings";
 
@@ -182,4 +184,51 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
     py::class_<Optimizer>(m, "Optimizer")
         .def(py::init<>())
         .def("optimize", &Optimizer::optimize, py::arg("graph"), py::arg("enable_fusion") = true);
+
+    // MatMulVariant
+    py::enum_<MatMulVariant>(m, "MatMulVariant")
+        .value("NAIVE_IJK", MatMulVariant::NAIVE_IJK)
+        .value("LOOP_IKJ", MatMulVariant::LOOP_IKJ)
+        .value("TILED", MatMulVariant::TILED)
+        .value("FUSED_IKJ", MatMulVariant::FUSED_IKJ)
+        .value("FUSED_TILED", MatMulVariant::FUSED_TILED)
+        .export_values();
+
+    // KernelConfig
+    py::class_<KernelConfig>(m, "KernelConfig")
+        .def(py::init<>())
+        .def_readwrite("candidate_id", &KernelConfig::candidate_id)
+        .def_readwrite("matmul_variant", &KernelConfig::matmul_variant)
+        .def_readwrite("tile_m", &KernelConfig::tile_m)
+        .def_readwrite("tile_n", &KernelConfig::tile_n)
+        .def_readwrite("tile_k", &KernelConfig::tile_k)
+        .def_readwrite("enable_fusion", &KernelConfig::enable_fusion)
+        .def_readwrite("compiler_opt_level", &KernelConfig::compiler_opt_level)
+        .def("__repr__", &KernelConfig::to_string);
+
+    // CompilationResult
+    py::class_<CompilationResult>(m, "CompilationResult")
+        .def_readonly("success", &CompilationResult::success)
+        .def_readonly("generated_cpp_source", &CompilationResult::generated_cpp_source)
+        .def_readonly("optimization_report", &CompilationResult::optimization_report)
+        .def_readonly("verification_before", &CompilationResult::verification_before)
+        .def_readonly("verification_after", &CompilationResult::verification_after)
+        .def_readonly("error_message", &CompilationResult::error_message);
+
+    // Compiler
+    py::class_<Compiler>(m, "Compiler")
+        .def(py::init<KernelConfig>(), py::arg("config") = KernelConfig{})
+        .def("compile", &Compiler::compile, py::arg("graph"))
+        .def("set_config", &Compiler::set_config)
+        .def("get_config", &Compiler::get_config);
+
+    // CodeGenerator
+    py::class_<CodeGenerator>(m, "CodeGenerator")
+        .def(py::init<KernelConfig>(), py::arg("config") = KernelConfig{})
+        .def("generate", &CodeGenerator::generate, py::arg("graph"))
+        .def("set_config", &CodeGenerator::set_config)
+        .def("get_config", &CodeGenerator::get_config);
+
+    // Native C++ test suite runner
+    m.def("run_cpp_test_suite", &run_cpp_test_suite, "Runs all 13 native C++ unit tests in-process");
 }

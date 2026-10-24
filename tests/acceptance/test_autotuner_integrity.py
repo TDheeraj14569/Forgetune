@@ -17,19 +17,10 @@ from forgetune.native_compiler import NativeCompiler
 from forgetune.errors import CorrectnessError
 
 @pytest.fixture
-def temp_autotune_dir():
-    d = os.path.abspath(os.path.join("build", "artifacts", "acceptance_tuner"))
-    if os.path.exists(d):
-        try:
-            shutil.rmtree(d)
-        except Exception:
-            pass
+def temp_autotune_dir(tmp_path):
+    d = os.path.abspath(str(tmp_path / "acceptance_tuner"))
     os.makedirs(d, exist_ok=True)
     yield d
-    try:
-        shutil.rmtree(d)
-    except Exception:
-        pass
 
 def test_acceptance_candidate_space_coverage():
     """

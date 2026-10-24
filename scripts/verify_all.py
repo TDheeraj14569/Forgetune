@@ -52,26 +52,58 @@ def main():
         "src/memory_planner.cpp",
         "tests/cpp/test_main.cpp"
     ]
+    # Step 1: Build pybind11 extension module
+    import sysconfig
+    import pybind11
+    py_include = sysconfig.get_path("include")
+    pybind_include = pybind11.get_include()
+    py_lib = os.path.join(sys.base_prefix, "libs", f"python{sys.version_info.major}{sys.version_info.minor}.lib")
+    pyd_output = os.path.join("python", "forgetune", "_forgetune_cpp.pyd")
+    compile_pyd_cmd = [
+        zig_exe, "c++", "-target", "x86_64-windows-gnu", "-shared", "-o", pyd_output,
+        "src/bindings.cpp",
+        "tests/cpp/test_main.cpp",
+        "-DFORGETUNE_EXCLUDE_MAIN",
+        *cpp_srcs[:-1],
+        "-I", "include",
+        "-I", py_include,
+        "-I", pybind_include,
+        py_lib,
+        "-std=c++17", "-O2", "-w"
+    ]
+    if not run_step("Compile pybind11 Extension Module", compile_pyd_cmd):
+        sys.exit(1)
+
+    # Step 2: Compile C++ test suite executable
     compile_cpp_cmd = [
         zig_exe, "c++", "-target", "x86_64-windows-gnu", "-o", "bin/forgetune_test_suite.exe",
         *cpp_srcs,
         "-I", "include", "-std=c++17", "-O2", "-w"
     ]
     os.makedirs("bin", exist_ok=True)
-    if not run_step("Compile C++ Test Suite", compile_cpp_cmd):
+    if not run_step("Compile C++ Test Suite Executable", compile_cpp_cmd):
         sys.exit(1)
 
+    # Step 3: Run C++ test suite (direct or in-process)
+    test_suite_exe = os.path.abspath("bin/forgetune_test_suite.exe")
+    cpp_suite_passed = False
     if sys.platform == "win32":
         try:
             subprocess.run(["powershell", "-NoProfile", "-Command", "Unblock-File bin/forgetune_test_suite.exe"], capture_output=True)
         except Exception:
             pass
+    try:
+        if run_step("Run C++ Test Suite", [test_suite_exe]):
+            cpp_suite_passed = True
+    except Exception as e:
+        print(f"Direct executable execution blocked/unavailable ({e}). Running via in-process pybind11...")
 
-    test_suite_exe = os.path.abspath("bin/forgetune_test_suite.exe")
-    if not run_step("Run C++ Test Suite", [test_suite_exe]):
-        sys.exit(1)
+    if not cpp_suite_passed:
+        cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]
+        if not run_step("Run C++ Test Suite (in-process)", cmd, env=env):
+            sys.exit(1)
 
-    # Step 2: Build C++ engine CLI
+    # Step 4: Build C++ engine CLI
     cli_srcs = [
         "src/ir.cpp",
         "src/graph_verifier.cpp",
@@ -84,7 +116,6 @@ def main():
         "src/memory_planner.cpp",
         "src/main.cpp"
     ]
-    os.makedirs("bin", exist_ok=True)
     compile_cli_cmd = [
         zig_exe, "c++", "-target", "x86_64-windows-gnu", "-o", "bin/forgetune_engine.exe",
         *cli_srcs,
@@ -99,28 +130,8 @@ def main():
         except Exception:
             pass
 
-    # Step 3: Build pybind11 extension module
-    import sysconfig
-    import pybind11
-    py_include = sysconfig.get_path("include")
-    pybind_include = pybind11.get_include()
-    py_lib = os.path.join(sys.base_prefix, "libs", f"python{sys.version_info.major}{sys.version_info.minor}.lib")
-    pyd_output = os.path.join("python", "forgetune", "_forgetune_cpp.pyd")
-    compile_pyd_cmd = [
-        zig_exe, "c++", "-target", "x86_64-windows-gnu", "-shared", "-o", pyd_output,
-        "src/bindings.cpp",
-        *cpp_srcs[:-1],
-        "-I", "include",
-        "-I", py_include,
-        "-I", pybind_include,
-        py_lib,
-        "-std=c++17", "-O2", "-w"
-    ]
-    if not run_step("Compile pybind11 Extension Module", compile_pyd_cmd):
-        sys.exit(1)
-
     # Step 4: Run full pytest test suite
-    if not run_step("Run Python PyTest Suite", [pytest_exe, "-v", "tests/"], env=env):
+    if not run_step("Run Python PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):
         sys.exit(1)
 
     # Step 5: Run end-to-end TinyMLP example

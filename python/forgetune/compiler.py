@@ -16,6 +16,61 @@ from .autotuner import Autotuner, KernelCandidate
 from .manifest import create_manifest, write_atomic_json, read_manifest
 from .benchmark import benchmark_function
 
+def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, cand_json_path: Optional[str] = None) -> None:
+    """
+    Emits standalone C++ source code for a given IR graph and candidate configuration.
+    Uses in-process C++ compiler bridge (_forgetune_cpp) when available, falling back to CLI.
+    """
+    try:
+        from . import _forgetune_cpp as cpp
+        g_cpp = cpp.json_to_graph(ir_graph.to_json())
+        cfg = cpp.KernelConfig()
+        cfg.candidate_id = candidate.candidate_id
+        variant_map = {
+            "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
+            "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
+            "tiled": cpp.MatMulVariant.TILED,
+            "fused_ikj": cpp.MatMulVariant.FUSED_IKJ,
+            "fused_tiled": cpp.MatMulVariant.FUSED_TILED
+        }
+        cfg.matmul_variant = variant_map.get(candidate.variant, cpp.MatMulVariant.NAIVE_IJK)
+        cfg.enable_fusion = bool(candidate.enable_fusion)
+        if candidate.tile_m is not None:
+            cfg.tile_m = int(candidate.tile_m)
+            cfg.tile_n = int(candidate.tile_n)
+            cfg.tile_k = int(candidate.tile_k)
+        compiler = cpp.Compiler(cfg)
+        res = compiler.compile(g_cpp)
+        if res.success:
+            with open(output_cpp_path, "w", encoding="utf-8") as f:
+                f.write(res.generated_cpp_source)
+            return
+    except Exception:
+        pass
+
+    # Fallback to CLI engine
+    if cand_json_path is None:
+        cand_json_path = os.path.splitext(output_cpp_path)[0] + ".json"
+    with open(cand_json_path, "w", encoding="utf-8") as f:
+        f.write(ir_graph.to_json())
+    engine_exe = get_engine_executable()
+    import subprocess
+    cmd = [
+        engine_exe, "--compile", cand_json_path, "-o", output_cpp_path,
+        "--variant", candidate.variant,
+        "--candidate-id", candidate.candidate_id,
+    ]
+    if candidate.tile_m is not None:
+        cmd.extend([
+            "--tile-m", str(candidate.tile_m),
+            "--tile-n", str(candidate.tile_n),
+            "--tile-k", str(candidate.tile_k)
+        ])
+    if candidate.enable_fusion:
+        cmd.append("--fusion")
+    subprocess.run(cmd, check=True)
+
+
 def get_engine_executable() -> str:
     bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
     for name in ("forgetune_test_engine.exe", "forgetune_engine.exe"):
@@ -168,24 +223,7 @@ def compile_model(
             cand_dir = os.path.join(output_dir, cand_id)
             os.makedirs(cand_dir, exist_ok=True)
             cand_json_path = os.path.join(cand_dir, "graph.json")
-            with open(cand_json_path, "w", encoding="utf-8") as f:
-                f.write(ir_graph.to_json())
-            engine_exe = get_engine_executable()
-            import subprocess
-            cmd = [
-                engine_exe, "--compile", cand_json_path, "-o", final_cpp_path,
-                "--variant", selected_cand.variant,
-                "--candidate-id", selected_cand.candidate_id,
-            ]
-            if selected_cand.tile_m is not None:
-                cmd.extend([
-                    "--tile-m", str(selected_cand.tile_m),
-                    "--tile-n", str(selected_cand.tile_n),
-                    "--tile-k", str(selected_cand.tile_k)
-                ])
-            if selected_cand.enable_fusion:
-                cmd.append("--fusion")
-            subprocess.run(cmd, check=True)
+            emit_cpp_source(ir_graph, selected_cand, final_cpp_path, cand_json_path)
             native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=selected_cand.opt_level)
     else:
         # Explicit or baseline compilation
@@ -206,21 +244,7 @@ def compile_model(
         final_cpp_path = os.path.join(cand_dir, "kernel.cpp")
         final_dll_path = os.path.join(cand_dir, "kernel.dll")
 
-        with open(final_json_path, "w", encoding="utf-8") as f:
-            f.write(ir_graph.to_json())
-
-        engine_exe = get_engine_executable()
-        import subprocess
-        cmd = [
-            engine_exe, "--compile", final_json_path, "-o", final_cpp_path,
-            "--variant", variant
-        ]
-        if tile_m is not None:
-            cmd.extend(["--tile-m", str(tile_m), "--tile-n", str(tile_n), "--tile-k", str(tile_k)])
-        if enable_fusion:
-            cmd.append("--fusion")
-
-        subprocess.run(cmd, check=True)
+        emit_cpp_source(ir_graph, selected_cand, final_cpp_path, final_json_path)
         native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=compiler_opt_level)
         opt_report = {"selected_candidate": selected_cand.to_dict()}
 

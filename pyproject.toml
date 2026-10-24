@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "forgetune"
-version = "1.0.0"
+version = "2.0.0"
 description = "Specification-Driven, Correctness-Checked, Self-Optimizing Machine-Learning Compiler"
 readme = "README.md"
 requires-python = ">=3.11"

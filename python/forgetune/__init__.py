@@ -22,7 +22,7 @@ from .errors import (
     RuntimeError
 )
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __all__ = [
     "compile_model",
     "CompiledModel",

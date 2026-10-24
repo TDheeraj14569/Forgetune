@@ -92,3 +92,39 @@ def test_pybind11_json_roundtrip():
     assert g2.live_node_count() == 1
     assert g2.get_inputs() == [x]
     assert g2.get_outputs() == [x]
+
+def test_pybind11_native_cpp_test_suite():
+    """
+    Executes the 13 native C++ unit tests in-process via pybind11.
+    Verifies that all native C++ tests pass with returncode 0.
+    """
+    res = _forgetune_cpp.run_cpp_test_suite()
+    assert res == 0, f"Native C++ test suite failed with exit code {res}"
+
+def test_pybind11_compiler_and_codegen():
+    """
+    Validates Compiler and CodeGenerator pybind11 bindings.
+    Compiles an IRGraph to C++ source directly in-process without CLI.
+    """
+    g = _forgetune_cpp.IRGraph()
+    x = g.add_node(_forgetune_cpp.IRNode(0, _forgetune_cpp.OpKind.INPUT, "x", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([2, 4]), _forgetune_cpp.DType.FLOAT32)))
+    w_node = _forgetune_cpp.IRNode(1, _forgetune_cpp.OpKind.CONST, "w", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([4, 4]), _forgetune_cpp.DType.FLOAT32))
+    w_node.const_data = [1.0] * 16
+    w = g.add_node(w_node)
+    out = g.add_node(_forgetune_cpp.IRNode(2, _forgetune_cpp.OpKind.MATMUL, "mm", [x, w],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([2, 4]), _forgetune_cpp.DType.FLOAT32)))
+    g.set_inputs([x])
+    g.set_outputs([out])
+
+    config = _forgetune_cpp.KernelConfig()
+    config.candidate_id = "test_candidate"
+    config.matmul_variant = _forgetune_cpp.MatMulVariant.LOOP_IKJ
+
+    compiler = _forgetune_cpp.Compiler(config)
+    res = compiler.compile(g)
+    assert res.success, f"Compiler failed: {res.error_message}"
+    assert "forgetune_run" in res.generated_cpp_source
+    assert "LOOP_IKJ" in res.generated_cpp_source or "loop_ikj" in res.generated_cpp_source.lower()
+

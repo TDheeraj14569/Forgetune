@@ -293,34 +293,69 @@ class Autotuner:
             with open(cand_json, "w", encoding="utf-8") as f:
                 f.write(graph_json)
 
-            engine_cmd = [
-                engine_exe,
-                "--compile", cand_json,
-                "-o", cand_cpp,
-                "--variant", cand.variant,
-                "--candidate-id", cand.candidate_id
-            ]
-            if cand.tile_m is not None:
-                engine_cmd.extend([
-                    "--tile-m", str(cand.tile_m),
-                    "--tile-n", str(cand.tile_n),
-                    "--tile-k", str(cand.tile_k)
-                ])
-            if cand.enable_fusion:
-                engine_cmd.append("--fusion")
-
+            # 1. Code Generation: Try in-process C++ compiler first, fallback to CLI
+            codegen_done = False
             try:
-                p = subprocess.run(engine_cmd, capture_output=True, text=True, timeout=15)
-                if p.returncode != 0:
+                from . import _forgetune_cpp as cpp
+                g_cpp = cpp.json_to_graph(graph_json)
+                cfg = cpp.KernelConfig()
+                cfg.candidate_id = cand.candidate_id
+                variant_map = {
+                    "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
+                    "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
+                    "tiled": cpp.MatMulVariant.TILED,
+                    "fused_ikj": cpp.MatMulVariant.FUSED_IKJ,
+                    "fused_tiled": cpp.MatMulVariant.FUSED_TILED
+                }
+                cfg.matmul_variant = variant_map.get(cand.variant, cpp.MatMulVariant.NAIVE_IJK)
+                cfg.enable_fusion = bool(cand.enable_fusion)
+                if cand.tile_m is not None:
+                    cfg.tile_m = int(cand.tile_m)
+                    cfg.tile_n = int(cand.tile_n)
+                    cfg.tile_k = int(cand.tile_k)
+                compiler = cpp.Compiler(cfg)
+                res = compiler.compile(g_cpp)
+                if res.success:
+                    with open(cand_cpp, "w", encoding="utf-8") as f:
+                        f.write(res.generated_cpp_source)
+                    codegen_done = True
+                else:
                     res_entry["status"] = "codegen_failed"
-                    res_entry["rejection_reason"] = p.stderr
+                    res_entry["rejection_reason"] = res.error_message
                     candidate_results.append(res_entry)
                     continue
-            except Exception as e:
-                res_entry["status"] = "codegen_error"
-                res_entry["rejection_reason"] = str(e)
-                candidate_results.append(res_entry)
-                continue
+            except Exception:
+                pass
+
+            if not codegen_done:
+                engine_cmd = [
+                    engine_exe,
+                    "--compile", cand_json,
+                    "-o", cand_cpp,
+                    "--variant", cand.variant,
+                    "--candidate-id", cand.candidate_id
+                ]
+                if cand.tile_m is not None:
+                    engine_cmd.extend([
+                        "--tile-m", str(cand.tile_m),
+                        "--tile-n", str(cand.tile_n),
+                        "--tile-k", str(cand.tile_k)
+                    ])
+                if cand.enable_fusion:
+                    engine_cmd.append("--fusion")
+
+                try:
+                    p = subprocess.run(engine_cmd, capture_output=True, text=True, timeout=15)
+                    if p.returncode != 0:
+                        res_entry["status"] = "codegen_failed"
+                        res_entry["rejection_reason"] = p.stderr
+                        candidate_results.append(res_entry)
+                        continue
+                except Exception as e:
+                    res_entry["status"] = "codegen_error"
+                    res_entry["rejection_reason"] = str(e)
+                    candidate_results.append(res_entry)
+                    continue
 
             # 2. Compile shared library
             try:
