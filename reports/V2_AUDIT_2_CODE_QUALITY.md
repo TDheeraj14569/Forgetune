@@ -40,7 +40,7 @@ The repository maintains clean separation between frontend extraction, intermedi
 - **Safety Assessment:**
   - Completely immune to thread stack overflow.
   - Strict 64-byte heap alignment guaranteed via `_aligned_malloc(alloc_bytes, 64)` (`reinterpret_cast<uintptr_t>(ptr) % 64 == 0`), enabling safe AVX2/AVX-512 vector load/store instructions.
-  - Zero heap allocations during steady-state dynamic batch execution ($B \in [1, 128]$) post warm-up sizing.
+  - Zero arena payload allocations and zero block insertions during steady-state dynamic batch execution ($B \in [1, 128]$) post warm-up sizing.
 
 ### 2.2 Re-Entrancy & Multithread Safety
 - **Thread-Safety:** Intermediate arena storage is managed by a `thread_local AlignedArenaPool`. Concurrent OS threads execute in total isolation without locks, mutexes, or data races.
@@ -86,5 +86,5 @@ On Windows 11 systems with Microsoft Defender SmartScreen / Smart App Control / 
 
 ## 5. Audit Verdict
 
-**AUDIT 2 VERDICT: PASSED (ZERO DEFECTS)**  
-The implementation exhibits high systems programming maturity, strict memory safety, robust defensive error handling, and zero memory leaks.
+**AUDIT 2 VERDICT: PASSED**  
+The implementation exhibits high systems programming maturity, strict memory safety, robust defensive error handling, zero memory leaks, and adheres to all scoped arena-allocation invariants.

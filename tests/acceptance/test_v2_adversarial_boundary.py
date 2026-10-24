@@ -217,7 +217,7 @@ def test_zero_allocation_inference_sequence(compiled_dynamic_model):
     compiled.reset_arena_alloc_count()
     assert compiled.get_arena_alloc_count() == 0
 
-    # Successive calls across dynamic range must perform ZERO heap allocations
+    # Successive calls across dynamic range must perform zero arena payload allocations and zero block insertions
     for b in [2, 7, 16, 32, 64, 128, 1, 16]:
         x = torch.randn(b, 8)
         with torch.no_grad():

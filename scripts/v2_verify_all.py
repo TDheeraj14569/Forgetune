@@ -154,7 +154,7 @@ def main():
     if not run_step("R1: Run Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"], env=env):
         sys.exit(1)
 
-    print("\n[+] ROUND 1 PASSED WITH ZERO DEFECTS.")
+    print("\n[+] ROUND 1 PASSED.")
 
     # =========================================================================
     # ROUND 2: Adversarial, Boundary Conditions, and Stress Verification
@@ -170,7 +170,7 @@ def main():
     if not run_step("R2: Generate V2 Memory Report", [python_exe, "scripts/generate_v2_memory_report.py"], env=env):
         sys.exit(1)
 
-    print("\n[+] ROUND 2 PASSED WITH ZERO DEFECTS.")
+    print("\n[+] ROUND 2 PASSED.")
 
     # =========================================================================
     # ROUND 3: Complete Clean Rebuild & Comprehensive Acceptance Verification
@@ -266,7 +266,7 @@ def main():
         f"**Git Branch:** `v2.0-dev`",
         f"**Source Revision:** `{curr_rev}`",
         f"**Tree Fingerprint:** `{curr_tree}`",
-        f"**Final Status:** **100% VERIFIED — ALL ROUNDS PASSED WITH ZERO DEFECTS**",
+        f"**Final Status:** **VERIFIED — ALL ROUNDS PASSED**",
         "",
         "---",
         "",
