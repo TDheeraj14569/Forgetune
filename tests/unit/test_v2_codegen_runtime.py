@@ -225,13 +225,77 @@ def test_safe_library_loading_smart_app_control_diagnostic(monkeypatch, tmp_path
 
     import ctypes, time
     monkeypatch.setattr(ctypes, "CDLL", mock_cdll)
-    monkeypatch.setattr(time, "sleep", lambda s: None)
+    sleep_calls = []
+    monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
 
     with pytest.raises(OSError) as exc_info:
         NativeRuntime(dummy_dll, (-1, 4), (-1, 2))
 
-    # Must provide explicit diagnostics explaining that Code Integrity / Smart App Control blocked execution
-    assert "Smart App Control policy blocked execution (WinError 4551)" in str(exc_info.value)
-    # Bounded retries occurred without filename rotation or evasion
-    assert attempts == 10
+    # Must provide explicit diagnostics explaining that Code Integrity policy blocked execution
+    err_msg = str(exc_info.value)
+    assert "Code Integrity policy blocked execution (WinError 4551)" in err_msg or "Smart App Control" in err_msg
+    # Fails immediately on attempt 1 without wasteful retries or evasion
+    assert attempts == 1
+    assert len(sleep_calls) == 0
+
+def test_safe_library_loading_transient_sharing_retry(monkeypatch, tmp_path, dynamic_mlp_runtime):
+    rt, _ = dynamic_mlp_runtime
+    dll_path = rt.original_dll_path
+
+    import ctypes, time
+    real_cdll = ctypes.CDLL
+    attempts = 0
+    sleep_calls = []
+
+    def mock_cdll_with_transient_failure(path):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise OSError("[WinError 32] The process cannot access the file because it is being used by another process")
+        return real_cdll(path)
+
+    monkeypatch.setattr(ctypes, "CDLL", mock_cdll_with_transient_failure)
+    monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
+    test_rt = NativeRuntime(dll_path, (-1, 4), (-1, 2))
+    assert attempts == 3
+    assert len(sleep_calls) == 2
+    assert hasattr(test_rt.lib, "forgetune_run")
+
+def test_safe_library_loading_invalid_library(tmp_path):
+    corrupt_dll = str(tmp_path / "corrupt.dll")
+    with open(corrupt_dll, "w") as f:
+        f.write("THIS_IS_NOT_A_VALID_SHARED_LIBRARY")
+
+    with pytest.raises(OSError) as exc_info:
+        NativeRuntime(corrupt_dll, (-1, 4), (-1, 2))
+    assert "Failed to load shared library" in str(exc_info.value)
+
+def test_safe_library_metadata_preservation(tmp_path, dynamic_mlp_runtime):
+    import shutil
+    rt, _ = dynamic_mlp_runtime
+    target_dll = str(tmp_path / "model_with_metadata.dll")
+    shutil.copy(rt.original_dll_path, target_dll)
+
+    # Attach Zone.Identifier alternate data stream simulating file downloaded/scanned by Windows
+    zone_stream = target_dll + ":Zone.Identifier"
+    zone_content = b"[ZoneTransfer]\r\nZoneId=3\r\n"
+    has_ads = False
+    try:
+        with open(zone_stream, "wb") as f:
+            f.write(zone_content)
+        has_ads = os.path.exists(zone_stream)
+    except Exception:
+        has_ads = False
+
+    # Load runtime
+    loaded_rt = NativeRuntime(target_dll, (-1, 4), (-1, 2))
+    assert hasattr(loaded_rt.lib, "forgetune_run")
+
+    # Verify original file and metadata remain untouched and unstripped
+    assert os.path.isfile(target_dll)
+    if has_ads:
+        assert os.path.exists(zone_stream)
+        with open(zone_stream, "rb") as f:
+            assert f.read() == zone_content
 

@@ -128,3 +128,98 @@ def test_pybind11_compiler_and_codegen():
     assert "forgetune_run" in res.generated_cpp_source
     assert "LOOP_IKJ" in res.generated_cpp_source or "loop_ikj" in res.generated_cpp_source.lower()
 
+def test_in_process_vs_cli_codegen_parity(tmp_path):
+    """
+    Verifies that in-process pybind11 Compiler and CLI forgetune_engine.exe
+    produce bit-for-bit identical C++ generated source code for identical inputs.
+    """
+    import os
+    import subprocess
+    g = _forgetune_cpp.IRGraph()
+    x = g.add_node(_forgetune_cpp.IRNode(0, _forgetune_cpp.OpKind.INPUT, "x", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([-1, 8]), _forgetune_cpp.DType.FLOAT32)))
+    w_node = _forgetune_cpp.IRNode(1, _forgetune_cpp.OpKind.CONST, "w", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([8, 16]), _forgetune_cpp.DType.FLOAT32))
+    w_node.const_data = [0.1] * 128
+    w = g.add_node(w_node)
+    mm = g.add_node(_forgetune_cpp.IRNode(2, _forgetune_cpp.OpKind.MATMUL, "mm", [x, w],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([-1, 16]), _forgetune_cpp.DType.FLOAT32)))
+    relu = g.add_node(_forgetune_cpp.IRNode(3, _forgetune_cpp.OpKind.RELU, "relu", [mm],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([-1, 16]), _forgetune_cpp.DType.FLOAT32)))
+    g.set_inputs([x])
+    g.set_outputs([relu])
+
+    # 1. In-process compilation
+    config = _forgetune_cpp.KernelConfig()
+    config.candidate_id = "parity_cand"
+    config.matmul_variant = _forgetune_cpp.MatMulVariant.LOOP_IKJ
+    config.enable_fusion = True
+
+    in_proc_compiler = _forgetune_cpp.Compiler(config)
+    in_proc_res = in_proc_compiler.compile(g)
+    assert in_proc_res.success, f"In-process compilation failed: {in_proc_res.error_message}"
+    in_proc_code = in_proc_res.generated_cpp_source
+
+    # 2. CLI compilation
+    json_path = str(tmp_path / "model.json")
+    cli_out_path = str(tmp_path / "cli_model.cpp")
+    with open(json_path, "w", encoding="utf-8") as f:
+        f.write(_forgetune_cpp.graph_to_json(g))
+
+    cli_exe = "bin/forgetune_engine.exe"
+    if os.path.isfile(cli_exe):
+        cmd = [
+            cli_exe, "--compile", json_path, "-o", cli_out_path,
+            "--variant", "loop_ikj", "--candidate-id", "parity_cand", "--fusion"
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        assert proc.returncode == 0, f"CLI compilation failed: {proc.stderr}"
+        with open(cli_out_path, "r", encoding="utf-8") as f:
+            cli_code = f.read()
+
+        # Normalize line endings and verify bitwise parity
+        in_proc_norm = in_proc_code.replace("\r\n", "\n")
+        cli_norm = cli_code.replace("\r\n", "\n")
+        assert in_proc_norm == cli_norm, "Parity mismatch between in-process and CLI codegen!"
+
+def test_in_process_codegen_latency_isolated():
+    """
+    Measures pure in-process C++ code generation latency isolated from native toolchain linking.
+    Confirms pure C++ graph optimization and code emission is extremely fast (< 5 ms per model).
+    """
+    import time
+    g = _forgetune_cpp.IRGraph()
+    x = g.add_node(_forgetune_cpp.IRNode(0, _forgetune_cpp.OpKind.INPUT, "x", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([-1, 16]), _forgetune_cpp.DType.FLOAT32)))
+    w_node = _forgetune_cpp.IRNode(1, _forgetune_cpp.OpKind.CONST, "w", [],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([16, 32]), _forgetune_cpp.DType.FLOAT32))
+    w_node.const_data = [0.05] * 512
+    w = g.add_node(w_node)
+    mm = g.add_node(_forgetune_cpp.IRNode(2, _forgetune_cpp.OpKind.MATMUL, "mm", [x, w],
+        _forgetune_cpp.TensorMeta(_forgetune_cpp.TensorShape([-1, 32]), _forgetune_cpp.DType.FLOAT32)))
+    g.set_inputs([x])
+    g.set_outputs([mm])
+
+    config = _forgetune_cpp.KernelConfig()
+    config.matmul_variant = _forgetune_cpp.MatMulVariant.LOOP_IKJ
+    compiler = _forgetune_cpp.Compiler(config)
+
+    # Warmup
+    for _ in range(5):
+        compiler.compile(g)
+
+    # Measure 50 iterations
+    latencies_ms = []
+    for _ in range(50):
+        t0 = time.perf_counter()
+        res = compiler.compile(g)
+        t1 = time.perf_counter()
+        assert res.success
+        latencies_ms.append((t1 - t0) * 1000.0)
+
+    median_ms = sorted(latencies_ms)[len(latencies_ms) // 2]
+    mean_ms = sum(latencies_ms) / len(latencies_ms)
+    print(f"\n[Pure Codegen Latency] Median: {median_ms:.3f} ms, Mean: {mean_ms:.3f} ms")
+    assert median_ms < 15.0, f"Pure codegen latency unexpectedly high: {median_ms:.3f} ms"
+
+

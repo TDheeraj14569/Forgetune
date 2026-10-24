@@ -12,8 +12,10 @@ This guide covers common issues, root causes, and diagnostic steps when building
 ### Underlying Cause:
 Windows Defender Application Control or SmartScreen policy evaluates newly created DLLs asynchronously and blocks loading unsigned binaries located in user directories.
 
-### Built-in Solution:
-`NativeRuntime` automatically copies compiled `.dll` libraries to `%TEMP%\forgetune_runtime`, strips the NTFS `Zone.Identifier` stream, and implements bounded retry logic with PowerShell `Unblock-File`.
+### Policy-Compliant Resolution:
+ForgeTune operates strictly within Windows security boundaries without attempting security evasion (such as NTFS Zone.Identifier stream deletion or script-based unblocking). If Windows Application Control / Smart App Control blocks unsigned standalone binaries:
+- Use the pybind11 in-process compilation bridge (`forgetune._forgetune_cpp`), which executes kernels and tests within the authenticated Python host process.
+- In enterprise or secured development environments, sign the compiled binaries with an approved certificate or configure WDAC / AppLocker policies to trust the build directory.
 
 ---
 

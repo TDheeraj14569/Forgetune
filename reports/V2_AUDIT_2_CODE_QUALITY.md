@@ -65,11 +65,13 @@ Direct pointers are never dereferenced before pointer validity and element bound
 
 ## 3. Windows Security & Execution Policy Review
 
-### 3.1 WDAC / SmartScreen Remediation
-On Windows 11 systems with Microsoft Defender SmartScreen and WDAC active:
-- Newly written `.dll` binaries in temporary build directories are staged to `%TEMP%/forgetune_runtime` with unique names.
-- NTFS alternate data streams (`Zone.Identifier`) are stripped immediately upon staging.
-- If `WinError 4551` (`STATUS_NEEDS_REMEDIATION`) is reported by the kernel during asynchronous AV scanning, the loader performs bounded exponential backoff with `Unblock-File` execution.
+### 3.1 Security-Safe Native Library Loading & Policy Compliance
+On Windows 11 systems with Microsoft Defender SmartScreen / Smart App Control / WDAC active:
+- Compiled `.dll` binaries are loaded directly from their build artifacts directory without temporary staging evasion.
+- Security metadata and NTFS alternate data streams (including `Zone.Identifier`) are strictly preserved.
+- Evasion mechanisms (such as PowerShell `Unblock-File` or UUID filename rotation) are completely eliminated.
+- Permanent security rejections (`WinError 4551`) fail immediately with diagnostic guidance.
+- Bounded retries are strictly reserved for transient file-sharing contention (`WinError 32`).
 
 ---
 

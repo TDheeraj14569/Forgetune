@@ -84,6 +84,6 @@ ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing 
      - `forgetune_benchmark_kernel`: microbenchmark kernel running entirely inside pure C++ via `std::chrono::steady_clock`.
 
 6. **Native Runtime & Loader (`forgetune.runtime.NativeRuntime`)**:
-   - Loads compiled `.dll` with Windows WDAC compliance (staging to `%TEMP%` and Zone.Identifier removal).
+   - Loads compiled `.dll` directly with security policy compliance (no evasion, no stream deletion, no temporary staging). Bounded retry is strictly reserved for transient file-sharing locks.
    - Introspects exported symbols to determine dynamic capabilities.
    - Enforces contract validations: validates input rank, static dimensions, dynamic batch bounds ($1 \le B \le 128$), ensures contiguous float32 data, and verifies native return status codes.

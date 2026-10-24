@@ -1,6 +1,6 @@
 """
 Native shared-library loader and runtime execution engine for ForgeTune.
-Binds to compiled C++ kernels using ctypes with contract validation and safe staging.
+Binds to compiled C++ kernels using ctypes with contract validation and direct artifact loading.
 """
 
 import os
@@ -34,44 +34,42 @@ class NativeRuntime:
         if not os.path.isfile(self.original_dll_path):
             raise FileNotFoundError(f"Shared library not found: {self.original_dll_path}")
 
-        # Attempt direct library loading.
-        # On Windows, if a transient WinError 4551 occurs during asynchronous security scan,
-        # perform a small, bounded retry on the exact same artifact.
-        # Security metadata is preserved and no evasion techniques (such as stream deletion
-        # or randomized filename rotation) are performed.
-        max_attempts = 10 if sys.platform == "win32" else 1
+        # Attempt direct library loading on the original compiled artifact.
+        # Security metadata is fully preserved; no Zone.Identifier stream deletion,
+        # no randomized filename rotation, and no Unblock-File execution is performed.
+        # Bounded retries are strictly reserved for documented transient file-sharing contention.
+        max_transient_attempts = 5 if sys.platform == "win32" else 1
         last_error = None
 
-        for attempt in range(max_attempts):
+        for attempt in range(max_transient_attempts):
             try:
                 return ctypes.CDLL(self.original_dll_path)
             except OSError as e:
                 last_error = e
-                # Check for documented transient security scan evaluation delay
-                if sys.platform == "win32" and "4551" in str(e):
-                    if attempt == 0:
-                        try:
-                            subprocess.run(
-                                ["powershell", "-NoProfile", "-Command", f"Unblock-File '{self.original_dll_path}'"],
-                                capture_output=True,
-                                timeout=5
-                            )
-                        except Exception:
-                            pass
-                    if attempt < max_attempts - 1:
-                        time.sleep(min(0.25 * (attempt + 1), 1.0))
-                        continue
-                # If error is not transient or retries exhausted, diagnose and raise
+                err_str = str(e)
+
+                # Permanent Windows Code Integrity / Smart App Control policy denial
+                if sys.platform == "win32" and "4551" in err_str:
+                    raise OSError(
+                        f"Failed to load shared library '{self.original_dll_path}': "
+                        f"Windows Application Control / Code Integrity policy blocked execution (WinError 4551). "
+                        f"The binary did not meet system code integrity signing or reputation requirements."
+                    ) from e
+
+                # Documented transient file-sharing contention (e.g., WinError 32 during active background scanner inspection)
+                is_transient_sharing = sys.platform == "win32" and ("WinError 32" in err_str or "used by another process" in err_str)
+                if is_transient_sharing and attempt < max_transient_attempts - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+
+                # Non-transient errors (missing dependencies WinError 126, invalid format WinError 193, access denied WinError 5)
+                # fail immediately, preserving original error details
                 break
 
         if last_error is not None:
-            if sys.platform == "win32" and "4551" in str(last_error):
-                raise OSError(
-                    f"Failed to load shared library '{self.original_dll_path}': "
-                    f"Windows Application Control / Smart App Control policy blocked execution (WinError 4551). "
-                    f"The binary did not meet system code integrity signing or reputation requirements."
-                ) from last_error
-            raise last_error
+            raise OSError(
+                f"Failed to load shared library '{self.original_dll_path}': {last_error}"
+            ) from last_error
 
         raise RuntimeError(f"Unexpected failure loading shared library '{self.original_dll_path}'")
 

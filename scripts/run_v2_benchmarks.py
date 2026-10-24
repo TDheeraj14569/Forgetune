@@ -363,7 +363,8 @@ def run_benchmarks():
             "**Residual Analysis ($t_{e2e} - t_{kernel}$):**",
             f"- Median residual is {dist['residual_e2e_minus_kernel']['median_us']:.2f} μs.",
             "- The residual represents Python interpreter overhead, NumPy contiguous buffer conversion (`np.ascontiguousarray`), ctypes function argument wrapping, and dynamic batch shape checking.",
-            "- In pure single-threaded native execution without Python framework overhead, the ForgeTune selected native kernel executes at **" + f"{dist['forgetune_kernel']['median_us']:.2f} μs**, achieving substantial speedup over single-threaded PyTorch (**" + f"{dist['pytorch_1thread']['median_us']:.2f} μs**) and default 8-threaded PyTorch (**" + f"{dist['pytorch_8threads']['median_us']:.2f} μs**).",
+            f"- In pure single-threaded native execution without Python framework overhead, the ForgeTune selected native kernel executes at **{dist['forgetune_kernel']['median_us']:.2f} μs**, achieving {dist['pytorch_1thread']['median_us'] / dist['forgetune_kernel']['median_us']:.2f}x speedup over single-threaded PyTorch E2E ({dist['pytorch_1thread']['median_us']:.2f} μs).",
+            f"- At the Python E2E level, single-threaded ForgeTune ({dist['forgetune_e2e']['median_us']:.2f} μs) achieves {dist['pytorch_8threads']['median_us'] / dist['forgetune_e2e']['median_us']:.2f}x speedup vs 8-threaded PyTorch ({dist['pytorch_8threads']['median_us']:.2f} μs) and {dist['pytorch_1thread']['median_us'] / dist['forgetune_e2e']['median_us']:.2f}x vs single-threaded PyTorch ({dist['pytorch_1thread']['median_us']:.2f} μs).",
             ""
         ])
 

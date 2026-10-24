@@ -87,11 +87,6 @@ def main():
     # Step 3: Run C++ test suite (direct or in-process)
     test_suite_exe = os.path.abspath("bin/forgetune_test_suite.exe")
     cpp_suite_passed = False
-    if sys.platform == "win32":
-        try:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Unblock-File bin/forgetune_test_suite.exe"], capture_output=True)
-        except Exception:
-            pass
     try:
         if run_step("Run C++ Test Suite", [test_suite_exe]):
             cpp_suite_passed = True
@@ -123,12 +118,6 @@ def main():
     ]
     if not run_step("Compile C++ Engine CLI", compile_cli_cmd):
         sys.exit(1)
-
-    if sys.platform == "win32":
-        try:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Unblock-File bin/forgetune_engine.exe"], capture_output=True)
-        except Exception:
-            pass
 
     # Step 4: Run full pytest test suite
     if not run_step("Run Python PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):

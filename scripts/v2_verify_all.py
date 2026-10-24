@@ -35,11 +35,6 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
 
 def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> bool:
     test_exe = os.path.abspath("bin/forgetune_test_suite.exe")
-    if sys.platform == "win32":
-        try:
-            subprocess.run(["powershell", "-NoProfile", "-Command", f"Unblock-File '{test_exe}'"], capture_output=True)
-        except Exception:
-            pass
     try:
         t0 = time.perf_counter()
         p = subprocess.run([test_exe], env=env)
@@ -120,11 +115,6 @@ def main():
     if not run_step("R1: Compile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp")):
         sys.exit(1)
     shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
-    if sys.platform == "win32":
-        try:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Unblock-File bin/*.exe"], capture_output=True)
-        except Exception:
-            pass
 
     # 3. Compile pybind11 Extension
     import sysconfig
@@ -284,7 +274,7 @@ def main():
         "",
         "| Verification Round | Scope | Checks Executed | Status | Evidence |",
         "|---|---|:---:|:---:|---|",
-        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (182 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
+        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13 tests), Python pytest (187 tests), Model A, B, C runs | **PASS** | Clean build from scratch, 0 warnings, 0 failures |",
         "| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), contract rejection (B=0, 129), Dual ABI wrappers, Benchmarks, Memory reports | **PASS** | `test_v2_adversarial_boundary.py` (11 tests), `V2_BENCHMARK_REPORT.md`, `V2_MEMORY_REPORT.md` |",
         "| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun, full pytest suite rerun, acceptance rerun, Models A/B/C rerun, 65,536 float bitwise comparison | **PASS** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |",
         "",

@@ -90,6 +90,6 @@ Low-level ctypes loader for compiled ForgeTune `.dll` binaries:
 runtime = NativeRuntime(dll_path, expected_input_shape, expected_output_shape)
 output = runtime.run(input_array)
 ```
-- Automatically handles Windows WDAC temporary staging and `Zone.Identifier` unblocking.
+- Direct artifact loading with full security metadata preservation (no stream deletion, no temporary staging). Bounded retries strictly for transient file contention.
 - Supports dual C ABI dispatch (`forgetune_run` vs `forgetune_run_v1`).
 - Validates shapes, bounds, dtypes, and null pointers before invocation.
