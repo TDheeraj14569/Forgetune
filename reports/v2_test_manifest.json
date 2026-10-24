@@ -1,0 +1,684 @@
+{
+  "summary": {
+    "total_python_tests_collected": 187,
+    "python_passed": 160,
+    "python_failed_blocked": 27,
+    "python_error_blocked": 0,
+    "native_cpp_tests": 13,
+    "native_cpp_passed": 13,
+    "total_tests_available": 200,
+    "total_passing": 173,
+    "total_blocked_by_sac": 27
+  },
+  "native_cpp_test_cases": [
+    {
+      "name": "test_ir_construction_and_verification",
+      "status": "passed"
+    },
+    {
+      "name": "test_negative_graph_verifier_diagnostics",
+      "status": "passed"
+    },
+    {
+      "name": "test_reference_interpreter_numerical_eval",
+      "status": "passed"
+    },
+    {
+      "name": "test_constant_folding_pass",
+      "status": "passed"
+    },
+    {
+      "name": "test_dead_code_elimination_pass",
+      "status": "passed"
+    },
+    {
+      "name": "test_operator_fusion_pass",
+      "status": "passed"
+    },
+    {
+      "name": "test_json_roundtrip_serialization",
+      "status": "passed"
+    },
+    {
+      "name": "test_algebraic_simplification_and_fusion_safety",
+      "status": "passed"
+    },
+    {
+      "name": "test_v2_shapes_and_conv2d_verifier",
+      "status": "passed"
+    },
+    {
+      "name": "test_v2_interpreter_new_ops",
+      "status": "passed"
+    },
+    {
+      "name": "test_conv2d_relu_operator_fusion_pass",
+      "status": "passed"
+    },
+    {
+      "name": "test_v2_memory_planner_64byte_alignment",
+      "status": "passed"
+    },
+    {
+      "name": "test_aligned_arena_pool_and_reentrancy",
+      "status": "passed"
+    }
+  ],
+  "python_tests": {
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_candidate_space_coverage": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_correctness_gating_rejects_failing_candidate": {
+      "outcome": "failed",
+      "exception_type": "OSError",
+      "details": "E   forgetune.errors.AutotuningError: Autotuner failed: no candidate passed compilation and correctness gate."
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuning_cache_hit_and_corruption_resilience": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_baseline_fallback_on_noise_band": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_selects_faster_candidate_above_threshold": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_tie_breaking_prefers_o2_over_o3": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_tie_breaking_prefers_untiled_over_tiled": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_rejects_slower_candidates": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_cache_key_shape_sensitivity": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_deterministic_tie_breaking_repeatability": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_frontend_and_parameters.py::test_acceptance_parameter_lifting_and_weight_transposition": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_frontend_and_parameters.py::test_acceptance_unsupported_ops_rejected_with_informative_error": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_frontend_and_parameters.py::test_acceptance_reject_rank_greater_than_2_inputs": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_frontend_and_parameters.py::test_acceptance_bit_exact_float32_serialization": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_cycle_detection": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_matmul_dimension_mismatch": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_add_incompatible_broadcast_shapes": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_const_buffer_size_mismatch": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_missing_operand_reference": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_empty_inputs_or_outputs": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_mutation_resilience.py::test_acceptance_mutation_non_positive_dimensions": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_constant_folding_matmul": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_constant_folding_chained_pipeline": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_algebraic_identity_add_zero": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_algebraic_relu_idempotent": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_algebraic_reject_non_zero_constant": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_dce_removes_dead_subgraph_and_protects_outputs": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_fusion_legality_multi_consumer_add": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_fusion_legality_intermediate_add_is_graph_output": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_optimization_attacks.py::test_attack_dce_preserves_unconsumed_graph_inputs": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_pipeline_e2e_acceptance.py::test_acceptance_single_linear_no_bias": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_pipeline_e2e_acceptance.py::test_acceptance_single_linear_with_bias": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_single_linear_1\\acceptance_e2e\\loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_pipeline_e2e_acceptance.py::test_acceptance_three_layer_mlp_with_relu_and_fusion": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_three_layer_ml0\\acceptance_e2e\\fused_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_pipeline_e2e_acceptance.py::test_acceptance_wide_and_tall_batch_e2e": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_pipeline_e2e_acceptance.py::test_acceptance_standalone_native_execution_no_pytorch_eval": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-1-1-1-scalar_1x1]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-3-7-17-prime_small]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat1\\acceptance_diff\\prime_small_naive_ijk\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-7-8-15-subtile_15]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat2\\acceptance_diff\\subtile_15_naive_ijk\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-16-16-16-exact_tile_16]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-15-17-31-cross_boundary_odd]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-32-32-32-exact_tile_32]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-33-15-17-post_boundary_33]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat6\\acceptance_diff\\post_boundary_33_naive_ijk\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-64-8-4-rectangular_tall]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-4-8-64-rectangular_wide]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[naive_ijk-4-128-4-deep_inner_k]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-1-1-1-scalar_1x1]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat10\\acceptance_diff\\scalar_1x1_loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-3-7-17-prime_small]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat11\\acceptance_diff\\prime_small_loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-7-8-15-subtile_15]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-16-16-16-exact_tile_16]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-15-17-31-cross_boundary_odd]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-32-32-32-exact_tile_32]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat15\\acceptance_diff\\exact_tile_32_loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-33-15-17-post_boundary_33]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat16\\acceptance_diff\\post_boundary_33_loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-64-8-4-rectangular_tall]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat17\\acceptance_diff\\rectangular_tall_loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-4-8-64-rectangular_wide]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[loop_ikj-4-128-4-deep_inner_k]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-1-1-1-scalar_1x1]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-3-7-17-prime_small]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-7-8-15-subtile_15]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-16-16-16-exact_tile_16]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-15-17-31-cross_boundary_odd]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-32-32-32-exact_tile_32]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-33-15-17-post_boundary_33]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat26\\acceptance_diff\\post_boundary_33_tiled\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-64-8-4-rectangular_tall]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_mat27\\acceptance_diff\\rectangular_tall_tiled\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-4-8-64-rectangular_wide]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_matmul_all_unfused_variants[tiled-4-128-4-deep_inner_k]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_ikj-1-1-1-scalar_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_ikj-7-8-15-subtile_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_ikj-16-16-16-tile16_fused]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_fus2\\acceptance_diff\\tile16_fused_fused_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_ikj-17-31-33-odd_tile_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_ikj-32-32-32-tile32_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_tiled-1-1-1-scalar_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_tiled-7-8-15-subtile_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_tiled-16-16-16-tile16_fused]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_randomized_fus7\\acceptance_diff\\tile16_fused_fused_tiled\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_tiled-17-31-33-odd_tile_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_randomized_fused_variants[fused_tiled-32-32-32-tile32_fused]": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_randomized_differential.py::test_acceptance_extreme_values_stress": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_extreme_values0\\acceptance_diff\\small\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_abi_null_pointer_rejection": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_abi_size_mismatch_rejection": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_shape_validation_in_python_wrapper": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_unaligned_memory_buffer": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_reentrancy_stress_1000_calls": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_runtime_abi_robustness.py::test_acceptance_invalid_dll_loading_graceful_failure": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_boundary_batch_sizes": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_rejection_boundary_violations": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_dual_abi_dynamic_model": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_dual_abi_static_model": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_numerical_stress_and_zeros": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_alternating_dynamic_batches_arena_stability": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_same_thread_nested_reentrancy": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_concurrent_multithreaded_execution": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_zero_allocation_inference_sequence": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_steady_state_injected_allocation_detection": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_adversarial_boundary.py::test_c_abi_explicit_v1_and_v2_on_all_models": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_models_acceptance.py::test_acceptance_model_a_dynamic_tinymlp": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_models_acceptance.py::test_acceptance_model_b_residual_mlp": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_v2_models_acceptance.py::test_acceptance_model_c_small_cnn": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_acceptance_model_c_small_0\\model_c\\loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_all_variants.py::test_all_five_kernel_variants[17-31-23]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_all_five_kernel_variants_0\\tiled_17_31_23.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_all_variants.py::test_all_five_kernel_variants[16-16-16]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_all_five_kernel_variants_1\\fused_ikj_16_16_16.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_all_variants.py::test_all_five_kernel_variants[3-5-7]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_all_five_kernel_variants_2\\tiled_3_5_7.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_all_variants.py::test_all_five_kernel_variants[1-48-24]": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_all_five_kernel_variants_3\\naive_1_48_24.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_all_variants.py::test_extreme_inputs_all_variants": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_extreme_inputs_all_varian0\\extreme_fused.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_differential.py::test_full_differential_hierarchy": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_full_differential_hierarc0\\differential_test\\tiled_16.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_edge_cases.py::test_prime_dimensions_and_partial_tiles": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_prime_dimensions_and_part0\\prime_dims\\loop_ikj\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_edge_cases.py::test_batch_size_one": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_batch_size_one0\\batch_one\\tiled_8\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/correctness/test_edge_cases.py::test_all_zeros_and_all_negatives": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_all_zeros_and_all_negativ0\\zeros_and_negs\\baseline\\kernel.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/integration/test_e2e_tinymlp.py::test_tinymlp_full_lifecycle": {
+      "outcome": "passed"
+    },
+    "tests/test_autotuner.py::test_autotuner_budget_and_candidates": {
+      "outcome": "passed"
+    },
+    "tests/test_autotuner.py::test_autotuning_report_generation": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_codegen_and_runtime.py::test_runtime_successful_execution": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_codegen_and_runtime.py::test_runtime_invalid_shape_rejection": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_codegen_and_runtime.py::test_runtime_null_pointer_contract": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_codegen_and_runtime.py::test_runtime_size_mismatch_contract": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_codegen_and_runtime.py::test_native_execution_both_bias_forms": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_float_serialization.py::test_bit_exact_float32_serialization": {
+      "outcome": "failed",
+      "exception_type": "WinError 4551 (Windows Smart App Control Block)",
+      "details": "E   OSError: Failed to load shared library 'C:\\Users\\dheer\\AppData\\Local\\Temp\\pytest-of-dheer\\pytest-221\\test_bit_exact_float32_seriali0\\float_test.dll': Windows Application Control / Code Integrity policy blocked execution (WinError 4551). The binary did not meet system code integrity signing or reputation requirements."
+    },
+    "tests/unit/test_ir.py::test_duplicate_node_id_rejected": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_ir.py::test_cyclic_graph_rejected": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_ir.py::test_topological_sort_order": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_ir.py::test_json_serialization_and_deserialization": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_matmul_valid_dimensions": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_matmul_invalid_dimensions": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_matmul_non_square": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_add_exact_shape": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_add_rank1_vector_broadcasting": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_add_rank2_row_broadcasting": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_add_unsupported_shapes_rejected": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_relu_semantics": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_operators.py::test_const_node_storage": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_engine_optimization_pipeline": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_engine_operator_fusion": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_algebraic_simplification_add_zero": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_algebraic_simplification_relu_idempotent": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_fusion_multi_consumer_rejected": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_optimizations.py::test_fusion_output_node_rejected": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_pybind11_ir_and_verifier": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_pybind11_interpreter_against_pytorch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_pybind11_json_roundtrip": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_pybind11_compiler_and_codegen": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_in_process_vs_cli_codegen_parity": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_pybind11_bindings.py::test_in_process_codegen_latency_isolated": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_torch_export_frontend.py::test_torch_export_extraction_and_transposition": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_torch_export_frontend.py::test_torch_export_rejects_unsupported_ops": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_torch_export_frontend.py::test_torch_export_rejects_rank_3_inputs": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_torch_export_frontend.py::test_canonical_tinymlp_exported_aten_targets_and_decomposition": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_dynamic_runtime_capabilities": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_dynamic_execution_across_batches": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_dynamic_batch_out_of_bounds_rejection": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_dynamic_benchmark_kernel": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_dynamic_cnn_execution": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_loading_file_not_found": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_loading_direct_success": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_loading_smart_app_control_diagnostic": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_loading_transient_sharing_retry": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_loading_invalid_library": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_codegen_runtime.py::test_safe_library_metadata_preservation": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_conv2d_3x3_stride1_pad1_with_bias": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_conv2d_3x3_stride2_pad1_no_bias": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_conv2d_pointwise_1x1": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_fused_conv2d_relu": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_export_frontend.py::test_export_tinymlp_dynamic_batch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_export_frontend.py::test_export_residual_mlp_dynamic_batch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_export_frontend.py::test_export_small_cnn_dynamic_batch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_export_frontend.py::test_export_preserves_static_batch_default": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_fusion.py::test_conv2d_relu_fusion_success": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_fusion.py::test_conv2d_relu_fusion_rejected_when_multi_consumer": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_fusion.py::test_conv2d_relu_fusion_rejected_when_conv_is_graph_output": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_v2_json_roundtrip_with_conv2d": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_v2_new_ops_roundtrip_and_verify": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_verifier_rejects_non_leading_dynamic_dimension": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_verifier_rejects_const_with_dynamic_dimension": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_verifier_rejects_conv2d_channel_mismatch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_verifier_rejects_conv2d_dynamic_weight": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_ir.py::test_verifier_rejects_flatten_invalid_rank": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_memory_planner.py::test_memory_planner_pipeline_reuse": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_memory_planner.py::test_memory_planner_disjoint_buffer_reuse": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_mul_exact_elementwise": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_mul_broadcast_vector": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_mul_broadcast_channel_4d": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_sigmoid_semantics": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_tanh_semantics": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_flatten_semantics": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_operators.py::test_v2_dynamic_batch_rejection_out_of_bounds": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_shapes.py::test_dynamic_dim_constant": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_shapes.py::test_cpp_tensorshape_dynamic_batch": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_shapes.py::test_cpp_tensorshape_static": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_shapes.py::test_cpp_tensorshape_non_leading_dynamic_dim": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_shapes.py::test_cpp_conv2d_attrs": {
+      "outcome": "passed"
+    }
+  }
+}

@@ -1,10 +1,11 @@
 # FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT
 
-**Date:** 2026-10-24 23:22:04
+**Date:** 2026-10-25 00:11:21
 **Git Branch:** `v2.0-dev`
-**Source Revision:** `0233951bcd8500a1acd9046fb2b5633b90025902`
-**Tree Fingerprint:** `069abc69a15e586c686b8b2afe9596e28f7bf648`
-**Final Status:** **VERIFIED WITH DOCUMENTED PLATFORM APPLICATION-CONTROL OBSERVATIONS**
+**Source Revision:** `cf362bae8b472131e4844490022dda02f1aa83d6`
+**Tree Fingerprint:** `c765f21f930f80322c48c921526c4e57a8bd4d6f`
+**Verification Mode:** `FULL`
+**Final Status:** **PARTIAL VALIDATION (ENVIRONMENT-BLOCKED BY PLATFORM APPLICATION-CONTROL OBSERVATIONS)**
 
 ---
 
@@ -12,7 +13,7 @@
 
 | Verification Round | Scope | Checks Executed | Status | Evidence |
 |---|---|:---:|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (187 collected: 145 passed, 27 blocked by SAC WinError 4551), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
+| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (187 collected: 160 passed, 27 blocked by SAC WinError 4551), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), dual ABI wrappers, Benchmarks (Models A, B, C, 30-sample distribution at B=64), Memory reports | **VERIFIED** | `V2_BENCHMARK_REPORT.md` (unified 30-sample distribution), `V2_MEMORY_REPORT.md` (42.9% - 60.0% storage reduction) |
 | **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun, 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |
 
