@@ -13,7 +13,7 @@
 This closure audit provides the definitive, evidence-backed evaluation of ForgeTune V2.0 on branch `v2.0-dev`. All claims, test inventories, statistical evaluations, and architectural capabilities have been reconciled against the actual repository source code, Windows kernel event logs, and raw benchmark measurements.
 
 ### Key Audit Conclusions:
-1. **Repository Integrity:** Branch `master` and tag `v1.0.0` remain completely frozen and untouched at commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032`. Core compiler, runtime, and test source code (`src/`, `include/`, `python/`, `tests/`) is 100% clean with zero diff against baseline `0233951bcd8500a1acd9046fb2b5633b90025902`.
+1. **Repository Integrity:** Branch `master` and tag `v1.0.0` remain completely frozen and untouched at commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032`. Core compiler and runtime architecture is strictly preserved: `include/` and `python/` have zero diff against baseline `0233951bcd8500a1acd9046fb2b5633b90025902`; `src/` contains solely 2 single-statement diagnostic suppressions (`(void)out_shape;`, `(void)has_bias;`) to achieve 0 warnings under `-Wall -Wextra -std=c++17 -O2`; and `tests/` contains solely `tests/unit/test_v2_independent_determinism.py` for Gate 8 independent subprocess determinism.
 2. **Corrected Windows Diagnostic Terminology:** The error code observed on novel dynamic DLLs is Win32 error `4551` (`ERROR_APP_CONTROL_BLOCKED`), with the system message `"An Application Control policy has blocked this file."` Neither the exception nor the Windows Code Integrity log provides an underlying NTSTATUS string. The failure occurs at `LoadLibraryW()` via `ctypes.CDLL()`, enforced by Policy ID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` (Event IDs 3077 and 3033).
 3. **Defensible Test Inventory Accounting:** The repository contains **204 enumerated test identifiers, with overlapping execution** (191 collected Python test items via pytest + 13 standalone native C++ test functions). In the local test suite execution, all 191 Python tests executed assertions to completion and passed. Containment analysis confirms that the 13 C++ tests execute both standalone in `bin/forgetune_test_suite.exe` and in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 4. **Three Verification Rounds & Reproducibility:** The three-round verification protocol (`scripts/v2_verify_all.py`) verified clean C++ building, dual-ABI loading, and model execution across Rounds 1 and 2. On the remote Windows CI environment ([Run 40174972712](https://github.com/TDheeraj14569/Forgetune/actions/runs/40174972712)), all three rounds executed to completion with **EXIT CODE 0**, including Round 3 bitwise reproducibility across 65,536 float32 values with 0 bit differences (0/65,536 word mismatches, 0/2,097,152 bit divergences across independent clean builds).
@@ -48,10 +48,11 @@ git diff 0233951bcd8500a1acd9046fb2b5633b90025902 HEAD -- src/ include/ python/ 
 |---|---|---|:---:|
 | **Working Tree Status** | Clean | Clean (no uncommitted tracked changes) | **MATCH** |
 | **Current Branch** | `v2.0-dev` | `v2.0-dev` | **MATCH** |
-| **Current HEAD** | Latest on `v2.0-dev` | `ae079f7342a2d9d5c6408e0899b40efd6c2181a3` | **MATCH** |
+| **Current HEAD** | Latest on `v2.0-dev` | `4f7d4cae101f9f41bc116f477a09d904661681de` | **MATCH** |
+| **Current Tree** | Latest tree fingerprint | `e346737645569b0822f2d43323fcd2d68be0697b` | **MATCH** |
 | **Master Commit** | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | **FROZEN** |
 | **Tag v1.0.0 Commit** | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | **FROZEN** |
-| **Core Source Diff** | 0 lines | **0 lines across `src/`, `include/`, `python/`, `tests/`** | **ZERO DIFF** |
+| **Core Source Preserved** | Strict semantic preservation | 0 diff in `include/` & `python/`; 2 warning silencer statements in `src/`; 1 Gate 8 test file in `tests/` | **PRESERVED** |
 
 **Confirmation:** Neither `master` nor `v1.0.0` has been modified, rebased, tagged, or merged. All v2.0 development remains strictly isolated on `v2.0-dev`.
 
