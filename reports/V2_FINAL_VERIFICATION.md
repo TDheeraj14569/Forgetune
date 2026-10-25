@@ -1,11 +1,11 @@
 # FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT
 
-**Date:** 2026-10-25 09:03:14
+**Date:** 2026-10-25 14:18:06
 **Git Branch:** `v2.0-dev`
-**Source Revision:** `88cb1473007c47e58f717297554a64aa3bdb71ff`
-**Tree Fingerprint:** `d4e306f70c17fa16e4663ae2f0509e4266fadd9e`
+**Source Revision:** `a22dd7c1fe9c11d1acabb1abf21bfb0933b6a4d8`
+**Tree Fingerprint:** `66c7b16ad4757725574be282cfc6dc1b253ff0ab`
 **Verification Mode:** `FULL`
-**Final Status:** **PARTIAL VALIDATION (ENVIRONMENT-BLOCKED BY PLATFORM APPLICATION-CONTROL OBSERVATIONS)**
+**Final Status:** **FULLY VERIFIED**
 
 ---
 
@@ -13,7 +13,7 @@
 
 | Verification Round | Scope | Checks Executed | Status | Evidence |
 |---|---|:---:|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (187 collected: 160 passed, 27 blocked by SAC WinError 4551), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
+| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (187 collected, 187 passed, 0 blocked), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), dual ABI wrappers, Benchmarks (Models A, B, C, 30-sample distribution at B=64), Memory reports | **VERIFIED** | `V2_BENCHMARK_REPORT.md` (unified 30-sample distribution), `V2_MEMORY_REPORT.md` (42.9% - 60.0% storage reduction) |
 | **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun, 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |
 
@@ -32,5 +32,5 @@
 ## 3. Backward Compatibility & Platform Code Integrity Statement
 
 All 119 original v1.0 and 68 v2.0 compiler graph, verifier, interpreter, memory planner, and codegen components are verified.
-Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), newly generated ad-hoc test DLLs in temporary directories are intercepted by Windows Smart App Control (`WinError 4551`).
+Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 187 Python tests, 13 native C++ tests, and 65,536-float bitwise reproducibility checks execute with 100% pass rate.
 The runtime reliably propagates explicit actionable diagnostics, preserving platform security policy while executing all compiled workload models cleanly within the project tree.
