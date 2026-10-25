@@ -68,14 +68,31 @@ To rigorously verify Model C performance at batch size $B=64$, 30 independent sa
 - In pure single-threaded native execution without Python framework overhead, the ForgeTune selected native kernel executes at **421.30 μs**, achieving 1.10x speedup over single-threaded PyTorch E2E (462.02 μs).
 - At the Python E2E level, single-threaded ForgeTune (442.70 μs) achieves 0.93x speedup vs 8-threaded PyTorch (409.53 μs) and 1.04x vs single-threaded PyTorch (462.02 μs).
 
-### Statistical Parity & Equivalence Analysis (Model C at $B=64$)
+### Statistical Parity, TOST Equivalence & Non-Inferiority Analysis (Model C at $B=64$)
 
-Under standard Two One-Sided Tests (TOST) equivalence testing methodology:
-- **Null Hypothesis ($H_0$):** The performance difference between single-threaded PyTorch E2E and single-threaded ForgeTune E2E exceeds the practical equivalence boundary $\Delta = \pm 5\%$ ($\pm 22.5\ \mu\text{s}$ on a ~450 μs baseline).
-- **Equivalence Bound:** $[-\Delta, +\Delta] = [-22.5\ \mu\text{s}, +22.5\ \mu\text{s}]$.
-- **Observed Median Delta:** $449.77 - 443.02 = \mathbf{6.75\ \mu\text{s}}$ (~1.5% delta).
-- **Distribution Characteristics:** PyTorch 1-thread IQR is 26.56 μs (range 340.20 to 528.15 μs); ForgeTune E2E IQR is 17.90 μs (range 341.95 to 500.70 μs).
-- **Conclusion:** Because the observed delta falls strictly within the $\pm 5\%$ equivalence band ($|6.75\ \mu\text{s}| < 22.5\ \mu\text{s}$) and their interquartile ranges substantially overlap, this workload is rigorously certified as having achieved **statistical parity** rather than an unsubstantiated strict speedup claim.
+To rigorously evaluate whether single-threaded ForgeTune achieves equivalence, non-inferiority, or strict superiority compared to single-threaded PyTorch at $B=64$, 30 paired blocks of 50 iterations each ($N=30$) were analyzed:
+
+- **Baseline Metrics (Single-Threaded PyTorch E2E):** Mean $\mu_{PT} = 454.64\ \mu\text{s}$, sample standard deviation $s_{PT} = 53.33\ \mu\text{s}$, median $462.02\ \mu\text{s}$, IQR $30.80\ \mu\text{s}$.
+- **Candidate Metrics (Single-Threaded ForgeTune E2E):** Mean $\mu_{FT} = 430.42\ \mu\text{s}$, sample standard deviation $s_{FT} = 41.13\ \mu\text{s}$, median $442.70\ \mu\text{s}$, IQR $9.66\ \mu\text{s}$.
+- **Paired Sample Differences ($D_i = \text{PT1}_i - \text{FT}_i$):**
+  - Mean paired difference: $\bar{d} = \mathbf{24.22\ \mu\text{s}}$.
+  - Standard deviation of paired differences: $s_d = 48.73\ \mu\text{s}$.
+  - Standard error of the mean: $SE = s_d / \sqrt{30} = \mathbf{8.90\ \mu\text{s}}$.
+  - Median paired difference: $\mathbf{18.15\ \mu\text{s}}$ (marginal difference of medians: $462.02 - 442.70 = 19.32\ \mu\text{s}$).
+  - Paired 90% Confidence Interval ($t_{0.95, df=29} = 1.6991$): $[\bar{d} \pm t \cdot SE] = [\mathbf{9.10\ \mu\text{s}}, \mathbf{39.33\ \mu\text{s}}]$.
+  - Bootstrap 90% Confidence Interval for median difference: $[\mathbf{13.30\ \mu\text{s}}, \mathbf{30.25\ \mu\text{s}}]$.
+- **Equivalence Margin:** $\Delta = \pm 5\%$ of the PyTorch baseline mean ($\pm 22.73\ \mu\text{s}$ on $454.64\ \mu\text{s}$). Equivalence zone: $[-\Delta, +\Delta] = [-22.73\ \mu\text{s}, +22.73\ \mu\text{s}]$.
+
+#### Three-Way Statistical Performance Disambiguation:
+1. **Strict Superiority (E2E): NOT ESTABLISHED ACROSS ALL CONFIGURATIONS.**
+   Although $\bar{d} = 24.22\ \mu\text{s} > 0$ for single-threaded execution, ForgeTune single-threaded at $B=64$ (median $442.70\ \mu\text{s}$) does not outperform 8-threaded PyTorch E2E (median $409.53\ \mu\text{s}$, where PyTorch leverages MKL-DNN multithreaded convolution). Therefore, strict overall E2E superiority cannot be claimed.
+2. **Two-Sided TOST Equivalence: STATISTICALLY INCONCLUSIVE AT $N=30$.**
+   Under the Two One-Sided Tests (TOST) framework at $\alpha=0.05$ (corresponding to the 90% CI), concluding statistical equivalence requires both:
+   - (a) $\text{Lower Bound} > -\Delta \implies 9.10 > -22.73$ (Satisfied, $p < 0.001$).
+   - (b) $\text{Upper Bound} < +\Delta \implies 39.33 < +22.73$ (**NOT SATISFIED: $+39.33 > +22.73$).
+   Because the upper bound exceeds $+22.73\ \mu\text{s}$, two-sided TOST equivalence cannot be rejected/certified at $N=30$ under host CPU scheduling variance. Release Gate 7 is held on **HOLD**.
+3. **One-Sided Non-Inferiority: STATISTICALLY SUPPORTED ($p < 0.05$).**
+   Non-inferiority tests the hypothesis that ForgeTune is no worse than single-threaded PyTorch by more than $\Delta$ ($H_0: \mu_{PT} - \mu_{FT} \le -\Delta$). Because the 95% one-sided confidence lower bound (equivalent to the lower bound of the 90% two-sided CI) is $+9.10\ \mu\text{s} > -22.73\ \mu\text{s}$, the null hypothesis of inferiority is soundly rejected ($t = (24.22 - (-22.73)) / 8.90 = 5.28, p < 0.0001$). ForgeTune is rigorously certified as **non-inferior** to single-threaded PyTorch at $B=64$.
 
 ---
 
