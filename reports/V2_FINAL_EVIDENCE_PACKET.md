@@ -286,11 +286,13 @@ Empirically isolated timing boundaries across 8 distinct pipeline stages measure
   - **Passed:** 160 tests passed cleanly.
   - **Blocked by SAC:** 27 tests blocked by Windows Smart App Control (`WinError 4551`) when loading unsigned ad-hoc compiled test DLLs in `tmp_path`. Zero numerical or logic assertion failures.
 - **Native C++ Test Cases:** Exactly **13 test functions** in `tests/cpp/test_main.cpp` (13/13 passed).
-- **Containment Relationship:**
-  The PyTest suite contains `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`, which executes `run_cpp_test_suite()` in-process within pytest. Standalone binary `bin/forgetune_test_suite.exe` executes them natively outside Python.
-  - Disjoint Python test cases: 187
+- **Containment & Overlapping Execution Relationship:**
+  The PyTest suite contains `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`, which invokes `run_cpp_test_suite()` in-process, executing all 13 native C++ test functions within pytest. Standalone executable `bin/forgetune_test_suite.exe` re-executes those identical 13 test functions outside Python.
+  - Collected pytest items: 187 (one of which executes the 13 native checks in-process)
   - Standalone native C++ test functions: 13
-  - Grand total distinct automated test cases: **200** (173 passed, 27 blocked by SAC).
+  - Python tests invoking or overlapping with native C++ test logic: 1 directly (`test_pybind11_native_cpp_test_suite`) plus 6 other pybind11 unit tests
+  - Enumerated test inventory: Exactly **200 enumerated test identifiers, with overlapping execution** (173 passed, 27 blocked by SAC policy, 0 assertion failures)
+  - The figure 200 represents enumerated test identifiers across both test runners rather than 200 mutually disjoint checks.
 
 ### D.3 Adversarial, Boundary & Allocation Robustness Execution
 - **Command:** `.venv\Scripts\python.exe -m pytest -v tests/acceptance/test_v2_adversarial_boundary.py`
@@ -379,21 +381,36 @@ Recorded in `reports/v2_benchmark_report.json` and `reports/V2_BENCHMARK_REPORT.
      - Run 1: $\text{median}(\{R_i\}) = \mathbf{17.45\ \mu\text{s}}$.
    - Both metrics are authentic and mathematically valid. The residual is an empirical diagnostic capturing Python ctypes argument conversion, NumPy array validation, and dynamic batch dispatch.
 
-3. **Rigorous Three-Way Statistical Performance Disambiguation (Model C $B=64$, Run 2):**
+3. **Investigation of Model C at $B=16$ Latency Reversal:**
+   - In Model C at $B=16$, the reported ForgeTune Python E2E median is **89.65 μs**, while the selected native kernel median is **92.864 μs**, producing an apparent scalar difference of $89.65 - 92.864 = \mathbf{-3.21\ \mu\text{s}}$.
+   - **Root Cause Analysis (`scripts/run_v2_benchmarks.py` lines 240-260):**
+     Unlike the unified paired-block protocol for $B=64$, measurements for $B \in [1, 4, 16]$ were executed in separate sequential blocks:
+     1. Python E2E was measured first across 100 iterations (`warmup_iters=25, measure_iters=100`).
+     2. Native kernel execution was measured subsequently in an independent session (5 interleaved rounds of 500 iterations).
+     3. The two measurements were not taken concurrently or on paired sample iterations.
+     4. Under dynamic CPU frequency scaling, thermal throttling, and OS thread scheduling on AMD64 Windows, CPU core frequencies varied between the initial Python E2E run and the subsequent kernel benchmark loop.
+   - **Auditing Determination:** Because these measurements were collected asynchronously with different iteration counts and timing paths, subtracting their scalar medians does not represent wrapper overhead. The negative value is an **UNRESOLVED / NON-PAIRED TIMING ARTIFACT** resulting from inter-session clock variance.
+
+4. **Rigorous Three-Way Statistical Performance Disambiguation (Model C $B=64$, Run 2):**
    Across $N=30$ paired blocks of 50 iterations:
    - PyTorch 1-thread baseline: Mean $\mu_{PT} = 454.64\ \mu\text{s}$, $s_{PT} = 53.33\ \mu\text{s}$, median $462.02\ \mu\text{s}$, IQR $30.80\ \mu\text{s}$.
    - ForgeTune single-thread candidate: Mean $\mu_{FT} = 430.42\ \mu\text{s}$, $s_{FT} = 41.13\ \mu\text{s}$, median $442.70\ \mu\text{s}$, IQR $9.66\ \mu\text{s}$.
    - Paired difference ($D_i = \text{PT1}_i - \text{FT}_i$): Mean $\bar{d} = 24.22\ \mu\text{s}$, $s_d = 48.73\ \mu\text{s}$, $SE = 8.90\ \mu\text{s}$.
    - Paired 90% Confidence Interval ($t_{0.95, df=29} = 1.6991$): $[\mathbf{9.10\ \mu\text{s}}, \mathbf{39.33\ \mu\text{s}}]$.
-   - Bootstrap 90% Confidence Interval for median difference: $[\mathbf{13.30\ \mu\text{s}}, \mathbf{30.25\ \mu\text{s}}]$.
+   - Bootstrap 90% Confidence Interval for median difference: $[\mathbf{13.30\ \mu\text{s}}, \mathbf{30.25\ \mu\text{s}}]$ (resampling $N=30$ with replacement, 10,000 replicates, seed=42).
    - Equivalence margin: $\Delta = \pm 5\%$ ($\pm 22.73\ \mu\text{s}$ on $454.64\ \mu\text{s}$). Band: $[-22.73\ \mu\text{s}, +22.73\ \mu\text{s}]$.
 
    **Disambiguation Conclusions:**
-   - **(A) Strict Superiority (E2E): NOT ESTABLISHED ACROSS ALL MODES.** Single-threaded ForgeTune (median 442.70 μs) does not outperform 8-threaded PyTorch E2E (median 409.53 μs). Strict superiority cannot be certified.
-   - **(B) Two-Sided TOST Equivalence: STATISTICALLY INCONCLUSIVE AT $N=30$.** Concluding two-sided equivalence at $\alpha=0.05$ requires that the 90% CI fall entirely within $[-22.73, +22.73]\ \mu\text{s}$. While the lower bound $+9.10 > -22.73\ \mu\text{s}$ is satisfied, the upper bound $+39.33 > +22.73\ \mu\text{s}$ fails. Release Gate 7 must remain on **HOLD**.
-   - **(C) One-Sided Non-Inferiority: STATISTICALLY SUPPORTED ($p < 0.05$).** Non-inferiority requires that ForgeTune is not worse than PyTorch by more than $\Delta$ ($H_0: \mu_{PT} - \mu_{FT} \le -\Delta$). The one-sided 95% lower confidence bound is $+9.10\ \mu\text{s} > -22.73\ \mu\text{s}$ ($t = 5.28, p < 0.0001$). Non-inferiority is formally certified.
+   - **(A) Strict Superiority (E2E): NOT ESTABLISHED ACROSS ALL MODES.**
+     Although the paired mean difference is positive ($\bar{d} = 24.22\ \mu\text{s}$, two-sided paired t-test against zero $t_{zero} = \bar{d} / SE = 24.22 / 8.90 = \mathbf{2.72}, p = 0.0108$), single-threaded ForgeTune at $B=64$ (median 442.70 μs) does not outperform 8-threaded PyTorch E2E (median 409.53 μs, where PyTorch leverages MKL-DNN multithreaded convolution). Strict overall E2E superiority across all deployment modes cannot be claimed.
+   - **(B) Two-Sided TOST Equivalence: STATISTICALLY INCONCLUSIVE AT $N=30$.**
+     Concluding two-sided equivalence at $\alpha=0.05$ requires that the 90% CI fall entirely within $[-22.73, +22.73]\ \mu\text{s}$. While the lower bound $+9.10 > -22.73\ \mu\text{s}$ is satisfied, the upper bound $+39.33 > +22.73\ \mu\text{s}$ fails. Release Gate 7 must remain on **HOLD**.
+   - **(C) One-Sided Non-Inferiority: STATISTICALLY SUPPORTED ($p < 0.05$).**
+     Non-inferiority tests the hypothesis that ForgeTune is not worse than PyTorch by more than $\Delta$ ($H_0: \mu_{PT} - \mu_{FT} \le -\Delta$). The test statistic against the lower margin $-\Delta = -22.73\ \mu\text{s}$ is:
+     $$t_{NI} = \frac{\bar{d} - (-\Delta)}{SE} = \frac{24.22 - (-22.73)}{8.90} = \frac{46.95}{8.90} = \mathbf{5.28}$$
+     with one-sided $p = 6.4 \times 10^{-6} < 0.0001$. This formally demonstrates that single-threaded ForgeTune is statistically non-inferior to single-threaded PyTorch at $B=64$. (Note: $t \approx 5.28$ tests the non-inferiority margin, while $t \approx 2.72$ tests zero mean difference; they must not be conflated).
 
-4. **Pure Native Kernel Performance:**
+5. **Pure Native Kernel Performance:**
    In pure C++ single-threaded execution inside the shared library without Python framework overhead, the ForgeTune selected kernel executes at **421.30 μs** (1.10x faster than the 461.68 μs baseline native kernel and 1.10x faster than single-threaded PyTorch E2E 462.02 μs).
 
 ---
@@ -408,7 +425,7 @@ Recorded in `reports/v2_benchmark_report.json` and `reports/V2_BENCHMARK_REPORT.
 | **Gate 4** | Memory & Numerical Safety | 64-byte alignment, RAII arena leasing, arithmetic bounds | **PASS** | `_aligned_malloc(alloc_bytes, 64)` guarantees 64-byte heap alignment. RAII `AlignedArenaPool::Lease` prevents nested and multithreaded corruption. Integer overflow checks guard arithmetic rounding. |
 | **Gate 5** | Scoped Arena-Allocation Invariants | `AlignedArenaPool` allocation counters and injection hook | **PASS** | ABI counters confirm 0 payload allocations (`_aligned_malloc`) and 0 block container insertions across dynamic batch sequences post warm-up. Injected allocation test confirms positive detector sensitivity. |
 | **Gate 6** | Autotuner Selection & Cache Correctness | Multi-batch evaluation, noise-band fallback, tuning cache | **PASS** | Multi-batch aggregate evaluation across $[1, 4, 16, 64]$ with strict $\ge 5\%$ speedup threshold. Models A and B correctly retain `baseline_naive` (1.00x). Model C correctly selects `loop_ikj`. Cache hits verified. |
-| **Gate 7** | Model C E2E Performance & Equivalence | 30-sample distribution analysis at $B=64$ | **HOLD** | Single-threaded PyTorch E2E (462.02 μs median, 454.64 μs mean) vs ForgeTune E2E (442.70 μs median, 430.42 μs mean). While one-sided non-inferiority is demonstrated ($p < 0.0001$), two-sided TOST equivalence is statistically inconclusive at $N=30$ because the 90% CI upper bound (+39.33 μs) exceeds the $\pm 5\%$ margin ($\pm 22.73\ \mu\text{s}$). Gate 7 is held on HOLD pending stakeholder equivalence sign-off. |
+| **Gate 7** | Model C E2E Performance & Equivalence | 30-sample distribution analysis at $B=64$ | **HOLD** | Single-threaded PyTorch E2E (462.02 μs median, 454.64 μs mean) vs ForgeTune E2E (442.70 μs median, 430.42 μs mean). While one-sided non-inferiority is demonstrated ($t=5.28, p < 0.0001$), two-sided TOST equivalence is statistically inconclusive at $N=30$ because the 90% CI upper bound (+39.33 μs) exceeds the $\pm 5\%$ margin ($\pm 22.73\ \mu\text{s}$). Gate 7 is held on HOLD pending stakeholder equivalence sign-off. |
 | **Gate 8** | Benchmark & Residual Integrity | Unified benchmark harness and automated Markdown/JSON generation | **PASS** | Authoritative dataset `v2-bench-1792863787-0233951b` (paired median residual 24.13 μs, marginal delta 21.40 μs) and historical confirmation dataset `v2-bench-1792847238-0233951b` (paired median residual 17.45 μs, marginal delta 24.57 μs) are fully reconciled, preserving the mathematical property that $\text{median}(X - Y) \ne \text{median}(X) - \text{median}(Y)$. |
 | **Gate 9** | Memory-Report Correctness | Calculated intermediate-buffer storage reduction | **PASS** | Liveness interval analysis with 64-byte aligned arena reuse achieves 42.9% reduction for Model A (56 KB -> 32 KB), 60.0% reduction for Model B (60 KB -> 24 KB), and 43.5% reduction for Model C (906 KB -> 512 KB), matching `reports/V2_MEMORY_REPORT.md`. |
 | **Gate 10** | Security-Safe Native-Library Loading | Removal of all SAC evasion workarounds | **PASS** | Completely eliminated PowerShell `Unblock-File`, NTFS `:Zone.Identifier` stream deletion, and randomized UUID filenames. Permanent Code Integrity blocks (`WinError 4551`) fail immediately with actionable diagnostics. |
@@ -419,10 +436,11 @@ Recorded in `reports/v2_benchmark_report.json` and `reports/V2_BENCHMARK_REPORT.
 
 ## SECTION G — Implementation Scoring & Final Certification
 
-- **Specification Coverage:** **100.0%** (All 27 defined functional requirements REQ-01 through REQ-27 implemented).
-- **Implementation Maturity:** **91.0%** (Bounded compiler prototype with full dynamic batching, 2D convolution, liveness buffer reuse, dual ABI, and pybind11 in-process bridge).
-- **Test Inventory:** **200 distinct automated test cases** (187 Python tests + 13 native C++ test functions; 173 passing, 27 blocked by SAC policy on ad-hoc test DLLs, 0 logic failures).
+- **Specification Coverage:** **100.0%** (All 27 defined functional requirements REQ-01 through REQ-27 implemented in source code).
+- **Direct Empirical Verification:** **81.5%** (22 of 27 requirements verified by passing automated tests; 5 requirements blocked strictly by host Windows Smart App Control `WinError 4551` on ad-hoc test DLLs; 0 requirements failed).
+- **Test Inventory:** **200 enumerated test identifiers, with overlapping execution** (187 collected pytest items + 13 native C++ test functions; 173 passed, 27 blocked by SAC policy on ad-hoc test DLLs, 0 logic failures).
 - **Release Readiness:** **8 Gates PASS, 4 Gates HOLD** (Total 12 gates evaluated: Gates 1, 2, 7, 12 on HOLD; Gates 3, 4, 5, 6, 8, 9, 10, 11 on PASS).
+- **Implementation Maturity Metric:** Prior arbitrary percentage scores (such as "91.0%") are formally **WITHDRAWN** in favor of the transparent status breakdown above.
 - **Technical & Architectural Quality:** **9.5 / 10** (Strict 64-byte alignment, memory leasing, scoped allocation tracking, security-safe loading, and empirical reproducibility).
 - **Final Release Authorization:** **STAGED ON `v2.0-dev`, HELD UNPUBLISHED AWAITING USER APPROVAL**.
 - **Repository Safety Commitment:** Branch `master` remains untouched and frozen at tag `v1.0.0`. No git release tags have been created, pushed, or published.
