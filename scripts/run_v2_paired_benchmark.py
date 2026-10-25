@@ -145,21 +145,13 @@ def main():
     # Standard Student's t critical values for df=99:
     # t_0.05,99 = 1.66039 (for 90% two-sided CI)
     # t_0.025,99 = 1.98422 (for 95% two-sided CI)
-    try:
-        from scipy import stats
-        t_crit_90 = float(stats.t.ppf(0.95, df=df))
-        t_crit_95 = float(stats.t.ppf(0.975, df=df))
-        p_val_zero = float(stats.t.sf(abs(mean_diff / se_diff), df=df) * 2.0)
-        p_val_ni = float(stats.t.sf((mean_diff - (-equiv_margin)) / se_diff, df=df))
-    except ImportError:
-        # High-precision approximation for df=99
-        t_crit_90 = 1.66039
-        t_crit_95 = 1.98422
-        # Normal approximation for p-values with large df (N=100)
-        z_zero = abs(mean_diff / se_diff)
-        z_ni = (mean_diff - (-equiv_margin)) / se_diff
-        p_val_zero = float(math.erfc(z_zero / math.sqrt(2)))
-        p_val_ni = float(0.5 * math.erfc(z_ni / math.sqrt(2)))
+    from scipy import stats
+    t_crit_90 = float(stats.t.ppf(0.95, df=df))
+    t_crit_95 = float(stats.t.ppf(0.975, df=df))
+    t_stat_zero = mean_diff / se_diff
+    t_stat_ni = (mean_diff - (-equiv_margin)) / se_diff
+    p_val_zero = float(stats.t.sf(abs(t_stat_zero), df=df) * 2.0)
+    p_val_ni = float(stats.t.sf(t_stat_ni, df=df))
 
     ci_90 = [round(mean_diff - t_crit_90 * se_diff, 2), round(mean_diff + t_crit_90 * se_diff, 2)]
     ci_95 = [round(mean_diff - t_crit_95 * se_diff, 2), round(mean_diff + t_crit_95 * se_diff, 2)]

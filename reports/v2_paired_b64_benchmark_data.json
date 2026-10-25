@@ -24,9 +24,9 @@
     "standard_error_us": 4.29,
     "degrees_of_freedom": 99,
     "t_stat_zero": 5.54,
-    "p_val_zero": 2.984208800699575e-08,
+    "p_val_zero": 2.4739259706346294e-07,
     "t_stat_non_inferiority": 9.76,
-    "p_val_non_inferiority": 8.183525938823346e-23,
+    "p_val_non_inferiority": 1.8069327448834418e-16,
     "ci_90_percent": [
       16.65,
       30.89

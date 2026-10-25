@@ -109,3 +109,15 @@ An audit of the host environment confirmed:
 
 ### Conclusion:
 The host operates under Windows Smart App Control / Code Integrity Policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`, but lacks the local PKI infrastructure and SDK tools required for Authenticode code signing.
+
+---
+
+## 6. Differential Enforcement Analysis: Empirical Hypothesis of Local Reputation Caching
+
+A significant empirical observation on this host is that all 187 Python tests in `tests/` pass cleanly in pytest without raising `WinError 4551`, whereas compiling into an unprecedented directory (`build/artifacts/repro_2/baseline/kernel.dll`) triggers `WinError 4551` immediately.
+
+The technical rationale for this divergence is formulated as an **EMPIRICAL HYPOTHESIS**:
+- Windows Smart App Control uses a combination of cloud-backed reputation intelligence and local kernel driver evaluation caches.
+- Binaries generated in file system locations that were previously executed during earlier sessions or whose contents match cached reputation identifiers can be permitted under local evaluation state.
+- Conversely, binaries emitted into completely novel directory structures with novel file hashes trigger active evaluation queries that result in immediate blocking when no cloud reputation exists and no Authenticode signature is present.
+- **Scientific Disclaimer:** Because the internal caching mechanisms, telemetry protocols, and driver heuristics of Microsoft Windows Smart App Control and Defender Application Control are closed-source and proprietary, this explanation is explicitly classified as an **investigative hypothesis** based on observed empirical behavior, not an authoritative statement of kernel driver implementation.

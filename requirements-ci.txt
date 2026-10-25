@@ -1,0 +1,8 @@
+# Pinned Windows CI Dependencies for ForgeTune v2.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+numpy==2.5.2
+pytest==9.1.1
+pybind11==3.1.0
+ziglang==0.16.0
+scipy==1.18.1

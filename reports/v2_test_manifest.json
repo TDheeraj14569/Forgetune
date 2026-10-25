@@ -17,7 +17,7 @@
       "failure_boundary": "ctypes.CDLL(self.original_dll_path)",
       "error": "WinError 4551: An Application Control policy has blocked this file"
     },
-    "reconciliation_note": "In the latest test run, all 187 collected pytest items executed and passed assertions cleanly because their template artifacts had established local host reputation. However, when an independent clean-build reproducibility DLL was emitted into build/artifacts/repro_2, Windows Smart App Control blocked execution with WinError 4551, confirming active SAC policy enforcement on novel binaries and preventing the Round 3 bitwise reproducibility comparison from completing locally."
+    "reconciliation_note": "In the latest test run, all 187 collected pytest items executed and passed assertions cleanly (hypothesized to be facilitated by local host evaluation state or reputation caching). However, when an independent clean-build reproducibility DLL was emitted into build/artifacts/repro_2, Windows Smart App Control blocked execution with WinError 4551, confirming active SAC policy enforcement on novel binaries and preventing the Round 3 bitwise reproducibility comparison from completing locally."
   },
   "native_cpp_test_cases": [
     {

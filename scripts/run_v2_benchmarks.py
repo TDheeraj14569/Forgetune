@@ -256,16 +256,21 @@ def run_benchmarks():
 
                 ft_kernel_us = round(float(np.median(k_tuned_samples)), 3)
                 ft_base_kernel_us = round(float(np.median(k_base_samples)), 3)
-                residual_us = round(ft_e2e_median_us - ft_kernel_us, 2)
+            # Disambiguate Candidate vs Selected Implementation Kernel
+            ft_candidate_kernel_us = ft_kernel_us
+            if opt_cand_id in ("baseline_naive", "baseline"):
+                ft_selected_kernel_us = ft_base_kernel_us
+            else:
+                ft_selected_kernel_us = ft_kernel_us
+
+            residual_us = round(ft_e2e_median_us - ft_selected_kernel_us, 2)
 
             # Recalculate derived metrics directly from stored values for complete consistency
             speedup_e2e = round(pt_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
             speedup_e2e_1th = round(pt_1th_median_us / ft_e2e_median_us, 2) if ft_e2e_median_us > 0 else 1.0
-            if opt_cand_id in ("baseline_naive", "baseline") and base_cand_id in ("baseline_naive", "baseline"):
-                kernel_opt_speedup = 1.00
-            else:
-                kernel_opt_speedup = round(ft_base_kernel_us / ft_kernel_us, 2) if ft_kernel_us > 0 else 1.0
-            diagnostic_ratio = round(pt_median_us / ft_kernel_us, 1) if ft_kernel_us > 0 else 1.0
+            candidate_speedup = round(ft_base_kernel_us / ft_candidate_kernel_us, 2) if ft_candidate_kernel_us > 0 else 1.0
+            kernel_opt_speedup = round(ft_base_kernel_us / ft_selected_kernel_us, 2) if ft_selected_kernel_us > 0 else 1.0
+            diagnostic_ratio = round(pt_median_us / ft_selected_kernel_us, 1) if ft_selected_kernel_us > 0 else 1.0
 
             entry = {
                 "batch_size": b,
@@ -277,14 +282,17 @@ def run_benchmarks():
                 "speedup_e2e": speedup_e2e,
                 "speedup_e2e_1thread": speedup_e2e_1th,
                 "forgetune_baseline_kernel_us": ft_base_kernel_us,
-                "forgetune_kernel_median_us": ft_kernel_us,
+                "forgetune_candidate_kernel_us": ft_candidate_kernel_us,
+                "forgetune_selected_kernel_us": ft_selected_kernel_us,
+                "forgetune_kernel_median_us": ft_selected_kernel_us,
+                "candidate_speedup": candidate_speedup,
                 "kernel_opt_speedup": kernel_opt_speedup,
                 "e2e_minus_kernel_residual_us": residual_us,
                 "diagnostic_ratio": diagnostic_ratio,
                 "compilation_cost_s": compilation_cost_s
             }
             model_results.append(entry)
-            print(f"  Batch B={b:2d}: PyTorch (8 threads)={pt_median_us:6.2f} us | PyTorch (1 thread)={pt_1th_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Selected Kernel={ft_kernel_us:7.3f} us (Kernel Opt Speedup: {kernel_opt_speedup:5.2f}x)")
+            print(f"  Batch B={b:2d}: PyTorch (8 threads)={pt_median_us:6.2f} us | PyTorch (1 thread)={pt_1th_median_us:6.2f} us | FT e2e={ft_e2e_median_us:6.2f} us (E2E Speedup: {speedup_e2e:5.2f}x) | Baseline Kernel={ft_base_kernel_us:7.3f} us | Candidate Kernel={ft_candidate_kernel_us:7.3f} us (Cand Speedup: {candidate_speedup:5.2f}x) | Selected Kernel={ft_selected_kernel_us:7.3f} us (Selected Speedup: {kernel_opt_speedup:5.2f}x)")
 
         benchmark_results["models"][name] = model_results
 
@@ -335,12 +343,16 @@ def run_benchmarks():
 
         md_lines.extend([
             f"### {model_name} (Selected: `{opt_cand}`, Cost: {comp_cost}s){tuner_note}",
-            "| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Selected Implementation Kernel (μs) | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio (Non-equiv)* |",
-            "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
+            "| Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Candidate Kernel (μs) | Selected Implementation Kernel (μs) | Candidate Speedup | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio (Non-equiv)* |",
+            "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
         ])
         for e in entries:
+            cand_k = e.get("forgetune_candidate_kernel_us", e.get("forgetune_kernel_median_us", 0.0))
+            sel_k = e.get("forgetune_selected_kernel_us", e.get("forgetune_kernel_median_us", 0.0))
+            cand_sp = e.get("candidate_speedup", 1.0)
+            sel_sp = e.get("kernel_opt_speedup", 1.0)
             md_lines.append(
-                f"| {e['batch_size']} | {e['pytorch_eager_median_us']:.2f} | {e['pytorch_eager_1thread_us']:.2f} | {e['forgetune_e2e_median_us']:.2f} | **{e['speedup_e2e']:.2f}x** | **{e['speedup_e2e_1thread']:.2f}x** | {e['forgetune_baseline_kernel_us']:.3f} | {e['forgetune_kernel_median_us']:.3f} | **{e['kernel_opt_speedup']:.2f}x** | {e['e2e_minus_kernel_residual_us']:.2f} | {e['diagnostic_ratio']:.1f}x* |"
+                f"| {e['batch_size']} | {e['pytorch_eager_median_us']:.2f} | {e['pytorch_eager_1thread_us']:.2f} | {e['forgetune_e2e_median_us']:.2f} | **{e['speedup_e2e']:.2f}x** | **{e['speedup_e2e_1thread']:.2f}x** | {e['forgetune_baseline_kernel_us']:.3f} | {cand_k:.3f} | {sel_k:.3f} | {cand_sp:.2f}x | **{sel_sp:.2f}x** | {e['e2e_minus_kernel_residual_us']:.2f} | {e['diagnostic_ratio']:.1f}x* |"
             )
         md_lines.append("")
 
