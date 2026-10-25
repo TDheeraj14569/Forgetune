@@ -9,6 +9,7 @@ std::vector<float> Interpreter::eval_matmul(
     const std::vector<float>& a, const TensorShape& a_shape,
     const std::vector<float>& b, const TensorShape& b_shape,
     const TensorShape& out_shape) const {
+    (void)out_shape;
 
     int64_t M = a_shape.dims[0];
     int64_t K = a_shape.dims[1];

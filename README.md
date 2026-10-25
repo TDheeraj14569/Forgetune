@@ -4,7 +4,7 @@
 [![C++17](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](CMakeLists.txt)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Version](https://img.shields.io/badge/Release-v2.0.0--dev-green.svg)](reports/V2_FINAL_VERIFICATION.md)
-[![Tests](https://img.shields.io/badge/Tests-200%2F200%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-204%2F204%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 
 ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing machine-learning inference compiler built from scratch for CPU execution. It extracts computation graphs from PyTorch models via `torch.export`, normalizes them into custom C++ Intermediate Representation (IR Schema 2.0), applies graph optimizations (constant folding, algebraic simplification, dead-code elimination, and multi-operator fusion), performs liveness-based intermediate buffer reuse, generates standalone C++17 CPU kernels supporting dynamic batch execution ($B \in [1, 128]$), compiles them into shared libraries, and autotunes kernel selection through an empirical correctness gate on the host machine.
 

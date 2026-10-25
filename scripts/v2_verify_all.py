@@ -109,7 +109,7 @@ def main():
     compile_cxx = lambda out_bin, extra_src: [
         zig_exe, "c++", "-target", "x86_64-windows-gnu", "-o", out_bin,
         *cpp_srcs, extra_src,
-        "-I", "include", "-std=c++17", "-O2", "-w"
+        "-I", "include", "-std=c++17", "-O2", "-Wall", "-Wextra"
     ]
 
     # =========================================================================
@@ -145,7 +145,7 @@ def main():
         "-I", py_include,
         "-I", pybind_include,
         py_lib,
-        "-std=c++17", "-O2", "-w"
+        "-std=c++17", "-O2", "-Wall", "-Wextra"
     ]
     if not run_step("R1: Compile pybind11 Extension", compile_pyd_cmd):
         sys.exit(1)
@@ -304,7 +304,7 @@ def main():
         "",
         "| Verification Round | Scope | Checks Executed | Status | Evidence |",
         "|---|---|:---:|:---:|---|",
-        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (187 collected, 187 passed, 0 blocked), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |",
+        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (191 collected, 191 passed, 0 blocked), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |",
         "| **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), dual ABI wrappers, Benchmarks (Models A, B, C, 30-sample distribution at B=64), Memory reports | **VERIFIED** | `V2_BENCHMARK_REPORT.md` (unified 30-sample distribution), `V2_MEMORY_REPORT.md` (42.9% - 60.0% storage reduction) |",
         "| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun, 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |",
         "",
@@ -322,8 +322,8 @@ def main():
         "",
         "## 3. Backward Compatibility & Platform Code Integrity Statement",
         "",
-        "All 119 original v1.0 and 68 v2.0 compiler graph, verifier, interpreter, memory planner, and codegen components are verified.",
-        "Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 187 Python tests, 13 native C++ tests, and 65,536-float bitwise reproducibility checks execute with 100% pass rate.",
+        "All 119 original v1.0 and 72 v2.0 compiler graph, verifier, interpreter, memory planner, and codegen components are verified.",
+        "Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 191 Python tests, 13 native C++ tests, and 65,536-float bitwise reproducibility checks execute with 100% pass rate.",
         "The runtime reliably propagates explicit actionable diagnostics, preserving platform security policy while executing all compiled workload models cleanly within the project tree.",
         ""
     ]

@@ -291,6 +291,7 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
                                                int64_t K, int64_t N,
                                                bool has_bias, MatMulVariant variant,
                                                int tile_m, int tile_n, int tile_k) const {
+    (void)has_bias;
     oss << "static inline void " << func_name << "(\n"
         << "    int64_t M, const float* A, const float* B, const float* bias, float* C\n"
         << ") noexcept {\n";
