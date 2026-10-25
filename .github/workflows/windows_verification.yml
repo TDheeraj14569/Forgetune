@@ -40,7 +40,12 @@ jobs:
           Write-Host "=== Code Integrity / Authenticode Check ==="
           Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert
           Get-ChildItem Cert:\LocalMachine\My -CodeSigningCert
-          where.exe signtool.exe || Write-Host "signtool.exe not in PATH"
+          $signTool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($null -eq $signTool) {
+              Write-Host "signtool.exe not in PATH"
+          } else {
+              Write-Host "signtool.exe: $($signTool.Source)"
+          }
 
       - name: 5. Build Native Components from Source (-Wall -Wextra)
         shell: powershell

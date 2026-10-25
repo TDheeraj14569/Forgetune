@@ -37,7 +37,15 @@ def main():
     if not os.path.isfile(dll_path):
         dll_path = os.path.abspath("build/artifacts/v2_small_cnn/baseline_naive/kernel.dll")
     if not os.path.isfile(dll_path):
-        raise FileNotFoundError(f"No compiled Model C kernel found at {dll_path}")
+        print(f"Artifact not found at {dll_path}; compiling Model C on the fly...")
+        import forgetune
+        ex_inp = torch.randn(2, 1, 8, 8)
+        art_dir = os.path.abspath("build/artifacts/v2_small_cnn")
+        compiled = forgetune.compile_model(
+            model=model, example_inputs=(ex_inp,), output_dir=art_dir,
+            autotune=True, dynamic_batch=True, enable_fusion=True
+        )
+        dll_path = compiled.manifest()["artifacts"]["shared_library"]
 
     print(f"Loaded Native Kernel: {dll_path}")
     rt = NativeRuntime(dll_path, (-1, 1, 8, 8), (-1, 10))
