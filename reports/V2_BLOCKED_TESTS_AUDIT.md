@@ -61,8 +61,20 @@ Under direct, security-safe library loading (`python/forgetune/runtime.py`) with
 
 ---
 
-## 4. Policy Gate Impact
+## 4. Policy Gate Impact (Historical Evaluation)
 
-- **Gate 1 (Functional Correctness):** Must remain **HOLD** until tests can execute without policy denial.
-- **Gate 2 (Legacy & ABI Compatibility):** Must remain **HOLD** until legacy acceptance suites can execute without policy denial.
-- **Gate 11 (Overall Technical Readiness):** Must remain **HOLD** staged on `v2.0-dev` awaiting authorized signing / deployment environment.
+- **Gate 1 (Functional Correctness):** Held on **HOLD** historically until tests could execute without policy denial.
+- **Gate 2 (Legacy & ABI Compatibility):** Held on **HOLD** historically until legacy acceptance suites could execute without policy denial.
+- **Gate 11 (Overall Technical Readiness):** Held on **HOLD** historically awaiting authorized deployment environment.
+
+---
+
+## 5. Historical Context & Resolution Status (Superseded)
+
+> [!NOTE]
+> This document preserves the historical audit of the 27 tests intercepted under Windows Smart App Control (`WinError 4551`) prior to CI deployment and host policy adjustment.
+>
+> **Current Verified Resolution:**
+> 1. **Remote Windows CI:** In authorized GitHub Actions Windows CI ([Run 40174972712](https://github.com/TDheeraj14569/Forgetune/actions/runs/40174972712)), all 187 collected Python tests and all 13 native C++ tests passed cleanly with 0 failures and 0 blocks.
+> 2. **Local Workstation:** Following SAC policy deactivation by the workstation administrator, all 187 Python tests execute assertions to completion and pass.
+> 3. **Gate Status:** Gates 1, 2, and 11 have been formally promoted to **PASS** in [reports/V2_FINAL_CLOSURE_AUDIT.md](file:///c:/Users/dheer/Desktop/Forgetune/reports/V2_FINAL_CLOSURE_AUDIT.md) and [reports/V2_REQUIREMENTS_MATRIX.md](file:///c:/Users/dheer/Desktop/Forgetune/reports/V2_REQUIREMENTS_MATRIX.md).

@@ -215,7 +215,8 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 * **Critical Value ($t_{0.05, 99}$ for 90% Two-Sided CI):** $1.66039$
 * **90% Confidence Interval for $\mu_d$:** $[\mathbf{16.65},\; \mathbf{30.89}]\ \mu\text{s}$
 * **95% Confidence Interval for $\mu_d$:** $[15.26,\; 32.28]\ \mu\text{s}$
-* **90% Bootstrap CI (10,000 resamples, seed 42):** $[17.03,\; 30.91]\ \mu\text{s}$
+* **90% Bootstrap CI for Mean Difference (10,000 resamples, seed 42):** $[17.03,\; 30.91]\ \mu\text{s}$
+* **90% Bootstrap CI for Median Difference (10,000 resamples, seed 42):** $[14.15,\; 21.70]\ \mu\text{s}$
 * **Equivalence Margin ($\pm 5\%$ of PyTorch baseline):** $\pm 18.10\ \mu\text{s}$
 
 #### Statistical Hypothesis Testing:

@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-25 14:42:39
+**Date:** 2026-10-25 15:18:46
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 

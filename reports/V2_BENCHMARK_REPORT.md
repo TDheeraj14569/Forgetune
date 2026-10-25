@@ -92,7 +92,8 @@ To eliminate sample size ambiguity, an expanded 100-block paired experiment (`re
 - **Equivalence Margin ($\pm 5\%$ of PyTorch median):** $\pm 18.10\ \mu\text{s}$.
 - **90% Paired Student's t CI ($t_{0.95, df=99} = 1.6604$):** $[+16.65\ \mu\text{s}, +30.89\ \mu\text{s}]$.
 - **95% Paired Student's t CI ($t_{0.975, df=99} = 1.9842$):** $[+15.26\ \mu\text{s}, +32.28\ \mu\text{s}]$.
-- **Bootstrap 90% CI ($B=10,000$ resamples):** $[+17.03\ \mu\text{s}, +30.91\ \mu\text{s}]$.
+- **Bootstrap 90% CI for Mean Difference ($B=10,000$ resamples, seed 42):** $[+17.03\ \mu\text{s}, +30.91\ \mu\text{s}]$.
+- **Bootstrap 90% CI for Median Difference ($B=10,000$ resamples, seed 42):** $[+14.15\ \mu\text{s}, +21.70\ \mu\text{s}]$.
 - **Zero Difference Hypothesis ($H_0: \mu_d = 0$):**
   - $t = \bar{d} / SE = 23.773 / 4.289 = \mathbf{5.54}$.
   - Two-sided exact Student's t $p\text{-value} = \mathbf{2.47 \times 10^{-7}}$ (replaces Gaussian normal approximation $2.98 \times 10^{-8}$).

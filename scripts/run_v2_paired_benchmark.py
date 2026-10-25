@@ -167,12 +167,17 @@ def main():
     # Bootstrap CIs (10,000 resamples, fixed seed)
     rng = np.random.default_rng(42)
     boot_means = []
+    boot_medians = []
     for _ in range(10000):
         resample = rng.choice(diffs, size=n, replace=True)
-        boot_means.append(np.mean(resample))
+        boot_means.append(float(np.mean(resample)))
+        boot_medians.append(float(np.median(resample)))
     boot_means = np.sort(boot_means)
-    boot_ci_90 = [round(float(np.percentile(boot_means, 5.0)), 2), round(float(np.percentile(boot_means, 95.0)), 2)]
-    boot_ci_95 = [round(float(np.percentile(boot_means, 2.5)), 2), round(float(np.percentile(boot_means, 97.5)), 2)]
+    boot_medians = np.sort(boot_medians)
+    boot_mean_ci_90 = [round(float(np.percentile(boot_means, 5.0)), 2), round(float(np.percentile(boot_means, 95.0)), 2)]
+    boot_mean_ci_95 = [round(float(np.percentile(boot_means, 2.5)), 2), round(float(np.percentile(boot_means, 97.5)), 2)]
+    boot_median_ci_90 = [round(float(np.percentile(boot_medians, 5.0)), 2), round(float(np.percentile(boot_medians, 95.0)), 2)]
+    boot_median_ci_95 = [round(float(np.percentile(boot_medians, 2.5)), 2), round(float(np.percentile(boot_medians, 97.5)), 2)]
 
     # TOST & Non-inferiority evaluation
     non_inferior = (mean_diff - (-equiv_margin)) / se_diff > t_crit_90
@@ -190,7 +195,8 @@ def main():
     print(f"  Degrees of Freedom (df):  {df}")
     print(f"  90% Paired t-CI:          [{ci_90[0]:.2f}, {ci_90[1]:.2f}] us")
     print(f"  95% Paired t-CI:          [{ci_95[0]:.2f}, {ci_95[1]:.2f}] us")
-    print(f"  90% Bootstrap CI (B=10k): [{boot_ci_90[0]:.2f}, {boot_ci_90[1]:.2f}] us")
+    print(f"  90% Bootstrap Mean CI:    [{boot_mean_ci_90[0]:.2f}, {boot_mean_ci_90[1]:.2f}] us")
+    print(f"  90% Bootstrap Median CI:  [{boot_median_ci_90[0]:.2f}, {boot_median_ci_90[1]:.2f}] us")
     print(f"  Equivalence Margin (5%):  +/- {equiv_margin:.2f} us")
     print(f"  Zero Difference Test:     t = {mean_diff / se_diff:.2f}, p = {p_val_zero:.4e}")
     print(f"  One-Sided NI Test:        t = {(mean_diff - (-equiv_margin)) / se_diff:.2f}, p = {p_val_ni:.4e}")
@@ -230,8 +236,12 @@ def main():
             "p_val_non_inferiority": p_val_ni,
             "ci_90_percent": ci_90,
             "ci_95_percent": ci_95,
-            "bootstrap_ci_90": boot_ci_90,
-            "bootstrap_ci_95": boot_ci_95,
+            "bootstrap_ci_90": boot_mean_ci_90,
+            "bootstrap_ci_95": boot_mean_ci_95,
+            "bootstrap_mean_ci_90": boot_mean_ci_90,
+            "bootstrap_mean_ci_95": boot_mean_ci_95,
+            "bootstrap_median_ci_90": boot_median_ci_90,
+            "bootstrap_median_ci_95": boot_median_ci_95,
             "non_inferiority_pass": bool(non_inferior),
             "tost_equivalence_pass": bool(tost_equivalent)
         },

@@ -43,6 +43,22 @@
       15.84,
       32.34
     ],
+    "bootstrap_mean_ci_90": [
+      17.03,
+      30.91
+    ],
+    "bootstrap_mean_ci_95": [
+      15.84,
+      32.34
+    ],
+    "bootstrap_median_ci_90": [
+      14.15,
+      21.7
+    ],
+    "bootstrap_median_ci_95": [
+      13.88,
+      22.15
+    ],
     "non_inferiority_pass": true,
     "tost_equivalence_pass": false
   },
