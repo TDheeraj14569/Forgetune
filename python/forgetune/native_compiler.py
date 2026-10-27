@@ -95,17 +95,18 @@ class NativeCompiler:
         os.makedirs(os.path.dirname(os.path.abspath(output_dll_path)), exist_ok=True)
 
         if self.compiler_type == "zig":
-            # zig c++ -target x86_64-windows-gnu -shared -o <dll> <src> -std=c++17 <opt_level> -w
+            target_flag = ["-target", "x86_64-windows-gnu"] if sys.platform == "win32" else ["-target", "x86_64-linux-gnu", "-fPIC"]
             cmd = [
                 self.compiler_path,
                 "c++",
-                "-target", "x86_64-windows-gnu",
+                *target_flag,
                 "-shared",
                 "-o", output_dll_path,
                 cpp_source_path,
                 "-std=c++17",
                 opt_level,
-                "-w"
+                "-Wall",
+                "-Wextra"
             ]
         elif self.compiler_type in ("clang", "gcc"):
             cmd = [

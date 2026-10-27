@@ -472,12 +472,16 @@ public:
         return next_id_++;
     }
 
+    int64_t max_batch_size() const { return max_batch_size_; }
+    void set_max_batch_size(int64_t mb) { max_batch_size_ = mb; }
+
 private:
     std::vector<IRNode> nodes_;
     std::unordered_map<NodeId, size_t> nodes_by_id_; // ID -> index in nodes_
     std::vector<NodeId> graph_inputs_;
     std::vector<NodeId> graph_outputs_;
     NodeId next_id_ = 0;
+    int64_t max_batch_size_ = 128;
 };
 
 // ============================================================================

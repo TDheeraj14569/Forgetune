@@ -26,13 +26,13 @@ class MultiLayerTestNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc2(self.act(self.fc1(x)))
 
-class UnsupportedConvNet(nn.Module):
+class UnsupportedMaxPoolNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv = nn.Conv2d(1, 4, kernel_size=3)
+        self.pool = nn.MaxPool2d(2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+        return self.pool(x)
 
 class UnsupportedSoftmaxNet(nn.Module):
     def __init__(self):
@@ -98,13 +98,13 @@ def test_acceptance_unsupported_ops_rejected_with_informative_error():
     """
     Verifies that unsupported operations are rejected with actionable error messages.
     """
-    # 1. Conv2d rejection
-    conv_model = UnsupportedConvNet()
+    # 1. MaxPool2d rejection
+    pool_model = UnsupportedMaxPoolNet()
     x_4d = torch.randn(1, 1, 8, 8, dtype=torch.float32)
     with pytest.raises(Exception) as exc_info:
-        export_to_forgetune_ir(conv_model, (x_4d,))
+        export_to_forgetune_ir(pool_model, (x_4d,))
     err_str = str(exc_info.value).lower()
-    assert "conv" in err_str or "unsupported" in err_str or "rank-2" in err_str
+    assert "pool" in err_str or "unsupported" in err_str
 
     # 2. Softmax rejection
     sm_model = UnsupportedSoftmaxNet()

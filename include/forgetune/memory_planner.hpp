@@ -6,6 +6,8 @@
 #include <vector>
 #include <string>
 
+#include <stdexcept>
+
 namespace forgetune {
 
 struct BufferAllocation {
@@ -27,7 +29,11 @@ struct MemoryPlan {
 
 class MemoryPlanner {
 public:
-    explicit MemoryPlanner(size_t alignment = 64) : alignment_(alignment) {}
+    explicit MemoryPlanner(size_t alignment = 64) : alignment_(alignment) {
+        if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+            throw std::invalid_argument("MemoryPlanner: alignment must be a non-zero power of 2");
+        }
+    }
 
     // Computes liveness intervals and assigns buffer offsets in an arena
     MemoryPlan plan(const IRGraph& graph, int64_t max_batch = TensorShape::DEFAULT_MAX_BATCH) const;

@@ -171,7 +171,7 @@ def main():
             t1 = time.perf_counter()
             load_samples.append((t1 - t0) * 1000.0)
     else:
-        load_samples = [1.30] * 30
+        raise RuntimeError(f"Cannot benchmark library loading: existing DLL not found at {existing_dll}. Build it first.")
     load_stats = compute_stats(load_samples)
     print(f"Stage 7 (Library Loading):   median={load_stats['median']:.3f} ms, mean={load_stats['mean']:.3f} ms")
 

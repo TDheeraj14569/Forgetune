@@ -9,7 +9,8 @@ std::string graph_to_json(const IRGraph& graph) {
     std::ostringstream oss;
     oss << "{\n"
         << "  \"schema_version_major\": " << IR_SCHEMA_VERSION_MAJOR << ",\n"
-        << "  \"schema_version_minor\": " << IR_SCHEMA_VERSION_MINOR << ",\n";
+        << "  \"schema_version_minor\": " << IR_SCHEMA_VERSION_MINOR << ",\n"
+        << "  \"max_batch_size\": " << graph.max_batch_size() << ",\n";
 
     // Inputs
     oss << "  \"inputs\": [";
@@ -185,7 +186,12 @@ IRGraph json_to_graph(const std::string& json_str) {
         std::string key = t.str_val;
         lexer.next(); // Consume colon
 
-        if (key == "inputs") {
+        if (key == "max_batch_size") {
+            Token mb_tok = lexer.next();
+            if (mb_tok.type == TokType::NUMBER) {
+                graph.set_max_batch_size(static_cast<int64_t>(mb_tok.num_val));
+            }
+        } else if (key == "inputs") {
             lexer.next(); // Consume '['
             while (true) {
                 Token in_tok = lexer.next();

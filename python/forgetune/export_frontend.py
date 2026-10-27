@@ -25,11 +25,8 @@ def export_to_forgetune_ir(
     """
     model.eval()
 
-    # Legacy v1 negative acceptance test compatibility
-    if getattr(model, "__class__", None) and model.__class__.__name__ == "UnsupportedModel":
-        raise UnsupportedOpError("aten.sigmoid", "Unsupported operator sigmoid in UnsupportedModel")
-    if getattr(model, "__class__", None) and model.__class__.__name__ == "UnsupportedConvNet":
-        raise UnsupportedOpError("aten.conv2d", "Unsupported operator conv2d in UnsupportedConvNet")
+    if len(example_inputs) != 1:
+        raise ValueError(f"ForgeTune v2.0 currently supports single-input models. Got {len(example_inputs)} example inputs.")
 
     # Configure dynamic shapes if requested
     dynamic_shapes = None
@@ -54,6 +51,7 @@ def export_to_forgetune_ir(
     graph_module = exported_program.graph_module
 
     target_graph = Graph()
+    target_graph.max_batch_size = max_batch_size
     node_mapping: Dict[str, int] = {}  # PyTorch node name -> ForgeTune NodeId
 
     # 1. Process inputs and parameters from graph signature
@@ -192,6 +190,7 @@ def export_to_forgetune_ir(
                     const_data=w_transposed.flatten().tolist()
                 )
                 target_graph.add_node(transposed_w_node)
+                w_ir.deleted = True
 
                 # Determine M from x
                 x_shape = target_graph.nodes[x_id].shape
@@ -265,32 +264,25 @@ def export_to_forgetune_ir(
                 target_graph.add_node(mm_node)
                 node_mapping[node.name] = mm_id
 
-            elif "aten.add" in target_str:
-                a_node = node.args[0]
-                b_node = node.args[1]
-                a_id = node_mapping[a_node.name]
-                b_id = node_mapping[b_node.name]
-                a_shape = target_graph.nodes[a_id].shape
-                b_shape = target_graph.nodes[b_id].shape
-
-                add_id = target_graph.allocate_id()
-                add_node = Node(
-                    node_id=add_id,
-                    op="ADD",
-                    name=node.name,
-                    inputs=[a_id, b_id],
-                    shape=list(a_shape), # broadcasted to a_shape
-                    dtype="f32"
-                )
-                target_graph.add_node(add_node)
-                node_mapping[node.name] = add_id
-
             elif "aten.addmm" in target_str:
-                # addmm(bias, A, B) = beta * bias + alpha * (A @ B)
-                # alpha and beta are typically 1.0
+                # addmm(bias, A, B, beta=1.0, alpha=1.0) = beta * bias + alpha * (A @ B)
                 bias_node = node.args[0]
                 a_node = node.args[1]
                 b_node = node.args[2]
+
+                alpha = 1.0
+                beta = 1.0
+                if hasattr(node, "kwargs") and node.kwargs:
+                    alpha = float(node.kwargs.get("alpha", 1.0))
+                    beta = float(node.kwargs.get("beta", 1.0))
+                if len(node.args) > 3 and isinstance(node.args[3], (int, float)):
+                    beta = float(node.args[3])
+                if len(node.args) > 4 and isinstance(node.args[4], (int, float)):
+                    alpha = float(node.args[4])
+
+                if alpha != 1.0 or beta != 1.0:
+                    raise UnsupportedOpError("aten.addmm", f"addmm with non-default alpha={alpha}, beta={beta} is not supported in v2.0")
+
                 bias_id = node_mapping[bias_node.name]
                 a_id = node_mapping[a_node.name]
                 b_id = node_mapping[b_node.name]
@@ -320,6 +312,43 @@ def export_to_forgetune_ir(
                 target_graph.add_node(add_node)
                 node_mapping[node.name] = add_id
 
+            elif "aten.add" in target_str:
+                a_node = node.args[0]
+                b_node = node.args[1]
+
+                alpha = 1.0
+                if hasattr(node, "kwargs") and node.kwargs:
+                    alpha = float(node.kwargs.get("alpha", 1.0))
+                if len(node.args) > 2 and isinstance(node.args[2], (int, float)):
+                    alpha = float(node.args[2])
+
+                if alpha != 1.0:
+                    raise UnsupportedOpError("aten.add", f"aten.add with non-default alpha={alpha} is not supported in v2.0")
+
+                a_id = node_mapping[a_node.name]
+                b_id = node_mapping[b_node.name]
+                a_shape = target_graph.nodes[a_id].shape
+                b_shape = target_graph.nodes[b_id].shape
+
+                # Commutative broadcasting: ensure higher-rank/dynamic input is primary
+                inputs = [a_id, b_id]
+                out_shape = list(a_shape)
+                if len(a_shape) < len(b_shape) or (len(a_shape) == len(b_shape) and a_shape[0] == 1 and b_shape[0] != 1):
+                    inputs = [b_id, a_id]
+                    out_shape = list(b_shape)
+
+                add_id = target_graph.allocate_id()
+                add_node = Node(
+                    node_id=add_id,
+                    op="ADD",
+                    name=node.name,
+                    inputs=inputs,
+                    shape=out_shape,
+                    dtype="f32"
+                )
+                target_graph.add_node(add_node)
+                node_mapping[node.name] = add_id
+
             elif "aten.mul" in target_str:
                 a_node = node.args[0]
                 b_node = node.args[1]
@@ -328,13 +357,20 @@ def export_to_forgetune_ir(
                 a_shape = target_graph.nodes[a_id].shape
                 b_shape = target_graph.nodes[b_id].shape
 
+                # Commutative broadcasting
+                inputs = [a_id, b_id]
+                out_shape = list(a_shape)
+                if len(a_shape) < len(b_shape) or (len(a_shape) == len(b_shape) and a_shape[0] == 1 and b_shape[0] != 1):
+                    inputs = [b_id, a_id]
+                    out_shape = list(b_shape)
+
                 mul_id = target_graph.allocate_id()
                 mul_node = Node(
                     node_id=mul_id,
                     op="MUL",
                     name=node.name,
-                    inputs=[a_id, b_id],
-                    shape=list(a_shape),
+                    inputs=inputs,
+                    shape=out_shape,
                     dtype="f32"
                 )
                 target_graph.add_node(mul_node)
@@ -403,9 +439,15 @@ def export_to_forgetune_ir(
                 in_node = node.args[0]
                 in_id = node_mapping[in_node.name]
                 in_shape = target_graph.nodes[in_id].shape
+                target_shape = node.args[1] if len(node.args) > 1 else None
+
                 if len(in_shape) == 4:
                     B = in_shape[0]
                     feats = in_shape[1] * in_shape[2] * in_shape[3]
+                    if target_shape is not None:
+                        t_list = list(target_shape)
+                        if len(t_list) != 2:
+                            raise UnsupportedOpError(target_str, f"arbitrary reshape of rank-4 tensor to non-rank-2 target shape {target_shape} is not supported in v2.0")
                     out_shape = [B, feats]
                     flat_id = target_graph.allocate_id()
                     flat_node = Node(
@@ -419,6 +461,10 @@ def export_to_forgetune_ir(
                     target_graph.add_node(flat_node)
                     node_mapping[node.name] = flat_id
                 elif len(in_shape) == 2:
+                    if target_shape is not None:
+                        t_list = list(target_shape)
+                        if len(t_list) != 2:
+                            raise UnsupportedOpError(target_str, f"arbitrary reshape of rank-2 tensor to target shape {target_shape} is not supported in v2.0")
                     node_mapping[node.name] = in_id
                 else:
                     raise UnsupportedOpError(target_str, f"arbitrary view/reshape for shape {in_shape} not supported")
@@ -516,5 +562,7 @@ def export_to_forgetune_ir(
 
     if not target_graph.outputs:
         raise InvalidGraphError("Exported graph has no valid outputs.")
+    if len(target_graph.outputs) > 1:
+        raise ValueError(f"ForgeTune v2.0 currently supports single-output models. Got {len(target_graph.outputs)} graph outputs.")
 
     return target_graph

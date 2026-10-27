@@ -45,6 +45,23 @@ struct KernelConfig {
     int tile_k = 16;
     bool enable_fusion = false;
     std::string compiler_opt_level = "-O2"; // e.g. -O2, -O3
+    int64_t max_batch_size = 128;
+
+    bool validate(std::string* error_msg = nullptr) const {
+        if (tile_m <= 0 || tile_n <= 0 || tile_k <= 0) {
+            if (error_msg) *error_msg = "Tile dimensions must be strictly positive (> 0)";
+            return false;
+        }
+        if (tile_m > 4096 || tile_n > 4096 || tile_k > 4096) {
+            if (error_msg) *error_msg = "Tile dimensions cannot exceed 4096";
+            return false;
+        }
+        if (max_batch_size <= 0) {
+            if (error_msg) *error_msg = "max_batch_size must be strictly positive (> 0)";
+            return false;
+        }
+        return true;
+    }
 
     std::string to_string() const {
         std::ostringstream oss;
@@ -52,7 +69,8 @@ struct KernelConfig {
             << ", variant=" << matmul_variant_to_string(matmul_variant)
             << ", tiles=(" << tile_m << "," << tile_n << "," << tile_k << ")"
             << ", fusion=" << (enable_fusion ? "true" : "false")
-            << ", opt=" << compiler_opt_level << "]";
+            << ", opt=" << compiler_opt_level
+            << ", max_batch=" << max_batch_size << "]";
         return oss.str();
     }
 };

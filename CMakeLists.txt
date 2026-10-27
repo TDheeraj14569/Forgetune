@@ -47,7 +47,8 @@ set_target_properties(forgetune_test_suite PROPERTIES
 # Pybind11 extension target (if pybind11 is discovered)
 find_package(pybind11 CONFIG QUIET)
 if(pybind11_FOUND)
-    pybind11_add_module(_forgetune_cpp src/bindings.cpp ${FORGETUNE_SOURCES})
+    pybind11_add_module(_forgetune_cpp src/bindings.cpp tests/cpp/test_main.cpp)
+    target_compile_definitions(_forgetune_cpp PRIVATE FORGETUNE_EXCLUDE_MAIN)
     target_link_libraries(_forgetune_cpp PRIVATE forgetune_lib)
     set_target_properties(_forgetune_cpp PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/python/forgetune"

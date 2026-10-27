@@ -123,10 +123,10 @@ def test_canonical_tinymlp_exported_aten_targets_and_decomposition():
     # 3. Actionable error message check
     class UnsupportedModel(nn.Module):
         def forward(self, z):
-            return torch.sigmoid(z)
+            return torch.sin(z)
 
     with pytest.raises(UnsupportedOpError) as exc_info:
         export_to_forgetune_ir(UnsupportedModel().eval(), (x,))
     err_str = str(exc_info.value)
-    assert "sigmoid" in err_str.lower(), f"Error message should mention unsupported operator: {err_str}"
+    assert "sin" in err_str.lower(), f"Error message should mention unsupported operator: {err_str}"
 

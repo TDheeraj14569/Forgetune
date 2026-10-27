@@ -33,6 +33,14 @@ public:
     CompilationResult compile(IRGraph& graph) {
         CompilationResult res;
 
+        // 0. Validate compiler configuration
+        std::string config_err;
+        if (!config_.validate(&config_err)) {
+            res.success = false;
+            res.error_message = "Invalid compiler configuration: " + config_err;
+            return res;
+        }
+
         // 1. Verify input graph
         try {
             res.verification_before = verify_graph(graph, true);

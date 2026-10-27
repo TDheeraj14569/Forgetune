@@ -39,6 +39,8 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
             cfg.tile_m = int(candidate.tile_m)
             cfg.tile_n = int(candidate.tile_n)
             cfg.tile_k = int(candidate.tile_k)
+        if hasattr(ir_graph, "max_batch_size"):
+            cfg.max_batch_size = int(ir_graph.max_batch_size)
         compiler = cpp.Compiler(cfg)
         res = compiler.compile(g_cpp)
         if res.success:
@@ -103,6 +105,9 @@ class CompiledModel:
             arr = np.asarray(input_tensor, dtype=np.float32)
 
         return self._runtime.run(arr, batch_size=batch_size)
+
+    def __call__(self, input_tensor: Union[np.ndarray, torch.Tensor], batch_size: Optional[int] = None) -> np.ndarray:
+        return self.run(input_tensor, batch_size=batch_size)
 
     def optimization_report(self) -> Dict[str, Any]:
         """Returns the optimization and autotuning report."""

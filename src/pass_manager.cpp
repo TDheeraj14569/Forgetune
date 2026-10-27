@@ -126,15 +126,19 @@ bool ConstantFoldingPass::run(IRGraph& graph) {
             }
 
             // Create folded CONST node
+            NodeId orig_id = node.id;
+            std::string folded_name = "folded_" + node.name;
+            TensorMeta folded_meta = node.output_meta;
+
             IRNode new_const;
             new_const.op = OpKind::CONST;
-            new_const.name = "folded_" + node.name;
-            new_const.output_meta = node.output_meta;
+            new_const.name = std::move(folded_name);
+            new_const.output_meta = std::move(folded_meta);
             new_const.const_data = std::move(folded_data);
             NodeId new_id = graph.add_node(std::move(new_const));
 
-            graph.replace_all_uses(node.id, new_id);
-            graph.delete_node(node.id);
+            graph.replace_all_uses(orig_id, new_id);
+            graph.delete_node(orig_id);
             any_changed = true;
         }
     }

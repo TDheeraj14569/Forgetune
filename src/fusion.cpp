@@ -31,17 +31,23 @@ bool OperatorFusionPass::run(IRGraph& graph) {
                 if (use_counts[in_id] == 1 &&
                     std::find(graph_outputs.begin(), graph_outputs.end(), in_id) == graph_outputs.end()) {
 
+                    NodeId r_id = r_node.id;
+                    std::string fused_name = "fused_" + in_node.name + "_" + r_node.name;
+                    auto inputs = in_node.inputs;
+                    auto output_meta = r_node.output_meta;
+                    auto conv_attrs = in_node.conv_attrs;
+
                     IRNode fused_node;
                     fused_node.op = OpKind::FUSED_CONV2D_RELU;
-                    fused_node.name = "fused_" + in_node.name + "_" + r_node.name;
-                    fused_node.inputs = in_node.inputs;
-                    fused_node.output_meta = r_node.output_meta;
-                    fused_node.conv_attrs = in_node.conv_attrs;
+                    fused_node.name = std::move(fused_name);
+                    fused_node.inputs = std::move(inputs);
+                    fused_node.output_meta = std::move(output_meta);
+                    fused_node.conv_attrs = std::move(conv_attrs);
 
                     NodeId fused_id = graph.add_node(std::move(fused_node));
-                    graph.replace_all_uses(r_node.id, fused_id);
-                    graph.delete_node(r_node.id);
-                    graph.delete_node(in_node.id);
+                    graph.replace_all_uses(r_id, fused_id);
+                    graph.delete_node(r_id);
+                    graph.delete_node(in_id);
 
                     changed_in_iteration = true;
                     any_changed = true;
@@ -91,24 +97,29 @@ bool OperatorFusionPass::run(IRGraph& graph) {
             // %M = MATMUL(%X, %W)
             // %A = ADD(%M, %B)
             // %R = RELU(%A)
+            NodeId r_id = r_node.id;
+            NodeId a_id = a_node.id;
+            NodeId m_id = m_node.id;
             NodeId x_id = m_node.inputs[0];
             NodeId w_id = m_node.inputs[1];
+            std::string fused_name = "fused_" + m_node.name + "_" + a_node.name + "_" + r_node.name;
+            TensorMeta output_meta = r_node.output_meta;
 
             IRNode fused_node;
             fused_node.op = OpKind::FUSED_MATMUL_ADD_RELU;
-            fused_node.name = "fused_" + m_node.name + "_" + a_node.name + "_" + r_node.name;
+            fused_node.name = std::move(fused_name);
             fused_node.inputs = {x_id, w_id, bias_id};
-            fused_node.output_meta = r_node.output_meta;
+            fused_node.output_meta = std::move(output_meta);
 
             NodeId fused_id = graph.add_node(std::move(fused_node));
 
             // Replace all uses of RELU with the fused node
-            graph.replace_all_uses(r_node.id, fused_id);
+            graph.replace_all_uses(r_id, fused_id);
 
             // Mark nodes as deleted
-            graph.delete_node(r_node.id);
-            graph.delete_node(a_node.id);
-            graph.delete_node(m_node.id);
+            graph.delete_node(r_id);
+            graph.delete_node(a_id);
+            graph.delete_node(m_id);
 
             changed_in_iteration = true;
             any_changed = true;

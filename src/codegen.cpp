@@ -8,6 +8,11 @@
 namespace forgetune {
 
 std::string CodeGenerator::generate(const IRGraph& graph) const {
+    std::string config_err;
+    if (!config_.validate(&config_err)) {
+        throw std::invalid_argument("Invalid KernelConfig: " + config_err);
+    }
+
     std::ostringstream oss;
 
     emit_headers(oss);
@@ -290,11 +295,14 @@ void CodeGenerator::emit_matmul_tiled(std::ostringstream& oss, const std::string
 void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const std::string& func_name,
                                                int64_t K, int64_t N,
                                                bool has_bias, MatMulVariant variant,
-                                               int tile_m, int tile_n, int tile_k) const {
+                                               int tile_m, int tile_n, int tile_k,
+                                               bool bias_is_2d) const {
     (void)has_bias;
     oss << "static inline void " << func_name << "(\n"
         << "    int64_t M, const float* A, const float* B, const float* bias, float* C\n"
         << ") noexcept {\n";
+
+    std::string b_expr = bias_is_2d ? "bias[i * " + std::to_string(N) + " + j]" : "bias[j]";
 
     if (variant == MatMulVariant::FUSED_TILED) {
         oss << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
@@ -320,14 +328,14 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
             << "    }\n\n"
             << "    for (int64_t i = 0; i < M; ++i) {\n"
             << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
-            << "            float val = C[i * " << N << " + j] + (bias ? bias[j] : 0.0f);\n"
+            << "            float val = C[i * " << N << " + j] + (bias ? " << b_expr << " : 0.0f);\n"
             << "            C[i * " << N << " + j] = (val > 0.0f) ? val : 0.0f;\n"
             << "        }\n"
             << "    }\n";
     } else if (variant == MatMulVariant::FUSED_IKJ || variant == MatMulVariant::LOOP_IKJ) {
         oss << "    for (int64_t i = 0; i < M; ++i) {\n"
             << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
-            << "            C[i * " << N << " + j] = (bias ? bias[j] : 0.0f);\n"
+            << "            C[i * " << N << " + j] = (bias ? " << b_expr << " : 0.0f);\n"
             << "        }\n"
             << "        for (int64_t k = 0; k < " << K << "; ++k) {\n"
             << "            float a_val = A[i * " << K << " + k];\n"
@@ -347,7 +355,7 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
             << "            for (int64_t k = 0; k < " << K << "; ++k) {\n"
             << "                sum += A[i * " << K << " + k] * B[k * " << N << " + j];\n"
             << "            }\n"
-            << "            if (bias) sum += bias[j];\n"
+            << "            if (bias) sum += " << b_expr << ";\n"
             << "            C[i * " << N << " + j] = (sum > 0.0f) ? sum : 0.0f;\n"
             << "        }\n"
             << "    }\n";
@@ -567,10 +575,17 @@ void CodeGenerator::emit_kernel_functions(std::ostringstream& oss, const IRGraph
         } else if (node.op == OpKind::FUSED_MATMUL_ADD_RELU) {
             int64_t K = graph.get_node(node.inputs[0]).output_meta.shape.dims[1];
             int64_t N = graph.get_node(node.inputs[1]).output_meta.shape.dims[1];
+            bool bias_is_2d = false;
+            if (node.inputs.size() >= 3 && graph.has_node(node.inputs[2])) {
+                const auto& b_shape = graph.get_node(node.inputs[2]).output_meta.shape;
+                if (b_shape.rank() == 2 && b_shape.dims[0] > 1) {
+                    bias_is_2d = true;
+                }
+            }
             std::string fname = "fused_node_" + std::to_string(node.id);
 
             emit_fused_matmul_add_relu(oss, fname, K, N, true, config_.matmul_variant,
-                                       config_.tile_m, config_.tile_n, config_.tile_k);
+                                       config_.tile_m, config_.tile_n, config_.tile_k, bias_is_2d);
         } else if (node.op == OpKind::CONV2D) {
             std::string fname = "conv2d_node_" + std::to_string(node.id);
             emit_conv2d_kernel(oss, fname, node, graph, false);
@@ -617,8 +632,9 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         }
     }
 
+    int64_t max_batch = graph.max_batch_size() > 0 ? graph.max_batch_size() : config_.max_batch_size;
     MemoryPlanner planner(64);
-    MemoryPlan plan = planner.plan(graph, TensorShape::DEFAULT_MAX_BATCH);
+    MemoryPlan plan = planner.plan(graph, max_batch);
     size_t arena_elements = (plan.arena_size_bytes + sizeof(float) - 1) / sizeof(float);
     if (arena_elements == 0) arena_elements = 1;
 
@@ -642,7 +658,7 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "        if (input_count == 0 || input_count % " << static_input_elements << " != 0) return -2;\n"
             << "        batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
             << "    }\n"
-            << "    if (batch_size <= 0 || batch_size > 128) return -2;\n"
+            << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2;\n"
             << "    if (input_count != static_cast<size_t>(batch_size * " << static_input_elements << ")) return -2; // Input size mismatch\n"
             << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3; // Output size mismatch\n\n";
     } else {
@@ -876,6 +892,25 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         oss << "\n";
     }
 
+    // Ensure all graph outputs are populated (handles identity passthrough & const outputs)
+    for (size_t out_idx = 0; out_idx < outputs.size(); ++out_idx) {
+        NodeId out_id = outputs[out_idx];
+        const auto& out_node = graph.get_node(out_id);
+        if (out_node.op == OpKind::INPUT) {
+            std::string elems = get_elements_expr(out_node);
+            oss << "    // Identity passthrough for output %" << out_id << "\n"
+                << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                << "        output[idx] = input[idx];\n"
+                << "    }\n";
+        } else if (out_node.op == OpKind::CONST) {
+            std::string elems = get_elements_expr(out_node);
+            oss << "    // Constant passthrough for output %" << out_id << "\n"
+                << "    for (int64_t idx = 0; idx < " << elems << "; ++idx) {\n"
+                << "        output[idx] = const_data_" << out_id << "[idx];\n"
+                << "    }\n";
+        }
+    }
+
     oss << "    return 0; // Success\n"
         << "}\n\n";
 
@@ -884,6 +919,7 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
             << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t batch_size\n"
             << ") noexcept {\n"
+            << "    if (batch_size <= 0) return -2;\n"
             << "    return forgetune_run(input, input_count, output, output_count, batch_size);\n"
             << "}\n\n"
             << "// 4-argument compatibility wrapper for dynamic models (infers batch_size from input_count)\n"
@@ -896,7 +932,7 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    return 1;\n"
             << "}\n\n"
             << "extern \"C\" FORGETUNE_EXPORT int64_t forgetune_max_batch(void) noexcept {\n"
-            << "    return 128;\n"
+            << "    return " << max_batch << ";\n"
             << "}\n\n";
     } else {
         oss << "// Explicit 4-argument v1 entry point for static models\n"
@@ -909,7 +945,7 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "extern \"C\" FORGETUNE_EXPORT int forgetune_run_v2(\n"
             << "    const float* input, size_t input_count, float* output, size_t output_count, int64_t batch_size\n"
             << ") noexcept {\n"
-            << "    if (batch_size > 0 && batch_size != " << static_batch << ") return -2;\n"
+            << "    if (batch_size <= 0 || batch_size != " << static_batch << ") return -2;\n"
             << "    return forgetune_run(input, input_count, output, output_count);\n"
             << "}\n\n"
             << "extern \"C\" FORGETUNE_EXPORT int forgetune_is_dynamic(void) noexcept {\n"

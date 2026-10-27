@@ -65,6 +65,7 @@ class Graph:
         self.nodes: Dict[int, Node] = {}
         self.inputs: List[int] = []
         self.outputs: List[int] = []
+        self.max_batch_size: int = 128
         self._next_id = 0
 
     def add_node(self, node: Node) -> int:
@@ -127,6 +128,7 @@ class Graph:
         return {
             "schema_version_major": 2,
             "schema_version_minor": 0,
+            "max_batch_size": getattr(self, "max_batch_size", 128),
             "inputs": self.inputs,
             "outputs": self.outputs,
             "nodes": [node.to_dict() for node in self.nodes.values()]
@@ -138,6 +140,7 @@ class Graph:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Graph":
         g = cls()
+        g.max_batch_size = d.get("max_batch_size", 128)
         g.set_inputs(d.get("inputs", []))
         g.set_outputs(d.get("outputs", []))
         for nd in d.get("nodes", []):

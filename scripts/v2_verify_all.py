@@ -42,7 +42,10 @@ def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -
         if p.returncode == 0:
             print(f"[+] PASSED: {step_name} in {dur:.2f}s")
             return True
-    except Exception as e:
+        else:
+            print(f"[-] FAILED: {step_name} exited with code {p.returncode} in {dur:.2f}s")
+            return False
+    except (FileNotFoundError, PermissionError, OSError) as e:
         print(f"Direct executable execution blocked/unavailable ({e}). Running in-process via _forgetune_cpp...")
 
     cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]

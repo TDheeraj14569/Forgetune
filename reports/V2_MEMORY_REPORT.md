@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-25 16:09:36
+**Date:** 2026-10-27 20:25:41
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -36,11 +36,11 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
-| Node  8 | Step [ 8, 10] |  16,384 B |       0 B | `Slot @ 0x00000` |
-| Node 11 | Step [11, 12] |   4,096 B |       0 B | `Slot @ 0x00000` |
-| Node  6 | Step [ 6,  7] |  16,384 B |       0 B | `Slot @ 0x00000` |
-| Node 10 | Step [10, 11] |   4,096 B |  16,384 B | `Slot @ 0x04000` |
-| Node  7 | Step [ 7,  8] |  16,384 B |  16,384 B | `Slot @ 0x04000` |
+| Node  8 | Step [ 6,  8] |  16,384 B |       0 B | `Slot @ 0x00000` |
+| Node 11 | Step [ 9, 10] |   4,096 B |       0 B | `Slot @ 0x00000` |
+| Node  6 | Step [ 4,  5] |  16,384 B |       0 B | `Slot @ 0x00000` |
+| Node 10 | Step [ 8,  9] |   4,096 B |  16,384 B | `Slot @ 0x04000` |
+| Node  7 | Step [ 5,  6] |  16,384 B |  16,384 B | `Slot @ 0x04000` |
 
 ### Model B (Residual MLP)
 - **Logical Intermediate Tensors:** 9
@@ -51,15 +51,15 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
-| Node 17 | Step [17, 18] |   2,048 B |       0 B | `Slot @ 0x00000` |
-| Node 10 | Step [10, 15] |   8,192 B |       0 B | `Slot @ 0x00000` |
-| Node  8 | Step [ 8,  9] |   8,192 B |       0 B | `Slot @ 0x00000` |
-| Node 18 | Step [18, 19] |   2,048 B |   2,048 B | `Slot @ 0x00800` |
-| Node 14 | Step [14, 15] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
-| Node 12 | Step [12, 13] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
-| Node  9 | Step [ 9, 10] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
-| Node 15 | Step [15, 17] |   8,192 B |  16,384 B | `Slot @ 0x04000` |
-| Node 13 | Step [13, 14] |   8,192 B |  16,384 B | `Slot @ 0x04000` |
+| Node 17 | Step [14, 15] |   2,048 B |       0 B | `Slot @ 0x00000` |
+| Node 10 | Step [ 7, 12] |   8,192 B |       0 B | `Slot @ 0x00000` |
+| Node  8 | Step [ 5,  6] |   8,192 B |       0 B | `Slot @ 0x00000` |
+| Node 18 | Step [15, 16] |   2,048 B |   2,048 B | `Slot @ 0x00800` |
+| Node 14 | Step [11, 12] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
+| Node 12 | Step [ 9, 10] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
+| Node  9 | Step [ 6,  7] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
+| Node 15 | Step [12, 14] |   8,192 B |  16,384 B | `Slot @ 0x04000` |
+| Node 13 | Step [10, 11] |   8,192 B |  16,384 B | `Slot @ 0x04000` |
 
 ### Model C (Small CNN)
 - **Logical Intermediate Tensors:** 7
@@ -70,13 +70,13 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
-| Node 14 | Step [14, 15] |   5,120 B |       0 B | `Slot @ 0x00000` |
-| Node 11 | Step [11, 13] | 131,072 B |       0 B | `Slot @ 0x00000` |
-| Node  9 | Step [ 9, 10] | 131,072 B |       0 B | `Slot @ 0x00000` |
-| Node  7 | Step [ 7,  8] | 262,144 B |       0 B | `Slot @ 0x00000` |
-| Node 13 | Step [13, 14] |   5,120 B | 131,072 B | `Slot @ 0x20000` |
-| Node 10 | Step [10, 11] | 131,072 B | 131,072 B | `Slot @ 0x20000` |
-| Node  8 | Step [ 8,  9] | 262,144 B | 262,144 B | `Slot @ 0x40000` |
+| Node 14 | Step [13, 14] |   5,120 B |       0 B | `Slot @ 0x00000` |
+| Node 11 | Step [10, 12] | 131,072 B |       0 B | `Slot @ 0x00000` |
+| Node  9 | Step [ 8,  9] | 131,072 B |       0 B | `Slot @ 0x00000` |
+| Node  7 | Step [ 6,  7] | 262,144 B |       0 B | `Slot @ 0x00000` |
+| Node 13 | Step [12, 13] |   5,120 B | 131,072 B | `Slot @ 0x20000` |
+| Node 10 | Step [ 9, 10] | 131,072 B | 131,072 B | `Slot @ 0x20000` |
+| Node  8 | Step [ 7,  8] | 262,144 B | 262,144 B | `Slot @ 0x40000` |
 
 ---
 

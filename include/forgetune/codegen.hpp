@@ -41,7 +41,8 @@ private:
     void emit_fused_matmul_add_relu(std::ostringstream& oss, const std::string& func_name,
                                     int64_t K, int64_t N,
                                     bool has_bias, MatMulVariant variant,
-                                    int tile_m, int tile_n, int tile_k) const;
+                                    int tile_m, int tile_n, int tile_k,
+                                    bool bias_is_2d = false) const;
     void emit_conv2d_kernel(std::ostringstream& oss, const std::string& func_name,
                             const IRNode& node, const IRGraph& graph, bool fused_relu) const;
 };

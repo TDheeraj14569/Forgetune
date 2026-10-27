@@ -83,6 +83,12 @@ int main(int argc, char** argv) {
                 }
             }
 
+            std::string err;
+            if (!config.validate(&err)) {
+                std::cerr << "Error: invalid kernel configuration: " << err << "\n";
+                return 1;
+            }
+
             if (output_cpp.empty()) {
                 std::cerr << "Error: missing -o <output.cpp>\n";
                 return 1;
