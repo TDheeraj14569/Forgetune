@@ -48,7 +48,7 @@ Wrapper object returned by `compile_model`.
 
 #### `run(input_tensor: Union[np.ndarray, torch.Tensor], batch_size: Optional[int] = None) -> np.ndarray`
 Executes native CPU inference using the generated standalone C++ shared library without calling PyTorch arithmetic.
-- `input_tensor`: Input data matching expected feature dimensions. In dynamic models, leading batch size $B$ can be any integer in $[1, 128]$.
+- `input_tensor`: Input data matching expected feature dimensions. In dynamic models, leading batch size $B$ can be any integer in $[1, max\_batch\_size]$ (default `128`).
 - Returns: `np.ndarray` contiguous float32 tensor of shape `(B, *output_features)`.
 
 #### `benchmark(warmup_iters: int = 10, measure_iters: int = 50, batch_size: Optional[int] = None) -> Dict[str, Any]`

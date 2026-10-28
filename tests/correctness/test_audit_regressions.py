@@ -315,7 +315,7 @@ def test_regression_malformed_json_number_throws_invalid_graph_error():
     }"""
     with pytest.raises(Exception) as exc_info:
         cpp.json_to_graph(bad_json)
-    assert "invalid number format" in str(exc_info.value).lower()
+    assert "invalid" in str(exc_info.value).lower() and ("number" in str(exc_info.value).lower() or "grammar" in str(exc_info.value).lower())
 
 def test_regression_benchmark_kernel_respects_max_batch_size():
     """
@@ -546,7 +546,8 @@ def test_regression_cli_strict_parsing_and_bogus_flags():
     Non-integer tile sizes and unknown CLI flags must cause process to exit with code 1.
     """
     import subprocess
-    engine_exe = os.path.abspath("bin/forgetune_engine.exe")
+    from forgetune.compiler import get_engine_executable
+    engine_exe = get_engine_executable()
     dummy_json = os.path.abspath("build/artifacts/regression_identity/baseline/graph.json")
     if not os.path.isfile(dummy_json):
         dummy_json = os.path.abspath("tests/fixtures/simple_graph.json")
@@ -637,5 +638,202 @@ def test_regression_dynamic_input_static_output():
     out_b5 = compiled(np.random.randn(5, 4).astype(np.float32))
     assert out_b5.shape == (1, 4)
     np.testing.assert_allclose(out_b5, [[1.0, 2.0, 3.0, 4.0]])
+
+
+def test_regression_static_view_reshape_minus_one_inference():
+    """
+    P1.1 Audit:
+    view/reshape with -1 must infer non-batch target dimensions from non-batch element count.
+    """
+    class StaticReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(2, -1)
+
+    m = StaticReshapeModel().eval()
+    ex = torch.randn(2, 3, 4, 5)
+    g = export_to_forgetune_ir(m, (ex,), dynamic_batch=False)
+    # Output shape must be [2, 60] (NOT [2, 30])
+    out_id = g.outputs[0]
+    assert g.nodes[out_id].shape == [2, 60], f"Expected [2, 60], got {g.nodes[out_id].shape}"
+
+    # Identity reshape [2, 8] -> [2, -1]
+    class IdentityReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(2, -1)
+
+    m2 = IdentityReshapeModel().eval()
+    ex2 = torch.randn(2, 8)
+    g2 = export_to_forgetune_ir(m2, (ex2,), dynamic_batch=False)
+    assert g2.nodes[g2.outputs[0]].shape == [2, 8], f"Expected [2, 8], got {g2.nodes[g2.outputs[0]].shape}"
+
+    # Incompatible element counts must be rejected
+    class BadReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(2, 7)
+
+    m3 = BadReshapeModel().eval()
+    with pytest.raises(Exception):
+        export_to_forgetune_ir(m3, (ex2,), dynamic_batch=False)
+
+
+def test_regression_relu_nan_preservation():
+    """
+    Section 2 Bug 5 Audit:
+    ReLU must preserve NaN semantics in accordance with PyTorch.
+    """
+    class SimpleReLU(nn.Module):
+        def forward(self, x):
+            return torch.relu(x)
+
+    m = SimpleReLU().eval()
+    ex = torch.tensor([[1.0, 2.0, 3.0, 4.0]], dtype=torch.float32)
+    compiled = compile_model(
+        m,
+        (ex,),
+        dynamic_batch=False,
+        output_dir="build/artifacts/regression_relu_nan",
+        autotune=False
+    )
+
+    test_vals = np.array([[float('nan'), -1.0, 0.0, 2.5]], dtype=np.float32)
+    res = compiled(test_vals)
+
+    # PyTorch reference
+    with torch.no_grad():
+        pt_res = m(torch.from_numpy(test_vals)).numpy()
+
+    assert np.isnan(res[0, 0]), f"Index 0 should be NaN, got {res[0, 0]}"
+    assert res[0, 1] == 0.0
+    assert res[0, 2] == 0.0
+    assert res[0, 3] == 2.5
+    np.testing.assert_allclose(res[0, 1:], pt_res[0, 1:])
+
+
+def test_regression_json_unicode_surrogate_pairs_and_strict_grammar():
+    """
+    P2.4 / Bug 3 & 4 Audit:
+    1. Unicode surrogate pairs (e.g. \uD83D\uDE00 for emoji) must transcode to 4-byte UTF-8 cleanly.
+    2. Missing colon, unescaped raw newlines, and invalid number grammar (01, 1.) must be rejected.
+    """
+    import forgetune._forgetune_cpp as cpp
+
+    # 1. Valid emoji surrogate pair
+    json_with_emoji = '''{
+  "schema_version_major": 2,
+  "schema_version_minor": 0,
+  "max_batch_size": 128,
+  "inputs": [0],
+  "outputs": [0],
+  "nodes": [
+    {
+      "id": 0,
+      "op": "INPUT",
+      "name": "tensor_\\uD83D\\uDE00",
+      "deleted": false,
+      "inputs": [],
+      "shape": [1, 4],
+      "dtype": "f32",
+      "const_data": []
+    }
+  ]
+}'''
+    g = cpp.json_to_graph(json_with_emoji)
+    node_name = g.get_node(0).name
+    assert "😀" in node_name, f"Expected emoji in node name, got: {node_name}"
+    # Round-trip back to JSON must succeed without error
+    out_json = cpp.graph_to_json(g)
+    assert len(out_json) > 0
+
+    # 2. Strict number grammar: leading zero like 01 is invalid
+    bad_num_json = json_with_emoji.replace('"schema_version_major": 2', '"schema_version_major": 02')
+    with pytest.raises(Exception):
+        cpp.json_to_graph(bad_num_json)
+
+    # 3. Missing colon is invalid
+    missing_colon_json = json_with_emoji.replace('"schema_version_major": 2', '"schema_version_major" 2')
+    with pytest.raises(Exception):
+        cpp.json_to_graph(missing_colon_json)
+
+    # 4. Unescaped raw newline in string literal is invalid
+    raw_newline_json = json_with_emoji.replace('tensor_\\uD83D\\uDE00', 'tensor_\nline')
+    with pytest.raises(Exception):
+        cpp.json_to_graph(raw_newline_json)
+
+
+def test_regression_channel_broadcast_rank3():
+    """
+    P2.3 Audit:
+    Verifier, Python evaluator, and C++ reference interpreter must all support [C, 1, 1] broadcast over [B, C, H, W].
+    """
+    import forgetune._forgetune_cpp as cpp
+    from forgetune.graph_adapter import Graph, Node
+
+    # Build graph: [2, 3, 4, 4] + [3, 1, 1]
+    g = Graph()
+    g.max_batch_size = 128
+    in_id = g.add_node(Node(0, "INPUT", shape=[2, 3, 4, 4]))
+    bias_data = [1.0, 2.0, 3.0]
+    bias_id = g.add_node(Node(1, "CONST", shape=[3, 1, 1], const_data=bias_data))
+    add_id = g.add_node(Node(2, "ADD", inputs=[in_id, bias_id], shape=[2, 3, 4, 4]))
+    mul_id = g.add_node(Node(3, "MUL", inputs=[add_id, bias_id], shape=[2, 3, 4, 4]))
+    g.set_inputs([in_id])
+    g.set_outputs([mul_id])
+
+    # 1. C++ Verifier
+    g_cpp = cpp.json_to_graph(g.to_json())
+    res = cpp.verify_graph(g_cpp, False)
+    assert res.passed, f"Verifier rejected [C, 1, 1] broadcast: {res.to_string()}"
+
+    # 2. Python Evaluator
+    inp_np = np.ones((2, 3, 4, 4), dtype=np.float32)
+    out_py = g.evaluate({in_id: inp_np})[mul_id]
+    assert out_py.shape == (2, 3, 4, 4)
+
+    # 3. C++ Interpreter
+    interp = cpp.Interpreter()
+    out_cpp = interp.evaluate(g_cpp, {0: inp_np})[mul_id]
+    assert out_cpp.shape == (2, 3, 4, 4)
+    np.testing.assert_allclose(out_py, out_cpp)
+
+
+def test_regression_cpp_interpreter_non_contiguous_numpy_input():
+    """
+    Section 2 Bug 2 Audit:
+    The C++ interpreter binding must handle non-contiguous NumPy views (transposed or sliced) correctly.
+    """
+    import forgetune._forgetune_cpp as cpp
+    from forgetune.graph_adapter import Graph, Node
+
+    g = Graph()
+    in_id = g.add_node(Node(0, "INPUT", shape=[1, 2]))
+    relu_id = g.add_node(Node(1, "RELU", inputs=[in_id], shape=[1, 2]))
+    g.set_inputs([in_id])
+    g.set_outputs([relu_id])
+
+    g_cpp = cpp.json_to_graph(g.to_json())
+    interp = cpp.Interpreter()
+
+    # Create a non-contiguous slice: shape (1, 4), sliced with step 2 -> shape (1, 2)
+    # Physical array: [[0, 1, 2, 3]] -> slice: [[0, 2]]
+    base = np.array([[0.0, 1.0, 2.0, 3.0]], dtype=np.float32)
+    sliced = base[:, ::2]
+    assert not sliced.flags.c_contiguous
+
+    out_dict = interp.evaluate(g_cpp, {0: sliced})
+    out = out_dict[1]
+    assert out.shape == (1, 2)
+    np.testing.assert_allclose(out, [[0.0, 2.0]], err_msg="Non-contiguous slice must read correct elements [[0, 2]]")
+
+
+def test_regression_native_compiler_opt_level_validation():
+    """
+    P2.9 Audit:
+    Unknown optimization levels must be rejected with ValueError across all toolchains.
+    """
+    from forgetune.native_compiler import NativeCompiler
+    comp = NativeCompiler()
+    with pytest.raises(ValueError) as exc_info:
+        comp.compile_shared_library("dummy.cpp", "dummy.dll", opt_level="-Ofastest")
+    assert "Invalid optimization level" in str(exc_info.value)
 
 

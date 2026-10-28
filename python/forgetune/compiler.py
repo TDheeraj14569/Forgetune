@@ -76,12 +76,26 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
 
 
 def get_engine_executable() -> str:
-    bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
-    for name in ("forgetune_test_engine.exe", "forgetune_engine.exe"):
-        cand = os.path.join(bin_dir, name)
-        if os.path.isfile(cand):
-            return cand
-    return os.path.join(bin_dir, "forgetune_engine.exe")
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    search_dirs = [
+        os.path.join(root, "bin"),
+        os.path.join(root, "build", "bin"),
+        os.path.join(root, "build", "bin", "Release"),
+        os.path.join(root, "build", "bin", "Debug"),
+        os.path.join(root, "build"),
+    ]
+    exe_names = [
+        "forgetune_test_engine.exe",
+        "forgetune_engine.exe",
+        "forgetune_test_engine",
+        "forgetune_engine"
+    ]
+    for d in search_dirs:
+        for name in exe_names:
+            cand = os.path.join(d, name)
+            if os.path.isfile(cand):
+                return cand
+    return os.path.join(root, "bin", "forgetune_engine.exe" if sys.platform == "win32" else "forgetune_engine")
 
 class CompiledModel:
     def __init__(
@@ -194,6 +208,16 @@ def compile_model(
       7. Dynamic loading via NativeRuntime
       8. Manifest and report generation
     """
+    if not isinstance(max_autotune_budget, int) or max_autotune_budget <= 0:
+        raise ValueError(f"max_autotune_budget must be a positive integer, got {max_autotune_budget}")
+    if tile_sizes is not None:
+        if len(tile_sizes) != 3 or any(t <= 0 for t in tile_sizes):
+            raise ValueError(f"tile_sizes must be a 3-tuple of positive integers, got {tile_sizes}")
+    norm_opt = compiler_opt_level if compiler_opt_level.startswith("-") or compiler_opt_level.startswith("/") else f"-{compiler_opt_level}"
+    valid_opts = {"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "/Od", "/O1", "/O2", "/Ox"}
+    if norm_opt not in valid_opts and compiler_opt_level not in valid_opts:
+        raise ValueError(f"Unsupported compiler optimization level: '{compiler_opt_level}'")
+
     os.makedirs(output_dir, exist_ok=True)
     model.eval()
 
@@ -214,12 +238,21 @@ def compile_model(
 
     if autotune:
         tuner = Autotuner(native_compiler=native_compiler)
+        def oracle(x_arr: np.ndarray) -> np.ndarray:
+            with torch.no_grad():
+                t = torch.from_numpy(x_arr)
+                out = model(t)
+                if isinstance(out, tuple):
+                    out = out[0]
+                return out.detach().cpu().to(torch.float32).numpy()
+
         selected_cand, tuning_report = tuner.tune(
             graph=ir_graph,
             example_input=ex_np,
             reference_output=ref_np,
             artifacts_dir=output_dir,
-            max_budget=max_autotune_budget
+            max_budget=max_autotune_budget,
+            oracle=oracle
         )
         cand_id = selected_cand.candidate_id
         final_cpp_path = os.path.join(output_dir, cand_id, "kernel.cpp")

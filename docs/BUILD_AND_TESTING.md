@@ -35,29 +35,29 @@ ForgeTune builds all native components directly using Zig C++:
 
 ### 3.1 Compile C++ Test Suite
 ```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_test_suite.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp tests/cpp/test_main.cpp -I include -std=c++17 -O2 -w
+.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_test_suite.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp tests/cpp/test_main.cpp -I include -std=c++17 -O2 -Wall -Wextra
 ```
 
 ### 3.2 Compile C++ Engine CLI
 ```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_engine.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp src/main.cpp -I include -std=c++17 -O2 -w
+.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_engine.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp src/main.cpp -I include -std=c++17 -O2 -Wall -Wextra
 ```
 
 ### 3.3 Compile pybind11 Python Extension Module
 ```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -shared -o python/forgetune/_forgetune_cpp.pyd src/bindings.cpp src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp -I include -I <Python_Include_Path> -I <Pybind11_Include_Path> <Python_Lib_Path> -std=c++17 -O2 -w
+.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -shared -o python/forgetune/_forgetune_cpp.pyd src/bindings.cpp src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp -I include -I <Python_Include_Path> -I <Pybind11_Include_Path> <Python_Lib_Path> -std=c++17 -O2 -Wall -Wextra
 ```
 
 ---
 
 ## 4. Running Tests
 
-### 4.1 Native C++ Test Suite
+### 4.1 Native C++ Test Suite (13 Tests)
 ```powershell
 bin\forgetune_test_suite.exe
 ```
 
-### 4.2 Full Python Test Suite (165 Tests)
+### 4.2 Full Python Test Suite (216 Tests)
 ```powershell
 $env:PYTHONPATH='python;.'
 pytest -v tests/

@@ -217,9 +217,12 @@ class Graph:
                 elif a.ndim == 4 and b.ndim == 1 and a.shape[1] == b.shape[0]:
                     b = b.reshape(1, -1, 1, 1)
                     is_valid = True
+                elif a.ndim == 4 and b.ndim == 3 and a.shape[1] == b.shape[0] and b.shape[1] == 1 and b.shape[2] == 1:
+                    b = b.reshape(1, b.shape[0], 1, 1)
+                    is_valid = True
                 if not is_valid:
                     raise InvalidShapeError(f"Unsupported ADD broadcast shapes: {a.shape} and {b.shape}")
-                env[nid] = a + b
+                env[nid] = (a + b).astype(np.float32)
             elif node.op == "MUL":
                 a = env[node.inputs[0]]
                 b = env[node.inputs[1]]
@@ -234,6 +237,9 @@ class Graph:
                     is_valid = True
                 elif a.ndim == 4 and b.ndim == 1 and a.shape[1] == b.shape[0]:
                     b = b.reshape(1, -1, 1, 1)
+                    is_valid = True
+                elif a.ndim == 4 and b.ndim == 3 and a.shape[1] == b.shape[0] and b.shape[1] == 1 and b.shape[2] == 1:
+                    b = b.reshape(1, b.shape[0], 1, 1)
                     is_valid = True
                 if not is_valid:
                     raise InvalidShapeError(f"Unsupported MUL broadcast shapes: {a.shape} and {b.shape}")

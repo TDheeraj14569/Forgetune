@@ -672,6 +672,14 @@ bool test_v2_memory_planner_and_64byte_alignment() {
         TEST_ASSERT(alloc.size_bytes % 64 == 0, "Buffer size must be a multiple of 64 bytes");
     }
 
+    // P1.4 Regression: Verify KernelConfig max_batch_size precedence over default graph limit
+    KernelConfig cfg;
+    cfg.max_batch_size = 256;
+    CodeGenerator codegen(cfg);
+    std::string gen_code = codegen.generate(g);
+    TEST_ASSERT(gen_code.find("batch_size > 256") != std::string::npos, "Codegen must honor KernelConfig.max_batch_size override (256)");
+    TEST_ASSERT(gen_code.find("return 256;") != std::string::npos, "forgetune_max_batch must return KernelConfig override 256");
+
     std::cout << "  PASSED (Planned Savings: " << plan.savings_percent << "%)\n";
     return true;
 }

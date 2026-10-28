@@ -1,7 +1,7 @@
 """
 Unit tests for float32 constant serialization and native bit-exact reconstruction.
-Verifies that constants serialized by CodeGenerator using C++17 hexfloat
-round-trip with 100% bit-exact IEEE-754 single-precision fidelity.
+Verifies that constants serialized by CodeGenerator using max_digits10 scientific decimal precision
+round-trip with IEEE-754 single-precision fidelity.
 """
 
 import os
@@ -13,9 +13,9 @@ import pytest
 from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
+from forgetune.compiler import get_engine_executable
 
-_test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
-ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+ENGINE_EXE = get_engine_executable()
 
 # Difficult float32 values including small magnitudes, subnormals, boundary values, and negative zero
 TEST_FLOAT_VALUES = [

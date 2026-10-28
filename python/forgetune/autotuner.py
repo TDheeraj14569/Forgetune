@@ -73,6 +73,8 @@ class Autotuner:
         """
         Defines a bounded, deterministic search space of kernel configurations.
         """
+        if not isinstance(max_budget, int) or max_budget <= 0:
+            raise ValueError(f"max_budget must be a positive integer, got {max_budget}")
         candidates = [
             # 1. Baseline Naive
             KernelCandidate("baseline_naive", "naive_ijk", enable_fusion=False, opt_level="-O2"),
@@ -93,13 +95,33 @@ class Autotuner:
         ]
         return candidates[:max_budget]
 
+    def _get_compiler_sources_fingerprint(self) -> str:
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        sources = [
+            "python/forgetune/autotuner.py",
+            "python/forgetune/compiler.py",
+            "python/forgetune/export_frontend.py",
+            "src/codegen.cpp",
+            "src/optimizer.cpp",
+            "src/fusion.cpp",
+            "src/memory_planner.cpp"
+        ]
+        h = hashlib.sha256()
+        for s in sources:
+            p = os.path.join(root, s)
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    h.update(f.read())
+        return h.hexdigest()
+
     def _compute_cache_key(self, graph_json: str, input_shape: Tuple[int, ...], max_budget: int = 8) -> str:
         h = hashlib.sha256()
-        h.update(b"forgetune_v5_defensible_provenance_2.0_")
+        h.update(b"forgetune_v6_reproducible_provenance_2.0_")
         h.update(graph_json.encode("utf-8"))
         h.update(str(input_shape).encode("utf-8"))
         h.update(str(max_budget).encode("utf-8"))
         h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
+        h.update(self._get_compiler_sources_fingerprint().encode("utf-8"))
         compiler_info = self.compiler.get_compiler_info()
         h.update(str(compiler_info.get("type", "")).encode("utf-8"))
         h.update(str(compiler_info.get("version", "")).encode("utf-8"))
@@ -225,12 +247,16 @@ class Autotuner:
         reference_output: np.ndarray,
         artifacts_dir: str,
         max_budget: int = 8,
-        use_cache: bool = True
+        use_cache: bool = True,
+        oracle: Optional[Any] = None
     ) -> Tuple[KernelCandidate, Dict[str, Any]]:
         """
         Runs correctness-gated autotuning across candidate configurations.
         Returns the winning KernelCandidate and the full tuning report.
         """
+        if not isinstance(max_budget, int) or max_budget <= 0:
+            raise ValueError(f"max_budget must be a positive integer, got {max_budget}")
+
         os.makedirs(artifacts_dir, exist_ok=True)
         graph_json = graph.to_json()
         input_shape = tuple(example_input.shape)
@@ -245,7 +271,9 @@ class Autotuner:
                     cached_report = json.load(f)
                 cand_data = cached_report["selected_candidate"]
                 selected = KernelCandidate(**cand_data)
-                return selected, cached_report
+                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget)}
+                if selected.candidate_id in valid_ids:
+                    return selected, cached_report
             except Exception:
                 pass # Cache invalid/corrupted -> re-tune
 
@@ -255,15 +283,28 @@ class Autotuner:
         best_candidate = None
         best_latency = float("inf")
 
-        # Create validation test inputs (zeros, negative values, varied scales) using local deterministic RNG
+        # Create validation test inputs across representative batch sizes
         rng = np.random.default_rng(42)
-        test_inputs = [
-            example_input,
-            np.zeros(input_shape, dtype=np.float32),
-            -np.abs(example_input),
-            rng.standard_normal(input_shape).astype(np.float32),
-            rng.uniform(-5.0, 5.0, size=input_shape).astype(np.float32),
-        ]
+        is_dyn = graph.has_dynamic_batch()
+        max_b = getattr(graph, "max_batch_size", 128)
+        if max_b <= 0:
+            max_b = 128
+
+        if is_dyn:
+            b_example = input_shape[0] if input_shape[0] > 0 else 1
+            test_batches = sorted(list({1, b_example, min(16, max_b), max_b}))
+        else:
+            test_batches = [input_shape[0] if input_shape[0] > 0 else 1]
+
+        test_inputs = []
+        for b in test_batches:
+            shape_b = (b, *input_shape[1:])
+            test_inputs.append(rng.standard_normal(shape_b).astype(np.float32))
+            test_inputs.append(np.zeros(shape_b, dtype=np.float32))
+            test_inputs.append(-np.abs(rng.standard_normal(shape_b).astype(np.float32)))
+            test_inputs.append(rng.uniform(-5.0, 5.0, size=shape_b).astype(np.float32))
+
+        test_inputs.insert(0, example_input)
 
         # Ground truth outputs from reference interpreter for all test inputs
         test_ground_truths = []
@@ -276,10 +317,15 @@ class Autotuner:
             diff = float(np.max(np.abs(test_ground_truths[0] - reference_output)))
             raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch reference output: max_abs={diff}")
 
-        bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
-        engine_exe = os.path.join(bin_dir, "forgetune_test_engine.exe")
-        if not os.path.isfile(engine_exe):
-            engine_exe = os.path.join(bin_dir, "forgetune_engine.exe")
+        if oracle is not None:
+            for tin, exp in zip(test_inputs, test_ground_truths):
+                pt_out = oracle(tin)
+                if not np.allclose(exp, pt_out, atol=self.atol, rtol=self.rtol):
+                    diff = float(np.max(np.abs(exp - pt_out)))
+                    raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch oracle at batch {tin.shape[0]}: max_abs={diff}")
+
+        from .compiler import get_engine_executable
+        engine_exe = get_engine_executable()
 
         import subprocess
 
@@ -387,15 +433,25 @@ class Autotuner:
                 runtime = NativeRuntime(cand_dll, rt_in_shape, rt_out_shape)
                 for idx, (tin, expected) in enumerate(zip(test_inputs, test_ground_truths)):
                     actual = runtime.run(tin)
+                    if actual.shape != expected.shape:
+                        raise CorrectnessError(
+                            f"Output shape mismatch for candidate {cand.candidate_id} at batch {tin.shape[0]}: "
+                            f"expected {expected.shape}, got {actual.shape}"
+                        )
                     max_abs = float(np.max(np.abs(actual - expected)))
                     max_rel = float(np.max(np.abs((actual - expected) / (np.abs(expected) + 1e-7))))
                     if not np.allclose(actual, expected, atol=self.atol, rtol=self.rtol):
                         raise CorrectnessError(
-                            f"Numerical mismatch vs IR interpreter: max_abs={max_abs}, max_rel={max_rel}",
+                            f"Numerical mismatch vs IR interpreter at batch {tin.shape[0]}: max_abs={max_abs}, max_rel={max_rel}",
                             max_abs_diff=max_abs,
                             max_rel_diff=max_rel
                         )
-                    if idx == 0 and not np.allclose(actual, reference_output, atol=self.atol, rtol=self.rtol):
+                    if oracle is not None:
+                        pt_exp = oracle(tin)
+                        if actual.shape != pt_exp.shape or not np.allclose(actual, pt_exp, atol=self.atol, rtol=self.rtol):
+                            diff_pt = float(np.max(np.abs(actual - pt_exp)))
+                            raise CorrectnessError(f"Numerical mismatch vs PyTorch oracle at batch {tin.shape[0]}: max_abs={diff_pt}")
+                    elif idx == 0 and not np.allclose(actual, reference_output, atol=self.atol, rtol=self.rtol):
                         diff_pt = float(np.max(np.abs(actual - reference_output)))
                         raise CorrectnessError(f"Numerical mismatch vs PyTorch reference: max_abs={diff_pt}")
                 res_entry["status"] = "passed"
@@ -419,7 +475,7 @@ class Autotuner:
         # 2. Pure in-kernel isolated execution timing (3 interleaved rounds inside C++ via steady_clock)
         is_dyn = graph.has_dynamic_batch()
         if is_dyn:
-            eval_batches = [1, 4, 16, 64]
+            eval_batches = sorted(list({1, min(4, max_b), min(16, max_b), max_b}))
             eval_inputs = [
                 np.ascontiguousarray(np.tile(example_input[:1], (b, *([1] * (example_input.ndim - 1)))))
                 for b in eval_batches
@@ -431,14 +487,14 @@ class Autotuner:
 
         k_samples = {cand.candidate_id: [] for cand, _, _ in verified_candidates}
         for _ in range(3):
-            for cand, rt, _ in verified_candidates:
+            for cand, rt, res_entry in verified_candidates:
                 try:
                     total_k_lat = 0.0
                     for inp in eval_inputs:
                         total_k_lat += rt.benchmark_kernel(inp, iters=k_iters)
                     k_samples[cand.candidate_id].append(total_k_lat)
-                except Exception:
-                    pass
+                except Exception as e:
+                    res_entry["benchmark_warning"] = str(e)
 
         for cand, rt, res_entry in verified_candidates:
             samples = k_samples.get(cand.candidate_id, [])

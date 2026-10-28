@@ -136,7 +136,7 @@ emit_cpp_source(g, cand, out_path)
 
     env = os.environ.copy()
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    env["PYTHONPATH"] = f"{os.path.join(root_dir, 'python')};{root_dir}"
+    env["PYTHONPATH"] = f"{os.path.join(root_dir, 'python')}{os.pathsep}{root_dir}"
 
     # Independent Subprocess 1
     p1 = subprocess.run([sys.executable, "-c", worker_code, out_a], env=env, capture_output=True, text=True, cwd=str(dir_a))

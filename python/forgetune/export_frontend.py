@@ -483,7 +483,7 @@ def export_to_forgetune_ir(
                 t_list = list(target_shape)
                 resolved_target = []
                 neg_idx = -1
-                prod = 1
+
                 for idx, d in enumerate(t_list):
                     if isinstance(d, int):
                         if d == -1:
@@ -493,27 +493,55 @@ def export_to_forgetune_ir(
                             resolved_target.append(-1)
                         elif d > 0:
                             resolved_target.append(d)
-                            if idx > 0 or in_shape[0] != -1:
-                                prod *= d
                         else:
                             raise InvalidShapeError(f"Invalid non-positive dimension in target shape: {d}")
                     else:
                         # Symbolic batch dimension
                         resolved_target.append(in_shape[0])
 
-                if in_shape[0] == -1 and len(resolved_target) > 0 and (resolved_target[0] == 1 or not isinstance(resolved_target[0], int) or resolved_target[0] <= 0):
-                    resolved_target[0] = -1
+                if in_shape[0] == -1 and len(resolved_target) > 0:
+                    if resolved_target[0] == 1 or not isinstance(resolved_target[0], int) or resolved_target[0] <= 0:
+                        resolved_target[0] = -1
 
                 if neg_idx != -1:
-                    if neg_idx == 0:
-                        resolved_target[0] = in_shape[0]
+                    if in_shape[0] == -1:
+                        # Dynamic batch: batch dimension is resolved separately
+                        if neg_idx == 0:
+                            resolved_target[0] = -1
+                        else:
+                            non_batch_in = 1
+                            for d in in_shape[1:]:
+                                non_batch_in *= d
+                            target_known_non_batch = 1
+                            for i, d in enumerate(resolved_target[1:], start=1):
+                                if i != neg_idx and d > 0:
+                                    target_known_non_batch *= d
+                            if non_batch_in % target_known_non_batch != 0:
+                                raise InvalidShapeError(f"Cannot infer -1 dimension: input non-batch {non_batch_in} not divisible by {target_known_non_batch}")
+                            resolved_target[neg_idx] = non_batch_in // target_known_non_batch
                     else:
-                        non_batch_in = 1
-                        for d in in_shape[1:]:
-                            non_batch_in *= d
-                        if non_batch_in % prod != 0:
-                            raise InvalidShapeError(f"Cannot infer -1 dimension: input non-batch {non_batch_in} not divisible by {prod}")
-                        resolved_target[neg_idx] = non_batch_in // prod
+                        # Fully static shape
+                        total_in = 1
+                        for d in in_shape:
+                            total_in *= d
+                        target_known = 1
+                        for i, d in enumerate(resolved_target):
+                            if i != neg_idx and d > 0:
+                                target_known *= d
+                        if total_in % target_known != 0:
+                            raise InvalidShapeError(f"Cannot infer -1 dimension: input elements {total_in} not divisible by {target_known}")
+                        resolved_target[neg_idx] = total_in // target_known
+
+                # Validate total element count if static
+                if in_shape[0] != -1 and resolved_target[0] != -1:
+                    total_in = 1
+                    for d in in_shape:
+                        total_in *= d
+                    total_out = 1
+                    for d in resolved_target:
+                        total_out *= d
+                    if total_in != total_out:
+                        raise InvalidShapeError(f"Cannot reshape tensor of {total_in} elements into shape {resolved_target} ({total_out} elements)")
 
                 # Strict shape validation against supported patterns
                 if resolved_target == in_shape:

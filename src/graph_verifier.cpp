@@ -394,8 +394,15 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                             math_ok = math_ok && safe_mul(2, attrs.pad_w, two_pad_w);
                             math_ok = math_ok && safe_add(W_in, two_pad_w, padded_w);
 
+                            int64_t pad_hw = 0, pad_elems = 0;
+                            math_ok = math_ok && safe_mul(padded_h, padded_w, pad_hw);
+                            math_ok = math_ok && safe_mul(C_in, pad_hw, pad_elems);
+                            if (math_ok && pad_elems > (std::numeric_limits<int64_t>::max() / 4)) {
+                                math_ok = false;
+                            }
+
                             if (!math_ok) {
-                                res.add_error("CONV2D node %" + std::to_string(node.id) + " spatial dimension arithmetic overflowed.");
+                                res.add_error("CONV2D node %" + std::to_string(node.id) + " spatial dimension or workspace arithmetic overflowed.");
                             } else {
                                 int64_t num_h = padded_h - eff_kh;
                                 int64_t num_w = padded_w - eff_kw;

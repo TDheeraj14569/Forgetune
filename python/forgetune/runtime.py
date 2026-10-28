@@ -74,15 +74,20 @@ class NativeRuntime:
         raise RuntimeError(f"Unexpected failure loading shared library '{self.original_dll_path}'")
 
     def _init_entry_point(self) -> None:
-        if not hasattr(self.lib, "forgetune_run"):
+        has_v1 = hasattr(self.lib, "forgetune_run_v1")
+        has_v2 = hasattr(self.lib, "forgetune_run_v2")
+        has_run = hasattr(self.lib, "forgetune_run")
+        if not (has_v1 or has_v2 or has_run):
             raise RuntimeError(
-                f"Missing exported entry point 'forgetune_run' in {self.original_dll_path}"
+                f"Missing exported inference entry point in {self.original_dll_path} (expected forgetune_run_v2, forgetune_run_v1, or forgetune_run)"
             )
 
         if hasattr(self.lib, "forgetune_is_dynamic"):
             self.is_dynamic = bool(self.lib.forgetune_is_dynamic())
-        elif hasattr(self.lib, "forgetune_run_v1"):
+        elif has_v2:
             self.is_dynamic = True
+        elif has_v1:
+            self.is_dynamic = False
         else:
             self.is_dynamic = self.is_shape_dynamic
 
@@ -365,4 +370,21 @@ class NativeRuntime:
         fn.restype = None
         fn.argtypes = []
         fn()
+
+    def close(self) -> None:
+        """Unloads the shared library handle on Windows to release file locks."""
+        if hasattr(self, "lib") and self.lib is not None:
+            if sys.platform == "win32" and hasattr(self.lib, "_handle") and self.lib._handle:
+                try:
+                    ctypes.windll.kernel32.FreeLibrary(ctypes.c_void_p(self.lib._handle))
+                except Exception:
+                    pass
+            self.lib = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
 

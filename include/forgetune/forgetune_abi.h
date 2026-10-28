@@ -25,21 +25,10 @@ extern "C" {
  *  -4: Internal arena allocation failure or re-entrancy exhaustion
  */
 
-// Primary / Explicit Entry Points:
-
-// Unified C ABI Entry Point (dispatched as 4 arguments for static models, 5 arguments for dynamic models):
-// For static models: int forgetune_run(const float* in, size_t in_c, float* out, size_t out_c);
-// For dynamic models: int forgetune_run(const float* in, size_t in_c, float* out, size_t out_c, int64_t batch);
-#ifndef FORGETUNE_EXCLUDE_GENERIC_RUN_DECLARATION
-FORGETUNE_EXPORT int forgetune_run(
-    const float* input,
-    size_t input_count,
-    float* output,
-    size_t output_count
-);
-#endif
+// Authoritative Versioned Entry Points:
 
 // Version 1 C ABI (4 arguments, fixed/inferred batch size)
+// For static models (and dynamic models via batch inference):
 FORGETUNE_EXPORT int forgetune_run_v1(
     const float* input,
     size_t input_count,
@@ -48,6 +37,7 @@ FORGETUNE_EXPORT int forgetune_run_v1(
 );
 
 // Version 2 C ABI (5 arguments, explicit dynamic batch size)
+// For dynamic models (and static models with batch_size == 1):
 FORGETUNE_EXPORT int forgetune_run_v2(
     const float* input,
     size_t input_count,

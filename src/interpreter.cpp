@@ -100,6 +100,24 @@ std::vector<float> Interpreter::eval_add(
                 }
             }
         }
+    } else if (a_shape.rank() == 4 && b_shape.rank() == 3 && a_shape.dims[1] == b_shape.dims[0] &&
+               b_shape.dims[1] == 1 && b_shape.dims[2] == 1) {
+        // Channel broadcast [B, C, H, W] + [C, 1, 1]
+        int64_t B = a_shape.dims[0];
+        int64_t C = a_shape.dims[1];
+        int64_t H = a_shape.dims[2];
+        int64_t W = a_shape.dims[3];
+        for (int64_t bi = 0; bi < B; ++bi) {
+            for (int64_t c = 0; c < C; ++c) {
+                float b_val = b[static_cast<size_t>(c)];
+                for (int64_t h = 0; h < H; ++h) {
+                    for (int64_t w = 0; w < W; ++w) {
+                        size_t idx = static_cast<size_t>(((bi * C + c) * H + h) * W + w);
+                        out[idx] = a[idx] + b_val;
+                    }
+                }
+            }
+        }
     } else {
         throw InvalidShapeError("Interpreter::eval_add: unsupported broadcasting");
     }
@@ -175,6 +193,24 @@ std::vector<float> Interpreter::eval_mul(
                 }
             }
         }
+    } else if (a_shape.rank() == 4 && b_shape.rank() == 3 && a_shape.dims[1] == b_shape.dims[0] &&
+               b_shape.dims[1] == 1 && b_shape.dims[2] == 1) {
+        // Channel broadcast [B, C, H, W] * [C, 1, 1]
+        int64_t B = a_shape.dims[0];
+        int64_t C = a_shape.dims[1];
+        int64_t H = a_shape.dims[2];
+        int64_t W = a_shape.dims[3];
+        for (int64_t bi = 0; bi < B; ++bi) {
+            for (int64_t c = 0; c < C; ++c) {
+                float b_val = b[static_cast<size_t>(c)];
+                for (int64_t h = 0; h < H; ++h) {
+                    for (int64_t w = 0; w < W; ++w) {
+                        size_t idx = static_cast<size_t>(((bi * C + c) * H + h) * W + w);
+                        out[idx] = a[idx] * b_val;
+                    }
+                }
+            }
+        }
     } else {
         throw InvalidShapeError("Interpreter::eval_mul: unsupported broadcasting");
     }
@@ -186,7 +222,7 @@ std::vector<float> Interpreter::eval_relu(const std::vector<float>& input) const
     std::vector<float> out(input.size());
     for (size_t i = 0; i < input.size(); ++i) {
         float val = input[i];
-        out[i] = (val > 0.0f) ? val : 0.0f;
+        out[i] = (std::isnan(val) || val > 0.0f) ? val : 0.0f;
     }
     return out;
 }

@@ -75,7 +75,7 @@ flowchart TD
 
 ### Dynamic Batch Execution ($B \in [1, 128]$)
 - Emits C++ inner loops parameterized on batch length $B$ without requiring recompilation per batch size.
-- Hardened C ABI boundary validation: out-of-bounds requests ($B \le 0$ or $B > B_{max}$) return `-1` and trigger Python `InvalidShapeError` before memory access.
+- Hardened C ABI boundary validation: out-of-bounds requests ($B \le 0$ or $B > B_{max}$) return `-2` and trigger Python `InvalidShapeError` before memory access (with `-1` for null pointers, `-3` for output mismatch, and `-4` for internal runtime exceptions).
 
 ### Dual Versioned C ABI
 - Defined in `include/forgetune/forgetune_abi.h`:

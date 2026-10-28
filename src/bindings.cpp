@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
+#include <cstring>
 
 #include "forgetune/ir.hpp"
 #include "forgetune/graph_verifier.hpp"
@@ -120,7 +121,7 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
     py::class_<Interpreter>(m, "Interpreter")
         .def(py::init<>())
         .def("evaluate", [](const Interpreter& interp, const IRGraph& graph,
-                            const std::unordered_map<NodeId, py::array_t<float>>& user_inputs) {
+                            const std::unordered_map<NodeId, py::array_t<float, py::array::c_style | py::array::forcecast>>& user_inputs) {
             std::unordered_map<NodeId, std::vector<float>> input_vecs;
             for (const auto& kv : user_inputs) {
                 auto buf = kv.second.request();

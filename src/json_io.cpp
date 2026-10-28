@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
+#include <cmath>
 #include <limits>
 
 namespace forgetune {
@@ -20,7 +21,7 @@ std::string escape_json_string(const std::string& input) {
             case '\t': ss << "\\t"; break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
-                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
+                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(static_cast<unsigned char>(c));
                 } else {
                     ss << c;
                 }
@@ -29,6 +30,67 @@ std::string escape_json_string(const std::string& input) {
     }
     return ss.str();
 }
+
+bool is_valid_json_number(const std::string& s) {
+    if (s.empty()) return false;
+    size_t i = 0;
+    if (s[i] == '-') {
+        i++;
+        if (i >= s.size()) return false;
+    }
+    // Integer part
+    if (s[i] == '0') {
+        i++;
+        // Leading zero cannot be followed by another digit (e.g. "01" is invalid)
+        if (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+    } else if (std::isdigit(static_cast<unsigned char>(s[i]))) {
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) i++;
+    } else {
+        return false;
+    }
+    // Fraction part
+    if (i < s.size() && s[i] == '.') {
+        i++;
+        if (i >= s.size() || !std::isdigit(static_cast<unsigned char>(s[i]))) return false; // "1." is invalid
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) i++;
+    }
+    // Exponent part
+    if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < s.size() && (s[i] == '+' || s[i] == '-')) i++;
+        if (i >= s.size() || !std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) i++;
+    }
+    return i == s.size();
+}
+
+int64_t parse_json_integer(double val, const std::string& field_name, int64_t min_val = std::numeric_limits<int64_t>::min(), int64_t max_val = std::numeric_limits<int64_t>::max()) {
+    if (!std::isfinite(val) || std::floor(val) != val) {
+        throw InvalidGraphError("json_to_graph: field '" + field_name + "' must be an integer, got: " + std::to_string(val));
+    }
+    if (val < static_cast<double>(min_val) || val > static_cast<double>(max_val)) {
+        throw InvalidGraphError("json_to_graph: field '" + field_name + "' out of valid range [" + std::to_string(min_val) + ", " + std::to_string(max_val) + "]: " + std::to_string(val));
+    }
+    return static_cast<int64_t>(val);
+}
+
+OpKind string_to_opkind(const std::string& op_str) {
+    if (op_str == "INPUT") return OpKind::INPUT;
+    if (op_str == "CONST") return OpKind::CONST;
+    if (op_str == "MATMUL") return OpKind::MATMUL;
+    if (op_str == "ADD") return OpKind::ADD;
+    if (op_str == "RELU") return OpKind::RELU;
+    if (op_str == "MUL") return OpKind::MUL;
+    if (op_str == "SIGMOID") return OpKind::SIGMOID;
+    if (op_str == "TANH") return OpKind::TANH;
+    if (op_str == "CONV2D") return OpKind::CONV2D;
+    if (op_str == "FLATTEN") return OpKind::FLATTEN;
+    if (op_str == "OUTPUT") return OpKind::OUTPUT;
+    if (op_str == "FUSED_MATMUL_ADD_RELU") return OpKind::FUSED_MATMUL_ADD_RELU;
+    if (op_str == "FUSED_CONV2D_RELU") return OpKind::FUSED_CONV2D_RELU;
+    throw InvalidGraphError("json_to_graph: Unknown op kind '" + op_str + "'");
+}
+
 } // anonymous namespace
 
 std::string graph_to_json(const IRGraph& graph) {
@@ -113,7 +175,7 @@ std::string graph_to_json(const IRGraph& graph) {
     return oss.str();
 }
 
-// Lightweight JSON token scanner
+// Strict JSON token scanner
 namespace {
     enum class TokType { LBRACE, RBRACE, LBRACKET, RBRACKET, COLON, COMMA, STRING, NUMBER, BOOLEAN, END_OF_FILE };
 
@@ -127,6 +189,17 @@ namespace {
     class JsonLexer {
     public:
         explicit JsonLexer(const std::string& src) : src_(src), pos_(0) {}
+
+        void skip_whitespace() {
+            while (pos_ < src_.size()) {
+                unsigned char c = static_cast<unsigned char>(src_[pos_]);
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                    pos_++;
+                } else {
+                    break;
+                }
+            }
+        }
 
         Token next() {
             skip_whitespace();
@@ -147,6 +220,10 @@ namespace {
                         char c2 = src_[pos_++];
                         if (c2 == '"') {
                             return {TokType::STRING, s, 0.0, false};
+                        }
+                        // RFC 8259 Section 7: Unescaped control characters (< 0x20) are strictly forbidden
+                        if (static_cast<unsigned char>(c2) < 0x20) {
+                            throw InvalidGraphError("JSON Lexer: Unescaped control character in string literal (ASCII " + std::to_string(static_cast<int>(static_cast<unsigned char>(c2))) + ")");
                         }
                         if (c2 == '\\') {
                             if (pos_ >= src_.size()) {
@@ -173,15 +250,45 @@ namespace {
                                     if (endptr != hex_str.c_str() + 4) {
                                         throw InvalidGraphError("JSON Lexer: Invalid \\u hex digits: " + hex_str);
                                     }
+
+                                    // Unicode surrogate pair handling (RFC 8259 / UTF-16 surrogate pairs)
+                                    if (cp >= 0xD800 && cp <= 0xDBFF) {
+                                        // High surrogate: must be immediately followed by \uDC00..\uDFFF (low surrogate)
+                                        if (pos_ + 6 <= src_.size() && src_[pos_] == '\\' && src_[pos_ + 1] == 'u') {
+                                            std::string low_hex = src_.substr(pos_ + 2, 4);
+                                            char* low_end = nullptr;
+                                            unsigned long low_cp = std::strtoul(low_hex.c_str(), &low_end, 16);
+                                            if (low_end == low_hex.c_str() + 4 && low_cp >= 0xDC00 && low_cp <= 0xDFFF) {
+                                                pos_ += 6;
+                                                cp = 0x10000 + (((cp - 0xD800) << 10) | (low_cp - 0xDC00));
+                                            } else {
+                                                throw InvalidGraphError("JSON Lexer: Isolated high surrogate \\u" + hex_str);
+                                            }
+                                        } else {
+                                            throw InvalidGraphError("JSON Lexer: Isolated high surrogate \\u" + hex_str);
+                                        }
+                                    } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                                        throw InvalidGraphError("JSON Lexer: Isolated low surrogate \\u" + hex_str);
+                                    }
+
+                                    // Encode code point into valid UTF-8
                                     if (cp <= 0x7F) {
                                         s += static_cast<char>(cp);
                                     } else if (cp <= 0x7FF) {
                                         s += static_cast<char>(0xC0 | ((cp >> 6) & 0x1F));
                                         s += static_cast<char>(0x80 | (cp & 0x3F));
-                                    } else {
+                                    } else if (cp <= 0xFFFF) {
                                         s += static_cast<char>(0xE0 | ((cp >> 12) & 0x0F));
                                         s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
                                         s += static_cast<char>(0x80 | (cp & 0x3F));
+                                    } else if (cp <= 0x10FFFF) {
+                                        // 4-byte UTF-8 for supplementary code point (e.g. emoji 😀)
+                                        s += static_cast<char>(0xF0 | ((cp >> 18) & 0x07));
+                                        s += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                                        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                                        s += static_cast<char>(0x80 | (cp & 0x3F));
+                                    } else {
+                                        throw InvalidGraphError("JSON Lexer: Unicode code point out of range: " + std::to_string(cp));
                                     }
                                     break;
                                 }
@@ -195,14 +302,17 @@ namespace {
                     throw InvalidGraphError("JSON Lexer: Unterminated string literal");
                 }
                 default: {
-                    if (c == '-' || std::isdigit(c)) {
+                    if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) {
                         size_t start = pos_ - 1;
-                        while (pos_ < src_.size() && (std::isdigit(src_[pos_]) || src_[pos_] == '.' ||
+                        while (pos_ < src_.size() && (std::isdigit(static_cast<unsigned char>(src_[pos_])) || src_[pos_] == '.' ||
                                                       src_[pos_] == 'e' || src_[pos_] == 'E' ||
                                                       src_[pos_] == '+' || src_[pos_] == '-')) {
                             pos_++;
                         }
                         std::string num_str = src_.substr(start, pos_ - start);
+                        if (!is_valid_json_number(num_str)) {
+                            throw InvalidGraphError("JSON Lexer: Invalid JSON number grammar: '" + num_str + "'");
+                        }
                         double val = 0.0;
                         try {
                             size_t idx = 0;
@@ -216,28 +326,46 @@ namespace {
                             throw InvalidGraphError("JSON Lexer: Invalid number format encountered: '" + num_str + "'");
                         }
                         return {TokType::NUMBER, num_str, val, false};
-                    } else if (std::isalpha(c)) {
+                    } else if (std::isalpha(static_cast<unsigned char>(c))) {
                         size_t start = pos_ - 1;
-                        while (pos_ < src_.size() && std::isalpha(src_[pos_])) {
+                        while (pos_ < src_.size() && std::isalpha(static_cast<unsigned char>(src_[pos_]))) {
                             pos_++;
                         }
                         std::string word = src_.substr(start, pos_ - start);
-                        if (word == "true") return {TokType::BOOLEAN, "true", 0.0, true};
-                        if (word == "false") return {TokType::BOOLEAN, "false", 0.0, false};
+                        if (word == "true") return {TokType::BOOLEAN, word, 1.0, true};
+                        if (word == "false") return {TokType::BOOLEAN, word, 0.0, false};
+                        throw InvalidGraphError("JSON Lexer: Unexpected identifier: '" + word + "'");
                     }
-                    break;
+                    throw InvalidGraphError(std::string("JSON Lexer: Unexpected character '") + c + "'");
                 }
             }
-            return {TokType::END_OF_FILE, "", 0.0, false};
+        }
+
+        void skip_value(Token t) {
+            if (t.type == TokType::LBRACE) {
+                int depth = 1;
+                while (depth > 0) {
+                    Token cur = next();
+                    if (cur.type == TokType::LBRACE) depth++;
+                    else if (cur.type == TokType::RBRACE) depth--;
+                    else if (cur.type == TokType::END_OF_FILE) {
+                        throw InvalidGraphError("json_to_graph: Unexpected EOF while skipping nested object");
+                    }
+                }
+            } else if (t.type == TokType::LBRACKET) {
+                int depth = 1;
+                while (depth > 0) {
+                    Token cur = next();
+                    if (cur.type == TokType::LBRACKET) depth++;
+                    else if (cur.type == TokType::RBRACKET) depth--;
+                    else if (cur.type == TokType::END_OF_FILE) {
+                        throw InvalidGraphError("json_to_graph: Unexpected EOF while skipping nested array");
+                    }
+                }
+            }
         }
 
     private:
-        void skip_whitespace() {
-            while (pos_ < src_.size() && (src_[pos_] == ' ' || src_[pos_] == '\t' ||
-                                          src_[pos_] == '\n' || src_[pos_] == '\r')) {
-                pos_++;
-            }
-        }
         const std::string& src_;
         size_t pos_;
     };
@@ -247,7 +375,7 @@ IRGraph json_to_graph(const std::string& json_str) {
     IRGraph graph;
     JsonLexer lexer(json_str);
 
-    // Simple top-down parse of graph JSON
+    // Top-down parse of graph JSON
     Token t = lexer.next();
     if (t.type != TokType::LBRACE) {
         throw InvalidGraphError("json_to_graph: expected '{' at start of JSON");
@@ -265,182 +393,204 @@ IRGraph json_to_graph(const std::string& json_str) {
         }
         if (t.type == TokType::END_OF_FILE) break;
         if (t.type == TokType::COMMA) continue;
-        if (t.type != TokType::STRING) continue;
+        if (t.type != TokType::STRING) {
+            throw InvalidGraphError("json_to_graph: expected string key in graph object, got token " + std::to_string(static_cast<int>(t.type)));
+        }
 
         std::string key = t.str_val;
-        Token colon = lexer.next(); // Consume colon
-        if (colon.type == TokType::END_OF_FILE) {
-            throw InvalidGraphError("json_to_graph: Unexpected EOF after key '" + key + "'");
+        Token colon = lexer.next(); // Strictly require colon
+        if (colon.type != TokType::COLON) {
+            throw InvalidGraphError("json_to_graph: expected ':' after key '" + key + "'");
         }
 
         if (key == "schema_version_major") {
             Token v_tok = lexer.next();
             if (v_tok.type == TokType::NUMBER) {
-                int64_t v = static_cast<int64_t>(v_tok.num_val);
-                if (v < 1 || v > IR_SCHEMA_VERSION_MAJOR) {
-                    throw InvalidGraphError("json_to_graph: Unsupported schema version major: " + std::to_string(v) + " (supported: 1 to " + std::to_string(IR_SCHEMA_VERSION_MAJOR) + ")");
-                }
-            } else if (v_tok.type == TokType::END_OF_FILE) {
-                throw InvalidGraphError("json_to_graph: Unexpected EOF reading schema_version_major");
+                int64_t v = parse_json_integer(v_tok.num_val, "schema_version_major", 1, IR_SCHEMA_VERSION_MAJOR);
+                (void)v;
+            } else {
+                throw InvalidGraphError("json_to_graph: schema_version_major must be a number");
+            }
+        } else if (key == "schema_version_minor") {
+            Token v_tok = lexer.next();
+            if (v_tok.type == TokType::NUMBER) {
+                parse_json_integer(v_tok.num_val, "schema_version_minor", 0, 100);
+            } else {
+                throw InvalidGraphError("json_to_graph: schema_version_minor must be a number");
             }
         } else if (key == "max_batch_size") {
             Token mb_tok = lexer.next();
             if (mb_tok.type == TokType::NUMBER) {
-                int64_t mb = static_cast<int64_t>(mb_tok.num_val);
-                if (mb <= 0) {
-                    throw InvalidGraphError("json_to_graph: max_batch_size must be positive, got " + std::to_string(mb));
-                }
+                int64_t mb = parse_json_integer(mb_tok.num_val, "max_batch_size", 1, 1000000);
                 graph.set_max_batch_size(mb);
-            } else if (mb_tok.type == TokType::END_OF_FILE) {
-                throw InvalidGraphError("json_to_graph: Unexpected EOF reading max_batch_size");
+            } else {
+                throw InvalidGraphError("json_to_graph: max_batch_size must be a number");
             }
         } else if (key == "inputs") {
             Token lbrk = lexer.next(); // Consume '['
-            if (lbrk.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF at inputs '['");
+            if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for inputs");
             while (true) {
                 Token in_tok = lexer.next();
                 if (in_tok.type == TokType::RBRACKET) break;
-                if (in_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing inputs array");
+                if (in_tok.type == TokType::COMMA) continue;
+                if (in_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in inputs array");
                 if (in_tok.type == TokType::NUMBER) {
-                    graph_inputs.push_back(static_cast<NodeId>(in_tok.num_val));
+                    graph_inputs.push_back(static_cast<NodeId>(parse_json_integer(in_tok.num_val, "input_id", 0)));
+                } else {
+                    throw InvalidGraphError("json_to_graph: input node ID must be a non-negative integer");
                 }
             }
         } else if (key == "outputs") {
             Token lbrk = lexer.next(); // Consume '['
-            if (lbrk.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF at outputs '['");
+            if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for outputs");
             while (true) {
                 Token out_tok = lexer.next();
                 if (out_tok.type == TokType::RBRACKET) break;
-                if (out_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing outputs array");
+                if (out_tok.type == TokType::COMMA) continue;
+                if (out_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in outputs array");
                 if (out_tok.type == TokType::NUMBER) {
-                    graph_outputs.push_back(static_cast<NodeId>(out_tok.num_val));
+                    graph_outputs.push_back(static_cast<NodeId>(parse_json_integer(out_tok.num_val, "output_id", 0)));
+                } else {
+                    throw InvalidGraphError("json_to_graph: output node ID must be a non-negative integer");
                 }
             }
         } else if (key == "nodes") {
             Token lbrk = lexer.next(); // Consume '['
-            if (lbrk.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF at nodes '['");
+            if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for nodes");
             while (true) {
-                Token node_tok = lexer.next();
-                if (node_tok.type == TokType::RBRACKET) break;
-                if (node_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing nodes array");
-                if (node_tok.type == TokType::COMMA) continue;
-                if (node_tok.type != TokType::LBRACE) continue;
+                Token n_tok = lexer.next();
+                if (n_tok.type == TokType::RBRACKET) break;
+                if (n_tok.type == TokType::COMMA) continue;
+                if (n_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in nodes array");
+                if (n_tok.type != TokType::LBRACE) continue;
 
                 IRNode node;
+                bool node_closed = false;
                 while (true) {
-                    Token f_key = lexer.next();
-                    if (f_key.type == TokType::RBRACE) break;
-                    if (f_key.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing node fields");
-                    if (f_key.type == TokType::COMMA) continue;
-                    if (f_key.type != TokType::STRING) continue;
+                    Token f_tok = lexer.next();
+                    if (f_tok.type == TokType::RBRACE) {
+                        node_closed = true;
+                        break;
+                    }
+                    if (f_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in node object");
+                    if (f_tok.type == TokType::COMMA) continue;
+                    if (f_tok.type != TokType::STRING) continue;
 
-                    lexer.next(); // Consume colon
-                    std::string field = f_key.str_val;
+                    std::string f_key = f_tok.str_val;
+                    Token f_colon = lexer.next();
+                    if (f_colon.type != TokType::COLON) {
+                        throw InvalidGraphError("json_to_graph: expected ':' after node property '" + f_key + "'");
+                    }
 
-                    if (field == "id") {
+                    if (f_key == "id") {
                         Token id_tok = lexer.next();
-                        if (id_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading node id");
-                        node.id = static_cast<NodeId>(id_tok.num_val);
-                    } else if (field == "op") {
-                        Token op_tok = lexer.next();
-                        if (op_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading node op");
-                        std::string op_str = op_tok.str_val;
-                        if (op_str == "INPUT") node.op = OpKind::INPUT;
-                        else if (op_str == "CONST") node.op = OpKind::CONST;
-                        else if (op_str == "MATMUL") node.op = OpKind::MATMUL;
-                        else if (op_str == "ADD") node.op = OpKind::ADD;
-                        else if (op_str == "RELU") node.op = OpKind::RELU;
-                        else if (op_str == "MUL") node.op = OpKind::MUL;
-                        else if (op_str == "SIGMOID") node.op = OpKind::SIGMOID;
-                        else if (op_str == "TANH") node.op = OpKind::TANH;
-                        else if (op_str == "FLATTEN") node.op = OpKind::FLATTEN;
-                        else if (op_str == "CONV2D") node.op = OpKind::CONV2D;
-                        else if (op_str == "FUSED_CONV2D_RELU") node.op = OpKind::FUSED_CONV2D_RELU;
-                        else if (op_str == "OUTPUT") node.op = OpKind::OUTPUT;
-                        else if (op_str == "FUSED_MATMUL_ADD_RELU") node.op = OpKind::FUSED_MATMUL_ADD_RELU;
-                        else throw UnsupportedOpError(op_str);
-                    } else if (field == "conv_attrs") {
-                        Token ca_tok = lexer.next(); // '{'
-                        if (ca_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF at conv_attrs '{'");
-                        while (true) {
-                            Token a_key = lexer.next();
-                            if (a_key.type == TokType::RBRACE) break;
-                            if (a_key.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing conv_attrs");
-                            if (a_key.type == TokType::COMMA) continue;
-                            if (a_key.type != TokType::STRING) continue;
-                            lexer.next(); // ':'
-                            std::string attr_name = a_key.str_val;
-                            Token attr_val = lexer.next();
-                            if (attr_val.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading conv_attr value");
-                            int64_t v = static_cast<int64_t>(attr_val.num_val);
-                            if (attr_name == "stride_h") node.conv_attrs.stride_h = v;
-                            else if (attr_name == "stride_w") node.conv_attrs.stride_w = v;
-                            else if (attr_name == "pad_h") node.conv_attrs.pad_h = v;
-                            else if (attr_name == "pad_w") node.conv_attrs.pad_w = v;
-                            else if (attr_name == "dilation_h") node.conv_attrs.dilation_h = v;
-                            else if (attr_name == "dilation_w") node.conv_attrs.dilation_w = v;
-                            else if (attr_name == "groups") node.conv_attrs.groups = v;
+                        if (id_tok.type == TokType::NUMBER) {
+                            node.id = static_cast<NodeId>(parse_json_integer(id_tok.num_val, "node.id", 0));
+                        } else {
+                            throw InvalidGraphError("json_to_graph: node.id must be a non-negative integer");
                         }
-                    } else if (field == "name") {
+                    } else if (f_key == "op") {
+                        Token op_tok = lexer.next();
+                        if (op_tok.type == TokType::STRING) {
+                            node.op = string_to_opkind(op_tok.str_val);
+                        }
+                    } else if (f_key == "name") {
                         Token name_tok = lexer.next();
-                        if (name_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading node name");
-                        node.name = name_tok.str_val;
-                    } else if (field == "deleted") {
+                        if (name_tok.type == TokType::STRING) {
+                            node.name = name_tok.str_val;
+                        }
+                    } else if (f_key == "deleted") {
                         Token del_tok = lexer.next();
-                        if (del_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading node deleted");
-                        node.deleted = del_tok.bool_val;
-                    } else if (field == "inputs") {
-                        Token in_bracket = lexer.next(); // '['
-                        if (in_bracket.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF at node inputs '['");
-                        while (true) {
-                            Token inp_id_tok = lexer.next();
-                            if (inp_id_tok.type == TokType::RBRACKET) break;
-                            if (inp_id_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing node inputs");
-                            if (inp_id_tok.type == TokType::NUMBER) {
-                                node.inputs.push_back(static_cast<NodeId>(inp_id_tok.num_val));
+                        if (del_tok.type == TokType::BOOLEAN) {
+                            node.deleted = del_tok.bool_val;
+                        }
+                    } else if (f_key == "conv_attrs") {
+                        Token ca_tok = lexer.next();
+                        if (ca_tok.type == TokType::LBRACE) {
+                            while (true) {
+                                Token c_f = lexer.next();
+                                if (c_f.type == TokType::RBRACE || c_f.type == TokType::END_OF_FILE) break;
+                                if (c_f.type == TokType::COMMA) continue;
+                                if (c_f.type != TokType::STRING) continue;
+                                std::string ck = c_f.str_val;
+                                Token cc = lexer.next();
+                                if (cc.type != TokType::COLON) {
+                                    throw InvalidGraphError("json_to_graph: expected ':' after conv_attrs key '" + ck + "'");
+                                }
+                                Token cv = lexer.next();
+                                if (cv.type == TokType::NUMBER) {
+                                    int64_t ival = parse_json_integer(cv.num_val, ck, 0);
+                                    if (ck == "stride_h") node.conv_attrs.stride_h = ival;
+                                    else if (ck == "stride_w") node.conv_attrs.stride_w = ival;
+                                    else if (ck == "pad_h") node.conv_attrs.pad_h = ival;
+                                    else if (ck == "pad_w") node.conv_attrs.pad_w = ival;
+                                    else if (ck == "dilation_h") node.conv_attrs.dilation_h = ival;
+                                    else if (ck == "dilation_w") node.conv_attrs.dilation_w = ival;
+                                    else if (ck == "groups") node.conv_attrs.groups = ival;
+                                }
                             }
                         }
-                    } else if (field == "shape") {
-                        Token sh_bracket = lexer.next(); // '['
-                        if (sh_bracket.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF at node shape '['");
+                    } else if (f_key == "inputs") {
+                        Token in_arr = lexer.next();
+                        if (in_arr.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for node inputs");
+                        while (true) {
+                            Token id_tok = lexer.next();
+                            if (id_tok.type == TokType::RBRACKET) break;
+                            if (id_tok.type == TokType::COMMA) continue;
+                            if (id_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in node inputs array");
+                            if (id_tok.type == TokType::NUMBER) {
+                                node.inputs.push_back(static_cast<NodeId>(parse_json_integer(id_tok.num_val, "node_input_id", 0)));
+                            }
+                        }
+                    } else if (f_key == "shape") {
+                        Token sh_arr = lexer.next();
+                        if (sh_arr.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for node shape");
                         std::vector<int64_t> dims;
                         while (true) {
                             Token dim_tok = lexer.next();
                             if (dim_tok.type == TokType::RBRACKET) break;
-                            if (dim_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing node shape");
+                            if (dim_tok.type == TokType::COMMA) continue;
+                            if (dim_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in node shape array");
                             if (dim_tok.type == TokType::NUMBER) {
-                                dims.push_back(static_cast<int64_t>(dim_tok.num_val));
+                                dims.push_back(parse_json_integer(dim_tok.num_val, "dim"));
                             }
                         }
-                        node.output_meta.shape = TensorShape(std::move(dims));
-                    } else if (field == "dtype") {
-                        Token dt_tok = lexer.next(); // string
-                        if (dt_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF reading node dtype");
-                        if (dt_tok.str_val != "f32" && dt_tok.str_val != "float32") {
-                            throw InvalidGraphError("json_to_graph: unsupported dtype: '" + dt_tok.str_val + "' (only f32/float32 supported)");
+                        node.output_meta.shape = TensorShape(dims);
+                    } else if (f_key == "dtype") {
+                        Token dt_tok = lexer.next();
+                        if (dt_tok.type == TokType::STRING) {
+                            if (dt_tok.str_val != "f32" && dt_tok.str_val != "float32") {
+                                throw InvalidGraphError("json_to_graph: Unsupported dtype '" + dt_tok.str_val + "', only 'f32'/'float32' supported in ForgeTune v2.0");
+                            }
+                            node.output_meta.dtype = DType::FLOAT32;
                         }
-                        node.output_meta.dtype = DType::FLOAT32;
-                    } else if (field == "const_data") {
-                        Token cd_bracket = lexer.next(); // '['
-                        if (cd_bracket.type == TokType::END_OF_FILE) throw InvalidGraphError("Unexpected EOF at node const_data '['");
+                    } else if (f_key == "const_data") {
+                        Token cd_arr = lexer.next();
+                        if (cd_arr.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for const_data");
                         while (true) {
                             Token num_tok = lexer.next();
                             if (num_tok.type == TokType::RBRACKET) break;
-                            if (num_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF while parsing node const_data");
+                            if (num_tok.type == TokType::COMMA) continue;
+                            if (num_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in const_data array");
                             if (num_tok.type == TokType::NUMBER) {
                                 node.const_data.push_back(static_cast<float>(num_tok.num_val));
                             }
                         }
                     } else {
-                        // Skip unknown field
-                        lexer.next();
+                        // Skip unknown field recursively (handles nested objects, arrays, and scalars)
+                        Token val_tok = lexer.next();
+                        lexer.skip_value(val_tok);
                     }
+                }
+                if (!node_closed) {
+                    throw InvalidGraphError("json_to_graph: Unexpected EOF before closing '}' of node object");
                 }
                 graph.add_node(std::move(node));
             }
         } else {
-            // Skip other fields
-            lexer.next();
+            // Skip other fields recursively
+            Token val_tok = lexer.next();
+            lexer.skip_value(val_tok);
         }
     }
 

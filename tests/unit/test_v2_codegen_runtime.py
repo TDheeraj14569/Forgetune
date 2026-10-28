@@ -8,6 +8,7 @@ Validates:
 """
 
 import os
+import sys
 import shutil
 import tempfile
 import numpy as np
@@ -213,6 +214,7 @@ def test_safe_library_loading_direct_success(dynamic_mlp_runtime):
     assert hasattr(rt.lib, "forgetune_run")
 
 def test_safe_library_loading_smart_app_control_diagnostic(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "win32")
     dummy_dll = str(tmp_path / "probe_blocked.dll")
     with open(dummy_dll, "wb") as f:
         f.write(b"MZdummybinary")
@@ -239,6 +241,7 @@ def test_safe_library_loading_smart_app_control_diagnostic(monkeypatch, tmp_path
     assert len(sleep_calls) == 0
 
 def test_safe_library_loading_transient_sharing_retry(monkeypatch, tmp_path, dynamic_mlp_runtime):
+    monkeypatch.setattr(sys, "platform", "win32")
     rt, _ = dynamic_mlp_runtime
     dll_path = rt.original_dll_path
 

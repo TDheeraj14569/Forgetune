@@ -52,9 +52,11 @@ This document provides mathematical definitions, broadcasting rules, and impleme
 ## 5. Sigmoid Activation (`SIGMOID`)
 
 - **Formula:** $\sigma(x) = \frac{1}{1 + e^{-x}}$
-- **Numerical Stability Safeguards:**
-  - When $x < -88.0f$, $e^{-x}$ overflows 32-bit float; output clamped to $0.0f$.
-  - When $x > 88.0f$, $e^{-x} \approx 0.0f$; output clamped to $1.0f$.
+- **Numerical Behavior:**
+  - Evaluated using direct IEEE 754 float32 exponential arithmetic.
+  - When $x < -88.0f$, $e^{-x}$ evaluates to $+\infty$, yielding $\frac{1}{1 + \infty} = 0.0f$.
+  - When $x > 88.0f$, $e^{-x}$ underflows to $0.0f$, yielding $\frac{1}{1 + 0} = 1.0f$.
+  - Non-finite behavior: $\sigma(\text{NaN}) = \text{NaN}$.
 - **Output Shape:** Identical to input shape.
 
 ---

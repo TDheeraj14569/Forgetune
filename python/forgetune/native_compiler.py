@@ -89,10 +89,20 @@ class NativeCompiler:
         Compiles a C++ source file into a shared library.
         Returns a dict containing compilation metadata (duration, command, stdout, stderr).
         """
+        norm_opt = opt_level if opt_level.startswith("-") or opt_level.startswith("/") else f"-{opt_level}"
+        valid_opts = {"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "/Od", "/O1", "/O2", "/Ox"}
+        if norm_opt not in valid_opts and opt_level not in valid_opts:
+            raise ValueError(f"Invalid optimization level '{opt_level}'. Allowed levels: -O0, -O1, -O2, -O3, -Os, -Oz")
+
         if not os.path.isfile(cpp_source_path):
             raise FileNotFoundError(f"C++ source file not found: {cpp_source_path}")
 
         os.makedirs(os.path.dirname(os.path.abspath(output_dll_path)), exist_ok=True)
+        if os.path.isfile(output_dll_path):
+            try:
+                os.remove(output_dll_path)
+            except OSError:
+                pass
 
         if self.compiler_type == "zig":
             target_flag = ["-target", "x86_64-windows-gnu"] if sys.platform == "win32" else ["-target", "x86_64-linux-gnu", "-fPIC"]
@@ -145,6 +155,7 @@ class NativeCompiler:
         try:
             result = subprocess.run(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
