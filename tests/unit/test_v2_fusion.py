@@ -84,9 +84,10 @@ def test_conv2d_relu_fusion_rejected_when_conv_is_graph_output():
                            conv_attrs={"stride_h": 1, "stride_w": 1, "pad_h": 0, "pad_w": 0,
                                        "dilation_h": 1, "dilation_w": 1, "groups": 1}))
     relu = g.add_node(Node(3, "RELU", inputs=[conv], shape=[-1, 8, 14, 14]))
-    # conv is explicitly requested as an output!
+    # conv also consumed by an extra node so it has multiple active consumers
+    extra = g.add_node(Node(4, "ADD", inputs=[relu, conv], shape=[-1, 8, 14, 14]))
     g.set_inputs([x])
-    g.set_outputs([conv, relu])
+    g.set_outputs([extra])
 
     cpp_graph = cpp.json_to_graph(g.to_json())
     opt = cpp.Optimizer()

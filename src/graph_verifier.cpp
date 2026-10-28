@@ -12,6 +12,8 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
     const auto& inputs = graph.get_inputs();
     if (inputs.empty()) {
         res.add_error("Graph has no declared inputs.");
+    } else if (inputs.size() > 1) {
+        res.add_error("ForgeTune ABI strictly supports single-input graphs; got " + std::to_string(inputs.size()));
     }
     std::unordered_set<NodeId> declared_inputs(inputs.begin(), inputs.end());
     for (NodeId in_id : inputs) {
@@ -33,6 +35,8 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
     const auto& outputs = graph.get_outputs();
     if (outputs.empty()) {
         res.add_error("Graph has no declared outputs.");
+    } else if (outputs.size() > 1) {
+        res.add_error("ForgeTune currently supports only single-output graphs.");
     }
     for (NodeId out_id : outputs) {
         if (!graph.has_node(out_id)) {
@@ -55,6 +59,10 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
     // 4. Node-level validations
     for (const auto& node : graph.nodes()) {
         if (node.deleted) continue;
+
+        if (node.op == OpKind::INPUT && declared_inputs.find(node.id) == declared_inputs.end()) {
+            res.add_error("Graph contains undeclared INPUT node %" + std::to_string(node.id));
+        }
 
         // Check node ID
         if (node.id < 0) {

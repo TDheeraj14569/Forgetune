@@ -52,6 +52,9 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
         if (node.deleted || node.op == OpKind::INPUT || node.op == OpKind::CONST) {
             continue;
         }
+        if (output_set.find(nid) != output_set.end()) {
+            continue; // Graph output is written to user-supplied buffer, not intermediate arena
+        }
 
         BufferAllocation alloc;
         alloc.node_id = nid;

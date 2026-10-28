@@ -136,9 +136,10 @@ def test_fusion_multi_consumer_rejected():
     relu = g.add_node(Node(5, "RELU", inputs=[add], shape=[2, 8]))
     # Extra consumer of mm
     extra_relu = g.add_node(Node(6, "RELU", inputs=[mm], shape=[2, 8]))
+    final = g.add_node(Node(7, "ADD", inputs=[relu, extra_relu], shape=[2, 8]))
 
     g.set_inputs([x])
-    g.set_outputs([relu, extra_relu])
+    g.set_outputs([final])
 
     os.makedirs("build/test_opt", exist_ok=True)
     in_json = "build/test_opt/fusion_reject_in.json"
@@ -164,9 +165,10 @@ def test_fusion_output_node_rejected():
     mm = g.add_node(Node(3, "MATMUL", inputs=[x, w], shape=[2, 8]))
     add = g.add_node(Node(4, "ADD", inputs=[mm, b], shape=[2, 8]))
     relu = g.add_node(Node(5, "RELU", inputs=[add], shape=[2, 8]))
+    final = g.add_node(Node(6, "ADD", inputs=[relu, mm], shape=[2, 8]))
 
     g.set_inputs([x])
-    g.set_outputs([relu, mm]) # mm is an output!
+    g.set_outputs([final])
 
     os.makedirs("build/test_opt", exist_ok=True)
     in_json = "build/test_opt/fusion_out_reject_in.json"

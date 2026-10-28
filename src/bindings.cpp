@@ -187,6 +187,7 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
 
     // MatMulVariant
     py::enum_<MatMulVariant>(m, "MatMulVariant")
+        .value("UNKNOWN", MatMulVariant::UNKNOWN)
         .value("NAIVE_IJK", MatMulVariant::NAIVE_IJK)
         .value("LOOP_IKJ", MatMulVariant::LOOP_IKJ)
         .value("TILED", MatMulVariant::TILED)

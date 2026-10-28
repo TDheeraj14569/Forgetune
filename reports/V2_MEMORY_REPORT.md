@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-27 20:25:41
+**Date:** 2026-10-28 10:32:20
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -19,42 +19,40 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 
 | Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Calculated Intermediate-Buffer Storage Reduction (%) |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Model A (Dynamic TinyMLP)** | 5 tensors | 2 physical slots | 57,344 B (56.0 KB) | 32,768 B (32.0 KB) | **42.9%** |
-| **Model B (Residual MLP)** | 9 tensors | 4 physical slots | 61,440 B (60.0 KB) | 24,576 B (24.0 KB) | **60.0%** |
-| **Model C (Small CNN)** | 7 tensors | 3 physical slots | 927,744 B (906.0 KB) | 524,288 B (512.0 KB) | **43.5%** |
+| **Model A (Dynamic TinyMLP)** | 4 tensors | 2 physical slots | 53,248 B (52.0 KB) | 32,768 B (32.0 KB) | **38.5%** |
+| **Model B (Residual MLP)** | 8 tensors | 3 physical slots | 59,392 B (58.0 KB) | 24,576 B (24.0 KB) | **58.6%** |
+| **Model C (Small CNN)** | 6 tensors | 3 physical slots | 922,624 B (901.0 KB) | 524,288 B (512.0 KB) | **43.2%** |
 
 ---
 
 ## 3. Detailed Per-Model Allocation Schemes
 
 ### Model A (Dynamic TinyMLP)
-- **Logical Intermediate Tensors:** 5
+- **Logical Intermediate Tensors:** 4
 - **Physical Reusable Arena Slots:** 2
-- **Unoptimized Static Allocation Total:** 57,344 bytes
+- **Unoptimized Static Allocation Total:** 53,248 bytes
 - **Optimized Reused Arena Size:** 32,768 bytes
-- **Net Savings:** 24,576 bytes (42.9%)
+- **Net Savings:** 20,480 bytes (38.5%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
 | Node  8 | Step [ 6,  8] |  16,384 B |       0 B | `Slot @ 0x00000` |
-| Node 11 | Step [ 9, 10] |   4,096 B |       0 B | `Slot @ 0x00000` |
 | Node  6 | Step [ 4,  5] |  16,384 B |       0 B | `Slot @ 0x00000` |
 | Node 10 | Step [ 8,  9] |   4,096 B |  16,384 B | `Slot @ 0x04000` |
 | Node  7 | Step [ 5,  6] |  16,384 B |  16,384 B | `Slot @ 0x04000` |
 
 ### Model B (Residual MLP)
-- **Logical Intermediate Tensors:** 9
-- **Physical Reusable Arena Slots:** 4
-- **Unoptimized Static Allocation Total:** 61,440 bytes
+- **Logical Intermediate Tensors:** 8
+- **Physical Reusable Arena Slots:** 3
+- **Unoptimized Static Allocation Total:** 59,392 bytes
 - **Optimized Reused Arena Size:** 24,576 bytes
-- **Net Savings:** 36,864 bytes (60.0%)
+- **Net Savings:** 34,816 bytes (58.6%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
 | Node 17 | Step [14, 15] |   2,048 B |       0 B | `Slot @ 0x00000` |
 | Node 10 | Step [ 7, 12] |   8,192 B |       0 B | `Slot @ 0x00000` |
 | Node  8 | Step [ 5,  6] |   8,192 B |       0 B | `Slot @ 0x00000` |
-| Node 18 | Step [15, 16] |   2,048 B |   2,048 B | `Slot @ 0x00800` |
 | Node 14 | Step [11, 12] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
 | Node 12 | Step [ 9, 10] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
 | Node  9 | Step [ 6,  7] |   8,192 B |   8,192 B | `Slot @ 0x02000` |
@@ -62,15 +60,14 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 6
 | Node 13 | Step [10, 11] |   8,192 B |  16,384 B | `Slot @ 0x04000` |
 
 ### Model C (Small CNN)
-- **Logical Intermediate Tensors:** 7
+- **Logical Intermediate Tensors:** 6
 - **Physical Reusable Arena Slots:** 3
-- **Unoptimized Static Allocation Total:** 927,744 bytes
+- **Unoptimized Static Allocation Total:** 922,624 bytes
 - **Optimized Reused Arena Size:** 524,288 bytes
-- **Net Savings:** 403,456 bytes (43.5%)
+- **Net Savings:** 398,336 bytes (43.2%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
 |:---:|:---:|:---:|:---:|:---:|
-| Node 14 | Step [13, 14] |   5,120 B |       0 B | `Slot @ 0x00000` |
 | Node 11 | Step [10, 12] | 131,072 B |       0 B | `Slot @ 0x00000` |
 | Node  9 | Step [ 8,  9] | 131,072 B |       0 B | `Slot @ 0x00000` |
 | Node  7 | Step [ 6,  7] | 262,144 B |       0 B | `Slot @ 0x00000` |

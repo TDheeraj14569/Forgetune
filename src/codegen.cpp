@@ -47,6 +47,13 @@ void CodeGenerator::emit_headers(std::ostringstream& oss) const {
         << "#define FORGETUNE_EXPORT __declspec(dllexport)\n"
         << "#else\n"
         << "#define FORGETUNE_EXPORT __attribute__((visibility(\"default\")))\n"
+        << "#endif\n\n"
+        << "#if defined(_MSC_VER)\n"
+        << "#define FORGETUNE_RESTRICT __restrict\n"
+        << "#elif defined(__GNUC__) || defined(__clang__)\n"
+        << "#define FORGETUNE_RESTRICT __restrict__\n"
+        << "#else\n"
+        << "#define FORGETUNE_RESTRICT\n"
         << "#endif\n\n";
 }
 
@@ -231,7 +238,7 @@ void CodeGenerator::emit_arena_pool(std::ostringstream& oss) const {
 void CodeGenerator::emit_matmul_naive(std::ostringstream& oss, const std::string& func_name,
                                       int64_t K, int64_t N) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    int64_t M, const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* FORGETUNE_RESTRICT A, const float* FORGETUNE_RESTRICT B, float* FORGETUNE_RESTRICT C\n"
         << ") noexcept {\n"
         << "    for (int64_t i = 0; i < M; ++i) {\n"
         << "        for (int64_t j = 0; j < " << N << "; ++j) {\n"
@@ -248,7 +255,7 @@ void CodeGenerator::emit_matmul_naive(std::ostringstream& oss, const std::string
 void CodeGenerator::emit_matmul_ikj(std::ostringstream& oss, const std::string& func_name,
                                     int64_t K, int64_t N) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    int64_t M, const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* FORGETUNE_RESTRICT A, const float* FORGETUNE_RESTRICT B, float* FORGETUNE_RESTRICT C\n"
         << ") noexcept {\n"
         << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
         << "    for (int64_t i = 0; i < M; ++i) {\n"
@@ -266,7 +273,7 @@ void CodeGenerator::emit_matmul_tiled(std::ostringstream& oss, const std::string
                                       int64_t K, int64_t N,
                                       int tile_m, int tile_n, int tile_k) const {
     oss << "static inline void " << func_name << "(\n"
-        << "    int64_t M, const float* A, const float* B, float* C\n"
+        << "    int64_t M, const float* FORGETUNE_RESTRICT A, const float* FORGETUNE_RESTRICT B, float* FORGETUNE_RESTRICT C\n"
         << ") noexcept {\n"
         << "    for (int64_t idx = 0; idx < M * " << N << "; ++idx) C[idx] = 0.0f;\n\n"
         << "    constexpr int64_t TM = " << tile_m << ";\n"
@@ -299,7 +306,7 @@ void CodeGenerator::emit_fused_matmul_add_relu(std::ostringstream& oss, const st
                                                bool bias_is_2d) const {
     (void)has_bias;
     oss << "static inline void " << func_name << "(\n"
-        << "    int64_t M, const float* A, const float* B, const float* bias, float* C\n"
+        << "    int64_t M, const float* FORGETUNE_RESTRICT A, const float* FORGETUNE_RESTRICT B, const float* FORGETUNE_RESTRICT bias, float* FORGETUNE_RESTRICT C\n"
         << ") noexcept {\n";
 
     std::string b_expr = bias_is_2d ? "bias[i * " + std::to_string(N) + " + j]" : "bias[j]";
@@ -415,7 +422,8 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         oss << "    constexpr int64_t H_pad = H_in + 2 * ph;\n"
             << "    constexpr int64_t W_pad = W_in + 2 * pw;\n"
             << "    constexpr int64_t in_row_stride = W_pad;\n"
-            << "    float pad_buf[C_in * H_pad * W_pad] = {0.0f};\n\n";
+            << "    std::vector<float> pad_buf_vec(C_in * H_pad * W_pad, 0.0f);\n"
+            << "    float* pad_buf = pad_buf_vec.data();\n\n";
     } else {
         oss << "    constexpr int64_t in_row_stride = W_in;\n\n";
     }
@@ -578,7 +586,7 @@ void CodeGenerator::emit_kernel_functions(std::ostringstream& oss, const IRGraph
             bool bias_is_2d = false;
             if (node.inputs.size() >= 3 && graph.has_node(node.inputs[2])) {
                 const auto& b_shape = graph.get_node(node.inputs[2]).output_meta.shape;
-                if (b_shape.rank() == 2 && b_shape.dims[0] > 1) {
+                if (b_shape.rank() == 2 && (b_shape.dims[0] > 1 || b_shape.dims[0] == TensorShape::DYNAMIC_DIM)) {
                     bias_is_2d = true;
                 }
             }
@@ -655,7 +663,7 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    // Contract validations\n"
             << "    if (!input || !output) return -1; // Null pointer\n"
             << "    if (batch_size <= 0) {\n"
-            << "        if (input_count == 0 || input_count % " << static_input_elements << " != 0) return -2;\n"
+            << "        if (" << static_input_elements << " == 0 || input_count == 0 || input_count % " << static_input_elements << " != 0) return -2;\n"
             << "        batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
             << "    }\n"
             << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2;\n"
@@ -967,26 +975,25 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         << "    if (!input || !output || iters <= 0) return -1.0;\n";
 
     if (is_dynamic) {
-        oss << "    if (input_count == 0 || input_count % " << static_input_elements << " != 0) return -2.0;\n"
+        oss << "    if (" << static_input_elements << " == 0 || input_count == 0 || input_count % " << static_input_elements << " != 0) return -2.0;\n"
             << "    int64_t batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
-            << "    if (batch_size <= 0 || batch_size > 128) return -2.0;\n"
+            << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2.0;\n"
             << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3.0;\n\n"
             << "    // Warm-up\n"
             << "    for (int w = 0; w < 10; ++w) {\n"
             << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
             << "    }\n\n"
+            << "    volatile float checksum = 0.0f;\n"
             << "    auto start = std::chrono::steady_clock::now();\n"
             << "    for (int i = 0; i < iters; ++i) {\n"
             << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
             << "#if defined(__GNUC__) || defined(__clang__)\n"
             << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
+            << "#else\n"
+            << "        checksum += output[0];\n"
             << "#endif\n"
             << "    }\n"
-            << "    auto end = std::chrono::steady_clock::now();\n\n"
-            << "    volatile float checksum = 0.0f;\n"
-            << "    for (size_t o = 0; o < output_count; ++o) {\n"
-            << "        checksum += output[o];\n"
-            << "    }\n"
+            << "    auto end = std::chrono::steady_clock::now();\n"
             << "    (void)checksum;\n\n"
             << "    std::chrono::duration<double, std::micro> elapsed = end - start;\n"
             << "    return elapsed.count() / static_cast<double>(iters);\n"
@@ -998,18 +1005,17 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    for (int w = 0; w < 10; ++w) {\n"
             << "        forgetune_run(input, input_count, output, output_count);\n"
             << "    }\n\n"
+            << "    volatile float checksum = 0.0f;\n"
             << "    auto start = std::chrono::steady_clock::now();\n"
             << "    for (int i = 0; i < iters; ++i) {\n"
             << "        forgetune_run(input, input_count, output, output_count);\n"
             << "#if defined(__GNUC__) || defined(__clang__)\n"
             << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
+            << "#else\n"
+            << "        checksum += output[0];\n"
             << "#endif\n"
             << "    }\n"
-            << "    auto end = std::chrono::steady_clock::now();\n\n"
-            << "    volatile float checksum = 0.0f;\n"
-            << "    for (size_t o = 0; o < " << total_output_elements << "; ++o) {\n"
-            << "        checksum += output[o];\n"
-            << "    }\n"
+            << "    auto end = std::chrono::steady_clock::now();\n"
             << "    (void)checksum;\n\n"
             << "    std::chrono::duration<double, std::micro> elapsed = end - start;\n"
             << "    return elapsed.count() / static_cast<double>(iters);\n"

@@ -2,8 +2,34 @@
 #include <sstream>
 #include <iomanip>
 #include <cctype>
+#include <limits>
 
 namespace forgetune {
+
+namespace {
+std::string escape_json_string(const std::string& input) {
+    std::ostringstream ss;
+    for (char c : input) {
+        switch (c) {
+            case '"':  ss << "\\\""; break;
+            case '\\': ss << "\\\\"; break;
+            case '\b': ss << "\\b"; break;
+            case '\f': ss << "\\f"; break;
+            case '\n': ss << "\\n"; break;
+            case '\r': ss << "\\r"; break;
+            case '\t': ss << "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
+                } else {
+                    ss << c;
+                }
+                break;
+        }
+    }
+    return ss.str();
+}
+} // anonymous namespace
 
 std::string graph_to_json(const IRGraph& graph) {
     std::ostringstream oss;
@@ -38,7 +64,7 @@ std::string graph_to_json(const IRGraph& graph) {
         oss << "    {\n"
             << "      \"id\": " << n.id << ",\n"
             << "      \"op\": \"" << opkind_to_string(n.op) << "\",\n"
-            << "      \"name\": \"" << n.name << "\",\n"
+            << "      \"name\": \"" << escape_json_string(n.name) << "\",\n"
             << "      \"deleted\": " << (n.deleted ? "true" : "false") << ",\n";
 
         if (n.op == OpKind::CONV2D || n.op == OpKind::FUSED_CONV2D_RELU) {
@@ -75,7 +101,7 @@ std::string graph_to_json(const IRGraph& graph) {
         oss << "      \"const_data\": [";
         for (size_t j = 0; j < n.const_data.size(); ++j) {
             if (j > 0) oss << ", ";
-            oss << std::setprecision(8) << n.const_data[j];
+            oss << std::setprecision(std::numeric_limits<float>::max_digits10) << n.const_data[j];
         }
         oss << "]\n";
 
@@ -135,7 +161,18 @@ namespace {
                             pos_++;
                         }
                         std::string num_str = src_.substr(start, pos_ - start);
-                        double val = std::stod(num_str);
+                        double val = 0.0;
+                        try {
+                            size_t idx = 0;
+                            val = std::stod(num_str, &idx);
+                            if (idx != num_str.size()) {
+                                throw InvalidGraphError("JSON Lexer: Invalid number format encountered: '" + num_str + "'");
+                            }
+                        } catch (const InvalidGraphError&) {
+                            throw;
+                        } catch (const std::exception& e) {
+                            throw InvalidGraphError("JSON Lexer: Invalid number format encountered: '" + num_str + "'");
+                        }
                         return {TokType::NUMBER, num_str, val, false};
                     } else if (std::isalpha(c)) {
                         size_t start = pos_ - 1;

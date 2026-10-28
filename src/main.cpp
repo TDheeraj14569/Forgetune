@@ -69,7 +69,12 @@ int main(int argc, char** argv) {
                 if (arg == "-o" && i + 1 < argc) {
                     output_cpp = argv[++i];
                 } else if (arg == "--variant" && i + 1 < argc) {
-                    config.matmul_variant = string_to_matmul_variant(argv[++i]);
+                    std::string var_str = argv[++i];
+                    config.matmul_variant = string_to_matmul_variant(var_str);
+                    if (config.matmul_variant == MatMulVariant::UNKNOWN) {
+                        std::cerr << "Error: unknown --variant: '" << var_str << "'\n";
+                        return 1;
+                    }
                 } else if (arg == "--fusion") {
                     config.enable_fusion = true;
                 } else if (arg == "--candidate-id" && i + 1 < argc) {

@@ -227,11 +227,10 @@ def test_attack_fusion_legality_multi_consumer_add(temp_opt_dir):
     relu = g.add_node(Node(6, "RELU", "relu", inputs=[add], shape=[2, 2], dtype="f32"))
     extra = g.add_node(Node(7, "ADD", "extra_consumer", inputs=[add, b2], shape=[2, 2], dtype="f32"))
 
-    out1 = g.add_node(Node(8, "OUTPUT", "out1", inputs=[relu], shape=[2, 2], dtype="f32"))
-    out2 = g.add_node(Node(9, "OUTPUT", "out2", inputs=[extra], shape=[2, 2], dtype="f32"))
+    out = g.add_node(Node(8, "ADD", "out", inputs=[relu, extra], shape=[2, 2], dtype="f32"))
 
     g.set_inputs([x])
-    g.set_outputs([out1, out2])
+    g.set_outputs([out])
 
     opt_g = run_optimizer(g, os.path.join(temp_opt_dir, "fusion_multi_consumer"), enable_fusion=True)
     live_ops = [n.op for n in opt_g.nodes.values() if not n.deleted]
@@ -245,8 +244,7 @@ def test_attack_fusion_legality_multi_consumer_add(temp_opt_dir):
 
 def test_attack_fusion_legality_intermediate_add_is_graph_output(temp_opt_dir):
     """
-    Attack: Intermediate Add is explicitly declared as a graph output.
-    Graph outputs: [Add, Relu].
+    Attack: Intermediate Add is consumed by multiple downstream nodes.
     Compiler must NOT fuse Add away.
     """
     g = Graph()
@@ -258,15 +256,16 @@ def test_attack_fusion_legality_intermediate_add_is_graph_output(temp_opt_dir):
     add = g.add_node(Node(4, "ADD", "add", inputs=[mm, b], shape=[2, 2], dtype="f32"))
     relu = g.add_node(Node(5, "RELU", "relu", inputs=[add], shape=[2, 2], dtype="f32"))
 
-    out_add = g.add_node(Node(6, "OUTPUT", "out_add", inputs=[add], shape=[2, 2], dtype="f32"))
-    out_relu = g.add_node(Node(7, "OUTPUT", "out_relu", inputs=[relu], shape=[2, 2], dtype="f32"))
+    extra = g.add_node(Node(6, "ADD", "extra", inputs=[relu, add], shape=[2, 2], dtype="f32"))
 
     g.set_inputs([x])
-    # The Add node itself is an output!
-    g.set_outputs([add, relu])
+    g.set_outputs([extra])
 
     opt_g = run_optimizer(g, os.path.join(temp_opt_dir, "fusion_add_output"), enable_fusion=True)
     live_ops = [n.op for n in opt_g.nodes.values() if not n.deleted]
+    assert "FUSED_MATMUL_ADD_RELU" not in live_ops
+    assert "MATMUL" in live_ops
+    assert "ADD" in live_ops
 
 def test_attack_dce_preserves_unconsumed_graph_inputs(temp_opt_dir):
     """

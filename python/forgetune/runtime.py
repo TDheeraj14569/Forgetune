@@ -209,7 +209,8 @@ class NativeRuntime:
                 error_msgs = {
                     -1: "Null pointer supplied to native kernel",
                     -2: f"Input element count or batch size mismatch (batch={actual_batch})",
-                    -3: f"Output element count mismatch (batch={actual_batch})"
+                    -3: f"Output element count mismatch (batch={actual_batch})",
+                    -4: "Native arena allocation failed"
                 }
                 msg = error_msgs.get(status, f"Unknown native error code: {status}")
                 raise RuntimeError(f"Native kernel execution failed with code {status}: {msg}")
@@ -242,7 +243,8 @@ class NativeRuntime:
                 error_msgs = {
                     -1: "Null pointer supplied to native kernel",
                     -2: f"Input element count mismatch (expected {self.total_input_count})",
-                    -3: f"Output element count mismatch (expected {self.total_output_count})"
+                    -3: f"Output element count mismatch (expected {self.total_output_count})",
+                    -4: "Native arena allocation failed"
                 }
                 msg = error_msgs.get(status, f"Unknown native error code: {status}")
                 raise RuntimeError(f"Native kernel execution failed with code {status}: {msg}")

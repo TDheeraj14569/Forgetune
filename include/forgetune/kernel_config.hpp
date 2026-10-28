@@ -9,6 +9,7 @@ namespace forgetune {
 
 // Matrix multiplication kernel variants
 enum class MatMulVariant {
+    UNKNOWN = -1,
     NAIVE_IJK,        // Standard naive i, j, k loops
     LOOP_IKJ,         // Alternate cache-friendly loop order (i, k, j)
     TILED,            // 2D tiled matrix multiplication with boundary handling
@@ -18,22 +19,22 @@ enum class MatMulVariant {
 
 inline const char* matmul_variant_to_string(MatMulVariant v) {
     switch (v) {
-        case MatMulVariant::NAIVE_IJK:  return "naive_ijk";
-        case MatMulVariant::LOOP_IKJ:   return "loop_ikj";
-        case MatMulVariant::TILED:      return "tiled";
-        case MatMulVariant::FUSED_IKJ:  return "fused_ikj";
+        case MatMulVariant::NAIVE_IJK:   return "naive_ijk";
+        case MatMulVariant::LOOP_IKJ:    return "loop_ikj";
+        case MatMulVariant::TILED:       return "tiled";
+        case MatMulVariant::FUSED_IKJ:   return "fused_ikj";
         case MatMulVariant::FUSED_TILED: return "fused_tiled";
         default: return "unknown";
     }
 }
 
 inline MatMulVariant string_to_matmul_variant(const std::string& s) {
-    if (s == "naive_ijk")  return MatMulVariant::NAIVE_IJK;
-    if (s == "loop_ikj")   return MatMulVariant::LOOP_IKJ;
-    if (s == "tiled")      return MatMulVariant::TILED;
-    if (s == "fused_ikj")  return MatMulVariant::FUSED_IKJ;
+    if (s == "naive_ijk")   return MatMulVariant::NAIVE_IJK;
+    if (s == "loop_ikj")    return MatMulVariant::LOOP_IKJ;
+    if (s == "tiled")       return MatMulVariant::TILED;
+    if (s == "fused_ikj")   return MatMulVariant::FUSED_IKJ;
     if (s == "fused_tiled") return MatMulVariant::FUSED_TILED;
-    return MatMulVariant::NAIVE_IJK;
+    return MatMulVariant::UNKNOWN;
 }
 
 // Full configuration specification for code generation and autotuning
@@ -48,6 +49,10 @@ struct KernelConfig {
     int64_t max_batch_size = 128;
 
     bool validate(std::string* error_msg = nullptr) const {
+        if (matmul_variant == MatMulVariant::UNKNOWN) {
+            if (error_msg) *error_msg = "Unknown or unsupported matmul variant";
+            return false;
+        }
         if (tile_m <= 0 || tile_n <= 0 || tile_k <= 0) {
             if (error_msg) *error_msg = "Tile dimensions must be strictly positive (> 0)";
             return false;
