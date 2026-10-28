@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <limits>
 
 namespace forgetune {
 
@@ -76,7 +77,14 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
         alloc.death_step = death;
 
         int64_t count = node.output_meta.shape.element_count(max_batch);
-        alloc.size_bytes = align_up(static_cast<size_t>(count) * sizeof(float));
+        if (count < 0 || count > static_cast<int64_t>(std::numeric_limits<size_t>::max() / sizeof(float)) || count > (INT64_MAX / 4)) {
+            throw std::overflow_error("MemoryPlanner: tensor element count exceeds maximum representable memory size");
+        }
+        size_t raw_bytes = static_cast<size_t>(count) * sizeof(float);
+        alloc.size_bytes = align_up(raw_bytes);
+        if (std::numeric_limits<size_t>::max() - plan.naive_size_bytes < alloc.size_bytes) {
+            throw std::overflow_error("MemoryPlanner: naive_size_bytes arithmetic overflow");
+        }
         candidates.push_back(alloc);
         plan.naive_size_bytes += alloc.size_bytes;
     }
@@ -94,6 +102,9 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
             // Check if lifespans overlap
             bool lifespans_overlap = !(alloc.death_step < p.birth_step || p.death_step < alloc.birth_step);
             if (lifespans_overlap) {
+                if (std::numeric_limits<size_t>::max() - p.offset < p.size_bytes) {
+                    throw std::overflow_error("MemoryPlanner: buffer offset arithmetic overflow");
+                }
                 candidate_offsets.push_back(p.offset + p.size_bytes);
             }
         }
@@ -112,8 +123,11 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
             for (const auto& p : placed) {
                 bool lifespans_overlap = !(alloc.death_step < p.birth_step || p.death_step < alloc.birth_step);
                 if (lifespans_overlap) {
-                    // Check interval collision [cand_aligned, cand_aligned + alloc.size_bytes) vs [p.offset, p.offset + p.size_bytes)
                     size_t start1 = cand_aligned;
+                    if (std::numeric_limits<size_t>::max() - cand_aligned < alloc.size_bytes) {
+                        collision = true;
+                        break;
+                    }
                     size_t end1 = cand_aligned + alloc.size_bytes;
                     size_t start2 = p.offset;
                     size_t end2 = p.offset + p.size_bytes;
@@ -136,6 +150,9 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
             best_offset = align_up(plan.arena_size_bytes);
         }
 
+        if (std::numeric_limits<size_t>::max() - best_offset < alloc.size_bytes) {
+            throw std::overflow_error("MemoryPlanner: arena_size_bytes arithmetic overflow");
+        }
         alloc.offset = best_offset;
         placed.push_back(alloc);
         plan.allocations[alloc.node_id] = alloc;

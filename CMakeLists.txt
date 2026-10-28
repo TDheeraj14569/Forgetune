@@ -46,6 +46,20 @@ set_target_properties(forgetune_test_suite PROPERTIES
 
 # Pybind11 extension target (if pybind11 is discovered)
 find_package(pybind11 CONFIG QUIET)
+if(NOT pybind11_FOUND)
+    find_package(Python3 COMPONENTS Interpreter Development QUIET)
+    if(Python3_FOUND)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmake
+            OUTPUT_VARIABLE pybind11_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(pybind11_DIR)
+            find_package(pybind11 CONFIG QUIET PATHS "${pybind11_DIR}")
+        endif()
+    endif()
+endif()
 if(pybind11_FOUND)
     pybind11_add_module(_forgetune_cpp src/bindings.cpp tests/cpp/test_main.cpp)
     target_compile_definitions(_forgetune_cpp PRIVATE FORGETUNE_EXCLUDE_MAIN)

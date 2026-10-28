@@ -41,6 +41,9 @@ public:
 private:
     size_t alignment_;
     size_t align_up(size_t val) const {
+        if (val > (std::numeric_limits<size_t>::max() - (alignment_ - 1))) {
+            throw std::overflow_error("MemoryPlanner::align_up arithmetic overflow");
+        }
         return ((val + alignment_ - 1) / alignment_) * alignment_;
     }
 };

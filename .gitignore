@@ -39,3 +39,9 @@ tuning_cache/
 # OS
 .DS_Store
 Thumbs.db
+*.pdf
+
+# Delivery bundles & local dumps
+forgetune_clean.zip
+forgetune_code.txt
+forgetune_cpp_src.txt

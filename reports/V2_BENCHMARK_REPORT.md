@@ -76,3 +76,18 @@ To rigorously verify Model C performance at batch size $B=64$, 30 independent sa
 3. **Genuine Kernel Optimization Speedup (Column 9):** Measures compiler code-generation and fusion efficacy at identical boundaries: `Baseline C++ Kernel / Selected Implementation Kernel` inside the compiled native shared library. For workloads where the baseline is retained (e.g. Models A and B, where alternative candidates are within the 5% noise window or slower across the dynamic batch range), this ratio is strictly 1.00x.
 4. **E2E - Kernel Residual (Column 10):** Difference between Python caller duration and pure native execution ($t_{e2e} - t_{kernel}$), representing numpy pointer translation, ctypes call overhead, and batch validation. Note on signed residuals: Because $t_{e2e}$ (100 iterations) and $t_{kernel}$ (500 iterations) are measured in separate benchmark sessions, workloads where pure kernel execution dominates latency (e.g., Model C at certain batch sizes) can exhibit small negative residuals (such as -1.90 μs) due to inter-session timer variance, core migration, or CPU frequency scaling; these are reported signed rather than clamped to zero.
 5. ***PyTorch E2E / ForgeTune native-kernel diagnostic ratio (non-equivalent timing boundaries) (Column 11):** Ratio: Numerator = `PyTorch Eager (8 threads) E2E latency` ($t_{PT\_e2e}$); Denominator = `ForgeTune Selected C++ Kernel latency` ($t_{FT\_kernel}$). This is NOT an equivalent-workload speedup because it divides PyTorch Python-level execution by native in-kernel execution. It serves as a diagnostic demonstrating the performance ceiling when framework interpreter overhead is completely eliminated.
+
+---
+
+## 4. Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
+
+To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
+- **PyTorch 1-Thread E2E Median:** $361.98\ \mu\text{s}$
+- **ForgeTune E2E Median:** $343.03\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+23.773\ \mu\text{s}$ paired latency reduction (ForgeTune faster)
+- **Standard Error ($SE$):** $4.289\ \mu\text{s}$ ($df = 99$)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -18.10\ \mu\text{s}$):** $t = 9.762$, exact Student's t $p = 1.81 \times 10^{-16} \ll 0.0001$. Non-inferiority is certified.
+- **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-18.10, +18.10]\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+16.65, +30.89]\ \mu\text{s}$), placing the upper confidence bound above $+18.10\ \mu\text{s}$ (upper-bound left-tail $p_2 \approx 0.905 > 0.05$). The test fails due to performance superiority, not high variance or performance inferiority.
+- **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
+  - Mean Difference: $[+17.03\ \mu\text{s},\; +30.91\ \mu\text{s}]$
+  - Median Difference: $[+14.15\ \mu\text{s},\; +21.70\ \mu\text{s}]$

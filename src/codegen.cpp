@@ -422,7 +422,13 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         oss << "    constexpr int64_t H_pad = H_in + 2 * ph;\n"
             << "    constexpr int64_t W_pad = W_in + 2 * pw;\n"
             << "    constexpr int64_t in_row_stride = W_pad;\n"
-            << "    std::vector<float> pad_buf_vec(C_in * H_pad * W_pad, 0.0f);\n"
+            << "    static thread_local std::vector<float> pad_buf_vec;\n"
+            << "    size_t pad_elems = static_cast<size_t>(C_in * H_pad * W_pad);\n"
+            << "    if (pad_buf_vec.size() < pad_elems) {\n"
+            << "        pad_buf_vec.assign(pad_elems, 0.0f);\n"
+            << "    } else {\n"
+            << "        std::memset(pad_buf_vec.data(), 0, pad_elems * sizeof(float));\n"
+            << "    }\n"
             << "    float* pad_buf = pad_buf_vec.data();\n\n";
     } else {
         oss << "    constexpr int64_t in_row_stride = W_in;\n\n";
@@ -456,9 +462,12 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         << "            float* out2 = out_b + (co + 2) * out_co_stride;\n"
         << "            float* out3 = out_b + (co + 3) * out_co_stride;\n\n"
         << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
-        << "                float s0[W_out], s1[W_out], s2[W_out], s3[W_out];\n"
+        << "                float* r0 = out0 + ho * W_out;\n"
+        << "                float* r1 = out1 + ho * W_out;\n"
+        << "                float* r2 = out2 + ho * W_out;\n"
+        << "                float* r3 = out3 + ho * W_out;\n"
         << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-        << "                    s0[wo] = b0; s1[wo] = b1; s2[wo] = b2; s3[wo] = b3;\n"
+        << "                    r0[wo] = b0; r1[wo] = b1; r2[wo] = b2; r3[wo] = b3;\n"
         << "                }\n"
         << "                int64_t h_base = ho * sh;\n\n"
         << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
@@ -487,40 +496,31 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         << "                            const float* in_ptr = in_row + kw * dw;\n\n"
         << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
         << "                                float in_val = in_ptr[wo * sw];\n"
-        << "                                s0[wo] += in_val * v0;\n"
-        << "                                s1[wo] += in_val * v1;\n"
-        << "                                s2[wo] += in_val * v2;\n"
-        << "                                s3[wo] += in_val * v3;\n"
+        << "                                r0[wo] += in_val * v0;\n"
+        << "                                r1[wo] += in_val * v1;\n"
+        << "                                r2[wo] += in_val * v2;\n"
+        << "                                r3[wo] += in_val * v3;\n"
         << "                            }\n"
         << "                        }\n"
         << "                    }\n"
-        << "                }\n"
-        << "                float* r0 = out0 + ho * W_out;\n"
-        << "                float* r1 = out1 + ho * W_out;\n"
-        << "                float* r2 = out2 + ho * W_out;\n"
-        << "                float* r3 = out3 + ho * W_out;\n"
-        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n";
+        << "                }\n";
     if (fused_relu) {
-        oss << "                    r0[wo] = (s0[wo] > 0.0f) ? s0[wo] : 0.0f;\n"
-            << "                    r1[wo] = (s1[wo] > 0.0f) ? s1[wo] : 0.0f;\n"
-            << "                    r2[wo] = (s2[wo] > 0.0f) ? s2[wo] : 0.0f;\n"
-            << "                    r3[wo] = (s3[wo] > 0.0f) ? s3[wo] : 0.0f;\n";
-    } else {
-        oss << "                    r0[wo] = s0[wo];\n"
-            << "                    r1[wo] = s1[wo];\n"
-            << "                    r2[wo] = s2[wo];\n"
-            << "                    r3[wo] = s3[wo];\n";
+        oss << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+            << "                    r0[wo] = (r0[wo] > 0.0f) ? r0[wo] : 0.0f;\n"
+            << "                    r1[wo] = (r1[wo] > 0.0f) ? r1[wo] : 0.0f;\n"
+            << "                    r2[wo] = (r2[wo] > 0.0f) ? r2[wo] : 0.0f;\n"
+            << "                    r3[wo] = (r3[wo] > 0.0f) ? r3[wo] : 0.0f;\n"
+            << "                }\n";
     }
-    oss << "                }\n"
-        << "            }\n"
+    oss << "            }\n"
         << "        }\n\n"
         << "        for (int64_t co = (C_out / 4) * 4; co < C_out; ++co) {\n"
         << "            float b_val = (bias != nullptr) ? bias[co] : 0.0f;\n"
         << "            const float* w_co = W + co * w_co_stride;\n"
         << "            float* out_co = out_b + co * out_co_stride;\n"
         << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
-        << "                float s[W_out];\n"
-        << "                for (int64_t wo = 0; wo < W_out; ++wo) s[wo] = b_val;\n"
+        << "                float* out_row = out_co + ho * W_out;\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) out_row[wo] = b_val;\n"
         << "                int64_t h_base = ho * sh;\n\n"
         << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
 
@@ -538,20 +538,17 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         << "                            float w_val = w_row[kw];\n"
         << "                            const float* in_ptr = in_row + kw * dw;\n"
         << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-        << "                                s[wo] += in_ptr[wo * sw] * w_val;\n"
+        << "                                out_row[wo] += in_ptr[wo * sw] * w_val;\n"
         << "                            }\n"
         << "                        }\n"
         << "                    }\n"
-        << "                }\n"
-        << "                float* out_row = out_co + ho * W_out;\n"
-        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n";
+        << "                }\n";
     if (fused_relu) {
-        oss << "                    out_row[wo] = (s[wo] > 0.0f) ? s[wo] : 0.0f;\n";
-    } else {
-        oss << "                    out_row[wo] = s[wo];\n";
+        oss << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+            << "                    out_row[wo] = (out_row[wo] > 0.0f) ? out_row[wo] : 0.0f;\n"
+            << "                }\n";
     }
-    oss << "                }\n"
-        << "            }\n"
+    oss << "            }\n"
         << "        }\n"
         << "    }\n"
         << "}\n\n";
@@ -630,9 +627,11 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
 
     int64_t total_output_elements = 0;
     int64_t static_output_elements = 0;
+    bool output_is_dynamic = false;
     for (NodeId out_id : outputs) {
         const auto& s = graph.get_node(out_id).output_meta.shape;
         if (s.has_dynamic_batch()) {
+            output_is_dynamic = true;
             static_output_elements += s.static_element_count();
         } else {
             total_output_elements += s.element_count();
@@ -667,8 +666,12 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "        batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
             << "    }\n"
             << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2;\n"
-            << "    if (input_count != static_cast<size_t>(batch_size * " << static_input_elements << ")) return -2; // Input size mismatch\n"
-            << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3; // Output size mismatch\n\n";
+            << "    if (input_count != static_cast<size_t>(batch_size * " << static_input_elements << ")) return -2; // Input size mismatch\n";
+        if (output_is_dynamic) {
+            oss << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3; // Output size mismatch\n\n";
+        } else {
+            oss << "    if (output_count != " << total_output_elements << ") return -3; // Output size mismatch\n\n";
+        }
     } else {
         oss << "extern \"C\" FORGETUNE_EXPORT int forgetune_run(\n"
             << "    const float* input,\n"
@@ -683,15 +686,17 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    const int64_t batch_size = " << static_batch << ";\n\n";
     }
 
+    oss << "    try {\n";
+
     // Intermediate tensor arena with 64-byte alignment and re-entrant leasing (planned savings: 
-    oss << "    // Intermediate tensor arena with 64-byte alignment and re-entrant leasing (planned savings: "
+    oss << "        // Intermediate tensor arena with 64-byte alignment and re-entrant leasing (planned savings: "
         << std::fixed << std::setprecision(1) << plan.savings_percent << "%)\n"
-        << "    AlignedArenaPool::Lease arena_lease = g_thread_arena_pool.acquire("
+        << "        AlignedArenaPool::Lease arena_lease = g_thread_arena_pool.acquire("
         << plan.arena_size_bytes << ");\n"
-        << "    float* arena = arena_lease.ptr;\n"
-        << "    if (!arena && " << plan.arena_size_bytes << " > 0) return -4; // Arena allocation failed\n"
+        << "        float* arena = arena_lease.ptr;\n"
+        << "        if (!arena && " << plan.arena_size_bytes << " > 0) return -4; // Arena allocation failed\n"
         << "#ifndef NDEBUG\n"
-        << "    if (arena) assert(reinterpret_cast<uintptr_t>(arena) % 64 == 0);\n"
+        << "        if (arena) assert(reinterpret_cast<uintptr_t>(arena) % 64 == 0);\n"
         << "#endif\n\n";
 
     auto topo = graph.topological_order();
@@ -919,7 +924,10 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
         }
     }
 
-    oss << "    return 0; // Success\n"
+    oss << "        return 0; // Success\n"
+        << "    } catch (...) {\n"
+        << "        return -4; // Internal exception or allocation failure\n"
+        << "    }\n"
         << "}\n\n";
 
     if (is_dynamic) {
@@ -977,16 +985,22 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
     if (is_dynamic) {
         oss << "    if (" << static_input_elements << " == 0 || input_count == 0 || input_count % " << static_input_elements << " != 0) return -2.0;\n"
             << "    int64_t batch_size = static_cast<int64_t>(input_count / " << static_input_elements << ");\n"
-            << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2.0;\n"
-            << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3.0;\n\n"
-            << "    // Warm-up\n"
+            << "    if (batch_size <= 0 || batch_size > " << max_batch << ") return -2.0;\n";
+        if (output_is_dynamic) {
+            oss << "    if (output_count != static_cast<size_t>(batch_size * " << static_output_elements << ")) return -3.0;\n\n";
+        } else {
+            oss << "    if (output_count != " << total_output_elements << ") return -3.0;\n\n";
+        }
+        oss << "    // Warm-up\n"
             << "    for (int w = 0; w < 10; ++w) {\n"
-            << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "        int status = forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "        if (status != 0) return static_cast<double>(status);\n"
             << "    }\n\n"
             << "    volatile float checksum = 0.0f;\n"
             << "    auto start = std::chrono::steady_clock::now();\n"
             << "    for (int i = 0; i < iters; ++i) {\n"
-            << "        forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "        int status = forgetune_run(input, input_count, output, output_count, batch_size);\n"
+            << "        if (status != 0) return static_cast<double>(status);\n"
             << "#if defined(__GNUC__) || defined(__clang__)\n"
             << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
             << "#else\n"
@@ -1003,12 +1017,14 @@ void CodeGenerator::emit_entry_point(std::ostringstream& oss, const IRGraph& gra
             << "    if (output_count != " << total_output_elements << ") return -3.0;\n\n"
             << "    // Warm-up\n"
             << "    for (int w = 0; w < 10; ++w) {\n"
-            << "        forgetune_run(input, input_count, output, output_count);\n"
+            << "        int status = forgetune_run(input, input_count, output, output_count);\n"
+            << "        if (status != 0) return static_cast<double>(status);\n"
             << "    }\n\n"
             << "    volatile float checksum = 0.0f;\n"
             << "    auto start = std::chrono::steady_clock::now();\n"
             << "    for (int i = 0; i < iters; ++i) {\n"
-            << "        forgetune_run(input, input_count, output, output_count);\n"
+            << "        int status = forgetune_run(input, input_count, output, output_count);\n"
+            << "        if (status != 0) return static_cast<double>(status);\n"
             << "#if defined(__GNUC__) || defined(__clang__)\n"
             << "        __asm__ __volatile__(\"\" : \"+m\"(*(float*)output) : : \"memory\");\n"
             << "#else\n"

@@ -91,9 +91,20 @@ class NativeRuntime:
         else:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 
-        if self.is_dynamic:
+        self.is_output_dynamic = (len(self.expected_output_shape) > 0 and self.expected_output_shape[0] == -1)
+        if self.is_output_dynamic:
             self._output_shape_tail = tuple(self.expected_output_shape[1:])
-            self.run_dynamic_fn = self.lib.forgetune_run
+        else:
+            self._output_shape_tail = self.expected_output_shape
+
+        if self.is_dynamic:
+            if hasattr(self.lib, "forgetune_run_v2"):
+                self.run_dynamic_fn = self.lib.forgetune_run_v2
+            elif hasattr(self.lib, "forgetune_run"):
+                self.run_dynamic_fn = self.lib.forgetune_run
+            else:
+                raise RuntimeError(f"Missing dynamic entry point in {self.original_dll_path}")
+
             self.run_dynamic_fn.argtypes = [
                 ctypes.c_void_p,
                 ctypes.c_size_t,
@@ -121,7 +132,13 @@ class NativeRuntime:
                 ]
                 self.run_v1_fn.restype = ctypes.c_int
         else:
-            self.run_static_fn = self.lib.forgetune_run
+            if hasattr(self.lib, "forgetune_run_v1"):
+                self.run_static_fn = self.lib.forgetune_run_v1
+            elif hasattr(self.lib, "forgetune_run"):
+                self.run_static_fn = self.lib.forgetune_run
+            else:
+                raise RuntimeError(f"Missing static entry point in {self.original_dll_path}")
+
             self.run_static_fn.argtypes = [
                 ctypes.c_void_p,
                 ctypes.c_size_t,
@@ -194,7 +211,10 @@ class NativeRuntime:
             if input_tensor.dtype != np.float32 or not input_tensor.flags["C_CONTIGUOUS"]:
                 input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
 
-            output_shape = (actual_batch, *self._output_shape_tail)
+            if self.is_output_dynamic:
+                output_shape = (actual_batch, *self._output_shape_tail)
+            else:
+                output_shape = self.expected_output_shape
             output_tensor = np.empty(output_shape, dtype=np.float32)
 
             status = self.run_dynamic_fn(
@@ -274,7 +294,10 @@ class NativeRuntime:
                 raise InvalidShapeError(
                     f"Dynamic batch size {actual_batch} out of valid range [1, {self.max_batch_size}]"
                 )
-            output_shape = (actual_batch, *self._output_shape_tail)
+            if self.is_output_dynamic:
+                output_shape = (actual_batch, *self._output_shape_tail)
+            else:
+                output_shape = self.expected_output_shape
         else:
             if tuple(input_tensor.shape) != self.expected_input_shape:
                 raise InvalidShapeError(
@@ -300,44 +323,46 @@ class NativeRuntime:
 
     def get_arena_alloc_count(self) -> int:
         """Returns total native heap allocations (payload + block insertions) performed by arena pool."""
-        if hasattr(self.lib, "forgetune_get_arena_alloc_count"):
-            fn = getattr(self.lib, "forgetune_get_arena_alloc_count")
-            fn.restype = ctypes.c_size_t
-            fn.argtypes = []
-            return int(fn())
-        return 0
+        if not hasattr(self.lib, "forgetune_get_arena_alloc_count"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_alloc_count'")
+        fn = getattr(self.lib, "forgetune_get_arena_alloc_count")
+        fn.restype = ctypes.c_size_t
+        fn.argtypes = []
+        return int(fn())
 
     def get_arena_payload_alloc_count(self) -> int:
         """Returns total payload buffer allocations performed by arena pool."""
-        if hasattr(self.lib, "forgetune_get_arena_payload_alloc_count"):
-            fn = getattr(self.lib, "forgetune_get_arena_payload_alloc_count")
-            fn.restype = ctypes.c_size_t
-            fn.argtypes = []
-            return int(fn())
-        return 0
+        if not hasattr(self.lib, "forgetune_get_arena_payload_alloc_count"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_payload_alloc_count'")
+        fn = getattr(self.lib, "forgetune_get_arena_payload_alloc_count")
+        fn.restype = ctypes.c_size_t
+        fn.argtypes = []
+        return int(fn())
 
     def get_arena_block_insertion_count(self) -> int:
         """Returns total block container growth insertions performed by arena pool."""
-        if hasattr(self.lib, "forgetune_get_arena_block_insertion_count"):
-            fn = getattr(self.lib, "forgetune_get_arena_block_insertion_count")
-            fn.restype = ctypes.c_size_t
-            fn.argtypes = []
-            return int(fn())
-        return 0
+        if not hasattr(self.lib, "forgetune_get_arena_block_insertion_count"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_block_insertion_count'")
+        fn = getattr(self.lib, "forgetune_get_arena_block_insertion_count")
+        fn.restype = ctypes.c_size_t
+        fn.argtypes = []
+        return int(fn())
 
     def reset_arena_alloc_count(self) -> None:
         """Resets the thread-local arena allocation counters to zero."""
-        if hasattr(self.lib, "forgetune_reset_arena_alloc_count"):
-            fn = getattr(self.lib, "forgetune_reset_arena_alloc_count")
-            fn.restype = None
-            fn.argtypes = []
-            fn()
+        if not hasattr(self.lib, "forgetune_reset_arena_alloc_count"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_reset_arena_alloc_count'")
+        fn = getattr(self.lib, "forgetune_reset_arena_alloc_count")
+        fn.restype = None
+        fn.argtypes = []
+        fn()
 
     def inject_test_arena_alloc(self) -> None:
         """Forces an allocation in the thread-local arena pool for regression testing."""
-        if hasattr(self.lib, "forgetune_test_inject_arena_alloc"):
-            fn = getattr(self.lib, "forgetune_test_inject_arena_alloc")
-            fn.restype = None
-            fn.argtypes = []
-            fn()
+        if not hasattr(self.lib, "forgetune_test_inject_arena_alloc"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_test_inject_arena_alloc'")
+        fn = getattr(self.lib, "forgetune_test_inject_arena_alloc")
+        fn.restype = None
+        fn.argtypes = []
+        fn()
 

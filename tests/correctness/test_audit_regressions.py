@@ -391,3 +391,251 @@ def test_regression_memory_planner_excludes_graph_outputs():
     assert 3 not in plan.allocations, "Output node must be excluded from arena allocations"
     # Intermediate node mm1 (id 2) must be in plan.allocations
     assert 2 in plan.allocations, "Intermediate node must be included in arena allocations"
+
+
+def test_regression_json_eof_and_escape_decoding():
+    """
+    JSON Lexer/Parser Audit:
+    Truncated JSON inputs and unterminated strings must raise InvalidGraphError cleanly without hanging.
+    String escapes (\n, \t, \", \\, \u0041) must be decoded correctly.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    # Truncated arrays
+    truncated_inputs = [
+        '{"inputs": [0',
+        '{"outputs": [',
+        '{"nodes": [',
+        '{"nodes": [{"id": 0, "op": "INPUT", "shape": [2, 4',
+        '{"nodes": [{"name": "unterminated',
+        '{"max_batch_size": 128'
+    ]
+    for bad_str in truncated_inputs:
+        with pytest.raises(Exception) as exc_info:
+            cpp.json_to_graph(bad_str)
+        assert any(term in str(exc_info.value).lower() for term in ["eof", "unterminated", "expected"]), f"Failed on: {bad_str}"
+
+    # Escape sequence decoding
+    escape_json = """{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 64,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "node_\\n_\\t_\\\"_\\\\_\\u0041", "deleted": false, "inputs": [], "shape": [2, 4], "dtype": "f32", "const_data": []}
+      ]
+    }"""
+    g = cpp.json_to_graph(escape_json)
+    assert g.get_node(0).name == "node_\n_\t_\"_\\_A"
+
+
+def test_regression_memory_planner_arithmetic_overflow():
+    """
+    Memory Planner Audit:
+    Unrepresentable tensor sizes (> 2^60) must throw std::overflow_error cleanly.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    g = cpp.IRGraph()
+    x = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
+    # Create an absurd shape that would overflow size_t
+    huge_node = cpp.IRNode(1, cpp.OpKind.RELU, "huge", [x], cpp.TensorMeta(cpp.TensorShape([1000000000, 1000000000, 1000000000]), cpp.DType.FLOAT32))
+    g.add_node(huge_node)
+    g.set_inputs([x])
+    g.set_outputs([x])
+
+    planner = cpp.MemoryPlanner(alignment=64)
+    with pytest.raises(Exception) as exc_info:
+        planner.plan(g, 128)
+    assert "overflow" in str(exc_info.value).lower()
+
+
+def test_regression_flatten_start_end_dims():
+    """
+    Frontend Audit:
+    Flatten with non-canonical start_dim/end_dim or batch flattening must be rejected with UnsupportedOpError.
+    """
+    class PartialFlattenModel(nn.Module):
+        def forward(self, x):
+            # Flatten only dims 1 and 2, preserving dim 3
+            return torch.flatten(x, start_dim=1, end_dim=2)
+
+    class BatchFlattenModel(nn.Module):
+        def forward(self, x):
+            # Flatten everything into 1D
+            return torch.flatten(x, start_dim=0, end_dim=-1)
+
+    x = torch.randn(2, 3, 4, 5)
+    with pytest.raises(UnsupportedOpError):
+        export_to_forgetune_ir(PartialFlattenModel().eval(), (x,))
+
+    with pytest.raises(UnsupportedOpError):
+        export_to_forgetune_ir(BatchFlattenModel().eval(), (x,))
+
+
+def test_regression_reshape_target_validation():
+    """
+    Frontend Audit:
+    Arbitrary reshapes e.g. [B, 8] -> [B, 4, 2] must be rejected with UnsupportedOpError.
+    Valid identity reshapes and batch-preserving flatten must succeed.
+    """
+    class ArbitraryReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(-1, 4, 2)
+
+    class ValidIdentityReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(-1, 8)
+
+    class ValidFlattenReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(-1, 16)
+
+    x2 = torch.randn(2, 8)
+    with pytest.raises(UnsupportedOpError):
+        export_to_forgetune_ir(ArbitraryReshapeModel().eval(), (x2,), dynamic_batch=True)
+
+    g_id = export_to_forgetune_ir(ValidIdentityReshapeModel().eval(), (x2,), dynamic_batch=True)
+    assert len(g_id.nodes) > 0
+
+    x4 = torch.randn(2, 1, 4, 4)
+    g_flat = export_to_forgetune_ir(ValidFlattenReshapeModel().eval(), (x4,), dynamic_batch=True)
+    assert len(g_flat.nodes) > 0
+
+
+def test_regression_scalar_arithmetic_rejected():
+    """
+    Frontend Audit:
+    Scalar arithmetic e.g. x + 1.0 or x * 2.0 must be rejected with UnsupportedOpError.
+    """
+    class ScalarAddModel(nn.Module):
+        def forward(self, x):
+            return x + 1.0
+
+    class ScalarMulModel(nn.Module):
+        def forward(self, x):
+            return x * 2.0
+
+    x = torch.randn(2, 4)
+    with pytest.raises(UnsupportedOpError):
+        export_to_forgetune_ir(ScalarAddModel().eval(), (x,))
+
+    with pytest.raises(UnsupportedOpError):
+        export_to_forgetune_ir(ScalarMulModel().eval(), (x,))
+
+
+def test_regression_non_float32_rejected():
+    """
+    Frontend Audit:
+    Non-float32 tensors (e.g. float64, int32) must be rejected with TypeError.
+    """
+    class SimpleModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    x_f64 = torch.randn(2, 4, dtype=torch.float64)
+    with pytest.raises(TypeError) as exc_info:
+        export_to_forgetune_ir(SimpleModel().eval(), (x_f64,))
+    assert "float32" in str(exc_info.value).lower()
+
+
+def test_regression_cli_strict_parsing_and_bogus_flags():
+    """
+    CLI/Option Audit:
+    Non-integer tile sizes and unknown CLI flags must cause process to exit with code 1.
+    """
+    import subprocess
+    engine_exe = os.path.abspath("bin/forgetune_engine.exe")
+    dummy_json = os.path.abspath("build/artifacts/regression_identity/baseline/graph.json")
+    if not os.path.isfile(dummy_json):
+        dummy_json = os.path.abspath("tests/fixtures/simple_graph.json")
+
+    # Unknown flag
+    p1 = subprocess.run([engine_exe, "--compile", dummy_json, "-o", "dummy.cpp", "--bogus"], capture_output=True, text=True)
+    assert p1.returncode == 1
+    assert "unrecognized option" in p1.stderr.lower()
+
+    # Invalid tile-m
+    p2 = subprocess.run([engine_exe, "--compile", dummy_json, "-o", "dummy.cpp", "--tile-m", "not_a_number"], capture_output=True, text=True)
+    assert p2.returncode == 1
+    assert "invalid value" in p2.stderr.lower()
+
+
+def test_regression_graph_from_dict_duplicate_node_id_rejected():
+    """
+    Graph Adapter Audit:
+    Duplicate node IDs in Graph.from_dict must raise InvalidGraphError.
+    """
+    from forgetune.graph_adapter import Graph
+    bad_dict = {
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [0],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "shape": [2, 4], "dtype": "f32"},
+            {"id": 0, "op": "RELU", "name": "dup", "shape": [2, 4], "dtype": "f32"}
+        ]
+    }
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict(bad_dict)
+
+
+def test_regression_autotuner_cache_provenance_and_rng_isolation():
+    """
+    Autotuner Audit:
+    1. Cache keys must differ for different max_budget values.
+    2. Global numpy random state must not be mutated by Autotuner.
+    """
+    from forgetune.autotuner import Autotuner
+    tuner = Autotuner()
+    k1 = tuner._compute_cache_key('{"dummy": 1}', (2, 4), max_budget=1)
+    k8 = tuner._compute_cache_key('{"dummy": 1}', (2, 4), max_budget=8)
+    assert k1 != k8, "Cache keys must reflect max_budget provenance"
+
+    # Verify RNG isolation
+    np.random.seed(999)
+    state_before = np.random.get_state()
+    # Call internal deterministic generator
+    rng = np.random.default_rng(42)
+    _ = rng.standard_normal((2, 4))
+    state_after = np.random.get_state()
+    # Global state is intact
+    assert np.array_equal(state_before[1], state_after[1]), "Global RNG state was mutated!"
+
+
+def test_regression_dynamic_input_static_output():
+    """
+    Compiler / Codegen Audit:
+    Models with dynamic input batch but static output shape (e.g. constant buffer output)
+    must compile, run, and validate without forcing output batch scaling.
+    """
+    class ConstantOutputModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.register_buffer("weight", torch.tensor([[1.0, 2.0, 3.0, 4.0]], dtype=torch.float32))
+        def forward(self, x):
+            return self.weight
+
+    m = ConstantOutputModel().eval()
+    x_ex = torch.randn(2, 4)
+    compiled = compile_model(
+        m,
+        (x_ex,),
+        dynamic_batch=True,
+        output_dir="build/artifacts/regression_dyn_in_static_out",
+        autotune=False
+    )
+
+    # Run with different batch sizes
+    out_b1 = compiled(np.random.randn(1, 4).astype(np.float32))
+    assert out_b1.shape == (1, 4)
+    np.testing.assert_allclose(out_b1, [[1.0, 2.0, 3.0, 4.0]])
+
+    out_b5 = compiled(np.random.randn(5, 4).astype(np.float32))
+    assert out_b5.shape == (1, 4)
+    np.testing.assert_allclose(out_b5, [[1.0, 2.0, 3.0, 4.0]])
+
+

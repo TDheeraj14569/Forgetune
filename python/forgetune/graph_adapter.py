@@ -1,6 +1,6 @@
 """
 Graph Adapter and Python IR representation.
-Mirrors the C++ ForgeTune IR schema 1.0, and includes a Python reference interpreter.
+Mirrors the C++ ForgeTune IR schema 2.0, and includes a Python reference interpreter.
 """
 
 import json
@@ -139,14 +139,19 @@ class Graph:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Graph":
+        schema_major = d.get("schema_version_major", 2)
+        if schema_major not in (1, 2):
+            raise InvalidGraphError(f"Unsupported schema_version_major: {schema_major} (supported: 1 or 2)")
         g = cls()
-        g.max_batch_size = d.get("max_batch_size", 128)
+        max_batch = d.get("max_batch_size", 128)
+        if not isinstance(max_batch, int) or max_batch <= 0:
+            raise InvalidGraphError(f"max_batch_size must be a positive integer, got {max_batch}")
+        g.max_batch_size = max_batch
         g.set_inputs(d.get("inputs", []))
         g.set_outputs(d.get("outputs", []))
         for nd in d.get("nodes", []):
             node = Node.from_dict(nd)
-            g.nodes[node.id] = node
-            g._next_id = max(g._next_id, node.id + 1)
+            g.add_node(node)
         return g
 
     @classmethod
@@ -166,9 +171,9 @@ class Graph:
             arr = np.asarray(feed_dict[in_id], dtype=np.float32)
             expected_shape = list(self.nodes[in_id].shape)
             if len(expected_shape) > 0 and expected_shape[0] == -1:
-                if arr.ndim != len(expected_shape) or arr.shape[0] <= 0 or list(arr.shape[1:]) != expected_shape[1:]:
+                if arr.ndim != len(expected_shape) or arr.shape[0] <= 0 or arr.shape[0] > self.max_batch_size or list(arr.shape[1:]) != expected_shape[1:]:
                     raise InvalidShapeError(
-                        f"Input {in_id} shape mismatch: expected {expected_shape} with positive batch, got {arr.shape}"
+                        f"Input {in_id} shape mismatch: expected {expected_shape} with batch in [1, {self.max_batch_size}], got {arr.shape}"
                     )
             elif list(arr.shape) != expected_shape:
                 raise InvalidShapeError(

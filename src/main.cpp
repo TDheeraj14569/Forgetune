@@ -23,6 +23,19 @@ static void write_file(const std::string& path, const std::string& content) {
     ofs << content;
 }
 
+static bool parse_strict_positive_int(const std::string& str, int* out) {
+    if (str.empty()) return false;
+    size_t idx = 0;
+    try {
+        int v = std::stoi(str, &idx);
+        if (idx != str.size() || v <= 0) return false;
+        *out = v;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "Usage: forgetune_engine <command> [options]\n"
@@ -80,11 +93,26 @@ int main(int argc, char** argv) {
                 } else if (arg == "--candidate-id" && i + 1 < argc) {
                     config.candidate_id = argv[++i];
                 } else if (arg == "--tile-m" && i + 1 < argc) {
-                    try { config.tile_m = std::stoi(argv[++i]); } catch (...) { config.tile_m = 16; }
+                    std::string val_str = argv[++i];
+                    if (!parse_strict_positive_int(val_str, &config.tile_m)) {
+                        std::cerr << "Error: invalid value for --tile-m: '" << val_str << "' (expected positive integer)\n";
+                        return 1;
+                    }
                 } else if (arg == "--tile-n" && i + 1 < argc) {
-                    try { config.tile_n = std::stoi(argv[++i]); } catch (...) { config.tile_n = 16; }
+                    std::string val_str = argv[++i];
+                    if (!parse_strict_positive_int(val_str, &config.tile_n)) {
+                        std::cerr << "Error: invalid value for --tile-n: '" << val_str << "' (expected positive integer)\n";
+                        return 1;
+                    }
                 } else if (arg == "--tile-k" && i + 1 < argc) {
-                    try { config.tile_k = std::stoi(argv[++i]); } catch (...) { config.tile_k = 16; }
+                    std::string val_str = argv[++i];
+                    if (!parse_strict_positive_int(val_str, &config.tile_k)) {
+                        std::cerr << "Error: invalid value for --tile-k: '" << val_str << "' (expected positive integer)\n";
+                        return 1;
+                    }
+                } else {
+                    std::cerr << "Error: unrecognized option: '" << arg << "'\n";
+                    return 1;
                 }
             }
 
@@ -131,6 +159,9 @@ int main(int argc, char** argv) {
                     output_json = argv[++i];
                 } else if (arg == "--fusion") {
                     enable_fusion = true;
+                } else {
+                    std::cerr << "Error: unrecognized option: '" << arg << "'\n";
+                    return 1;
                 }
             }
 

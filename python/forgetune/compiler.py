@@ -33,7 +33,9 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
             "fused_ikj": cpp.MatMulVariant.FUSED_IKJ,
             "fused_tiled": cpp.MatMulVariant.FUSED_TILED
         }
-        cfg.matmul_variant = variant_map.get(candidate.variant, cpp.MatMulVariant.NAIVE_IJK)
+        if candidate.variant not in variant_map:
+            raise ValueError(f"Unknown kernel variant: '{candidate.variant}'. Valid variants: {sorted(list(variant_map.keys()))}")
+        cfg.matmul_variant = variant_map[candidate.variant]
         cfg.enable_fusion = bool(candidate.enable_fusion)
         if candidate.tile_m is not None:
             cfg.tile_m = int(candidate.tile_m)
@@ -232,7 +234,10 @@ def compile_model(
             native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=selected_cand.opt_level)
     else:
         # Explicit or baseline compilation
+        VALID_VARIANTS = {"naive_ijk", "loop_ikj", "tiled", "fused_ikj", "fused_tiled"}
         variant = kernel_variant or "naive_ijk"
+        if variant not in VALID_VARIANTS:
+            raise ValueError(f"Unknown kernel variant: '{variant}'. Valid variants: {sorted(list(VALID_VARIANTS))}")
         cand_id = "baseline" if (variant == "naive_ijk" and not enable_fusion) else variant
         tile_m = tile_sizes[0] if tile_sizes else None
         tile_n = tile_sizes[1] if tile_sizes else None
@@ -259,7 +264,9 @@ def compile_model(
     # Load runtime
     if dynamic_batch or ir_graph.has_dynamic_batch():
         in_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ex_np.shape))
-        out_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ref_np.shape))
+        out_node = ir_graph.nodes[ir_graph.outputs[0]]
+        out_is_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
+        out_shape = tuple(-1 if (out_is_dyn and i == 0) else s for i, s in enumerate(ref_np.shape))
     else:
         in_shape = tuple(ex_np.shape)
         out_shape = tuple(ref_np.shape)

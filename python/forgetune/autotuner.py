@@ -93,11 +93,13 @@ class Autotuner:
         ]
         return candidates[:max_budget]
 
-    def _compute_cache_key(self, graph_json: str, input_shape: Tuple[int, ...]) -> str:
+    def _compute_cache_key(self, graph_json: str, input_shape: Tuple[int, ...], max_budget: int = 8) -> str:
         h = hashlib.sha256()
         h.update(b"forgetune_v5_defensible_provenance_2.0_")
         h.update(graph_json.encode("utf-8"))
         h.update(str(input_shape).encode("utf-8"))
+        h.update(str(max_budget).encode("utf-8"))
+        h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
         compiler_info = self.compiler.get_compiler_info()
         h.update(str(compiler_info.get("type", "")).encode("utf-8"))
         h.update(str(compiler_info.get("version", "")).encode("utf-8"))
@@ -234,7 +236,7 @@ class Autotuner:
         input_shape = tuple(example_input.shape)
         output_shape = tuple(reference_output.shape)
 
-        cache_key = self._compute_cache_key(graph_json, input_shape)
+        cache_key = self._compute_cache_key(graph_json, input_shape, max_budget=max_budget)
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
         if use_cache and os.path.isfile(cache_file):
@@ -253,14 +255,14 @@ class Autotuner:
         best_candidate = None
         best_latency = float("inf")
 
-        # Create validation test inputs (zeros, negative values, varied scales)
-        np.random.seed(42)
+        # Create validation test inputs (zeros, negative values, varied scales) using local deterministic RNG
+        rng = np.random.default_rng(42)
         test_inputs = [
             example_input,
             np.zeros(input_shape, dtype=np.float32),
             -np.abs(example_input),
-            np.random.randn(*input_shape).astype(np.float32),
-            np.random.uniform(-5.0, 5.0, size=input_shape).astype(np.float32),
+            rng.standard_normal(input_shape).astype(np.float32),
+            rng.uniform(-5.0, 5.0, size=input_shape).astype(np.float32),
         ]
 
         # Ground truth outputs from reference interpreter for all test inputs
@@ -268,6 +270,11 @@ class Autotuner:
         for tin in test_inputs:
             ref_dict = graph.evaluate({graph.inputs[0]: tin})
             test_ground_truths.append(ref_dict[graph.outputs[0]])
+
+        # Strict differential check: Verify interpreter ground truth matches PyTorch reference output on example_input
+        if not np.allclose(test_ground_truths[0], reference_output, atol=self.atol, rtol=self.rtol):
+            diff = float(np.max(np.abs(test_ground_truths[0] - reference_output)))
+            raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch reference output: max_abs={diff}")
 
         bin_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin"))
         engine_exe = os.path.join(bin_dir, "forgetune_test_engine.exe")
@@ -307,7 +314,9 @@ class Autotuner:
                     "fused_ikj": cpp.MatMulVariant.FUSED_IKJ,
                     "fused_tiled": cpp.MatMulVariant.FUSED_TILED
                 }
-                cfg.matmul_variant = variant_map.get(cand.variant, cpp.MatMulVariant.NAIVE_IJK)
+                if cand.variant not in variant_map:
+                    raise ValueError(f"Unknown candidate variant: {cand.variant}")
+                cfg.matmul_variant = variant_map[cand.variant]
                 cfg.enable_fusion = bool(cand.enable_fusion)
                 if cand.tile_m is not None:
                     cfg.tile_m = int(cand.tile_m)
@@ -372,18 +381,23 @@ class Autotuner:
             try:
                 is_dyn = graph.has_dynamic_batch()
                 rt_in_shape = tuple(-1 if (is_dyn and i == 0) else s for i, s in enumerate(input_shape))
-                rt_out_shape = tuple(-1 if (is_dyn and i == 0) else s for i, s in enumerate(output_shape))
+                out_node = graph.nodes[graph.outputs[0]]
+                out_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
+                rt_out_shape = tuple(-1 if (out_dyn and i == 0) else s for i, s in enumerate(output_shape))
                 runtime = NativeRuntime(cand_dll, rt_in_shape, rt_out_shape)
-                for tin, expected in zip(test_inputs, test_ground_truths):
+                for idx, (tin, expected) in enumerate(zip(test_inputs, test_ground_truths)):
                     actual = runtime.run(tin)
                     max_abs = float(np.max(np.abs(actual - expected)))
                     max_rel = float(np.max(np.abs((actual - expected) / (np.abs(expected) + 1e-7))))
                     if not np.allclose(actual, expected, atol=self.atol, rtol=self.rtol):
                         raise CorrectnessError(
-                            f"Numerical mismatch: max_abs={max_abs}, max_rel={max_rel}",
+                            f"Numerical mismatch vs IR interpreter: max_abs={max_abs}, max_rel={max_rel}",
                             max_abs_diff=max_abs,
                             max_rel_diff=max_rel
                         )
+                    if idx == 0 and not np.allclose(actual, reference_output, atol=self.atol, rtol=self.rtol):
+                        diff_pt = float(np.max(np.abs(actual - reference_output)))
+                        raise CorrectnessError(f"Numerical mismatch vs PyTorch reference: max_abs={diff_pt}")
                 res_entry["status"] = "passed"
                 candidate_results.append(res_entry)
                 verified_candidates.append((cand, runtime, res_entry))

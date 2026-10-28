@@ -27,6 +27,18 @@ extern "C" {
 
 // Primary / Explicit Entry Points:
 
+// Unified C ABI Entry Point (dispatched as 4 arguments for static models, 5 arguments for dynamic models):
+// For static models: int forgetune_run(const float* in, size_t in_c, float* out, size_t out_c);
+// For dynamic models: int forgetune_run(const float* in, size_t in_c, float* out, size_t out_c, int64_t batch);
+#ifndef FORGETUNE_EXCLUDE_GENERIC_RUN_DECLARATION
+FORGETUNE_EXPORT int forgetune_run(
+    const float* input,
+    size_t input_count,
+    float* output,
+    size_t output_count
+);
+#endif
+
 // Version 1 C ABI (4 arguments, fixed/inferred batch size)
 FORGETUNE_EXPORT int forgetune_run_v1(
     const float* input,

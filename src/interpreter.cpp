@@ -281,10 +281,11 @@ std::unordered_map<NodeId, std::vector<float>> Interpreter::evaluate(
                                         std::to_string(in_id));
             }
             int64_t b = static_cast<int64_t>(it->second.size()) / static_elems;
-            if (b <= 0 || b > TensorShape::DEFAULT_MAX_BATCH) {
+            int64_t max_b = graph.max_batch_size() > 0 ? graph.max_batch_size() : TensorShape::DEFAULT_MAX_BATCH;
+            if (b <= 0 || b > max_b) {
                 throw InvalidShapeError("Interpreter: input batch size " + std::to_string(b) +
                                         " out of valid bounds [1, " +
-                                        std::to_string(TensorShape::DEFAULT_MAX_BATCH) + "]");
+                                        std::to_string(max_b) + "]");
             }
             if (runtime_batch == -1) {
                 runtime_batch = b;

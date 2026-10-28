@@ -117,16 +117,19 @@ class NativeCompiler:
                 cpp_source_path,
                 "-std=c++17",
                 opt_level,
-                "-Wall"
+                "-Wall",
+                "-Wextra"
             ]
         elif self.compiler_type == "msvc":
+            msvc_opt = "/O2" if opt_level in ("-O2", "-O3") else ("/Od" if opt_level == "-O0" else "/O1")
             cmd = [
                 self.compiler_path,
                 "/LD",
                 cpp_source_path,
                 f"/Fe:{output_dll_path}",
                 "/std:c++17",
-                opt_level.replace("-O", "/O")
+                msvc_opt,
+                "/W4"
             ]
         else:
             cmd = [

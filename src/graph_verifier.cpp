@@ -8,7 +8,11 @@ namespace forgetune {
 VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
     VerificationResult res;
 
-    // 1. Verify graph inputs
+    // 1. Verify graph metadata & inputs
+    if (graph.max_batch_size() <= 0) {
+        res.add_error("Graph max_batch_size must be positive, got " + std::to_string(graph.max_batch_size()));
+    }
+
     const auto& inputs = graph.get_inputs();
     if (inputs.empty()) {
         res.add_error("Graph has no declared inputs.");
@@ -90,6 +94,16 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                 res.add_error("Node %" + std::to_string(node.id) + " has non-positive dimension " +
                               std::to_string(d));
             }
+        }
+
+        try {
+            int64_t max_b = graph.max_batch_size() > 0 ? graph.max_batch_size() : 128;
+            int64_t count = out_shape.element_count(max_b);
+            if (count < 0 || count > static_cast<int64_t>(std::numeric_limits<size_t>::max() / sizeof(float)) || count > (INT64_MAX / 4)) {
+                res.add_error("Node %" + std::to_string(node.id) + " element count overflow / exceeds max addressable memory");
+            }
+        } catch (const std::exception& e) {
+            res.add_error("Node %" + std::to_string(node.id) + " shape element count error: " + e.what());
         }
 
         // Check arity

@@ -25,6 +25,20 @@ def export_to_forgetune_ir(
     """
     model.eval()
 
+    for idx, inp in enumerate(example_inputs):
+        if not isinstance(inp, torch.Tensor):
+            raise TypeError(f"example_inputs[{idx}] must be a torch.Tensor, got {type(inp).__name__}")
+        if inp.dtype != torch.float32:
+            raise TypeError(f"ForgeTune v2 only supports torch.float32 tensors, but example_inputs[{idx}] has dtype {inp.dtype}")
+
+    for name, p in model.named_parameters():
+        if p.dtype != torch.float32:
+            raise TypeError(f"ForgeTune v2 only supports torch.float32 models, but parameter '{name}' has dtype {p.dtype}")
+
+    for name, b in model.named_buffers():
+        if b.dtype != torch.float32:
+            raise TypeError(f"ForgeTune v2 only supports torch.float32 models, but buffer '{name}' has dtype {b.dtype}")
+
     if len(example_inputs) != 1:
         raise ValueError(f"ForgeTune v2.0 currently supports single-input models. Got {len(example_inputs)} example inputs.")
 
@@ -316,6 +330,9 @@ def export_to_forgetune_ir(
                 a_node = node.args[0]
                 b_node = node.args[1]
 
+                if isinstance(a_node, (int, float)) or isinstance(b_node, (int, float)) or not hasattr(a_node, "name") or not hasattr(b_node, "name"):
+                    raise UnsupportedOpError("aten.add", "Scalar arithmetic operands (e.g. x + 1) are not supported in ForgeTune v2.0; use tensor constants or bias buffers.")
+
                 alpha = 1.0
                 if hasattr(node, "kwargs") and node.kwargs:
                     alpha = float(node.kwargs.get("alpha", 1.0))
@@ -352,6 +369,10 @@ def export_to_forgetune_ir(
             elif "aten.mul" in target_str:
                 a_node = node.args[0]
                 b_node = node.args[1]
+
+                if isinstance(a_node, (int, float)) or isinstance(b_node, (int, float)) or not hasattr(a_node, "name") or not hasattr(b_node, "name"):
+                    raise UnsupportedOpError("aten.mul", "Scalar arithmetic operands (e.g. x * 2) are not supported in ForgeTune v2.0; use tensor constants or bias buffers.")
+
                 a_id = node_mapping[a_node.name]
                 b_id = node_mapping[b_node.name]
                 a_shape = target_graph.nodes[a_id].shape
@@ -414,41 +435,26 @@ def export_to_forgetune_ir(
                 in_node = node.args[0]
                 in_id = node_mapping[in_node.name]
                 in_shape = target_graph.nodes[in_id].shape
-                if len(in_shape) == 4:
-                    B = in_shape[0]
-                    feats = in_shape[1] * in_shape[2] * in_shape[3]
-                    out_shape = [B, feats]
-                elif len(in_shape) == 2:
-                    out_shape = list(in_shape)
-                else:
-                    raise InvalidShapeError(f"FLATTEN requires rank-2 or rank-4 input, got {in_shape}")
+                start_dim = node.args[1] if len(node.args) > 1 else 0
+                end_dim = node.args[2] if len(node.args) > 2 else -1
 
-                flat_id = target_graph.allocate_id()
-                flat_node = Node(
-                    node_id=flat_id,
-                    op="FLATTEN",
-                    name=node.name,
-                    inputs=[in_id],
-                    shape=out_shape,
-                    dtype="f32"
-                )
-                target_graph.add_node(flat_node)
-                node_mapping[node.name] = flat_id
+                rank = len(in_shape)
+                norm_start = start_dim + rank if start_dim < 0 else start_dim
+                norm_end = end_dim + rank if end_dim < 0 else end_dim
 
-            elif "aten.view" in target_str or "aten.reshape" in target_str:
-                in_node = node.args[0]
-                in_id = node_mapping[in_node.name]
-                in_shape = target_graph.nodes[in_id].shape
-                target_shape = node.args[1] if len(node.args) > 1 else None
+                if norm_start == 0 and norm_end == rank - 1:
+                    raise UnsupportedOpError(target_str, f"Flattening batch dimension (start_dim={start_dim}, end_dim={end_dim}) is not supported in ForgeTune v2.0")
 
-                if len(in_shape) == 4:
-                    B = in_shape[0]
-                    feats = in_shape[1] * in_shape[2] * in_shape[3]
-                    if target_shape is not None:
-                        t_list = list(target_shape)
-                        if len(t_list) != 2:
-                            raise UnsupportedOpError(target_str, f"arbitrary reshape of rank-4 tensor to non-rank-2 target shape {target_shape} is not supported in v2.0")
-                    out_shape = [B, feats]
+                if norm_start == 1 and norm_end == rank - 1:
+                    if rank == 4:
+                        B = in_shape[0]
+                        feats = in_shape[1] * in_shape[2] * in_shape[3]
+                        out_shape = [B, feats]
+                    elif rank == 2:
+                        out_shape = list(in_shape)
+                    else:
+                        raise UnsupportedOpError(target_str, f"FLATTEN requires rank-2 or rank-4 input, got {in_shape}")
+
                     flat_id = target_graph.allocate_id()
                     flat_node = Node(
                         node_id=flat_id,
@@ -460,14 +466,72 @@ def export_to_forgetune_ir(
                     )
                     target_graph.add_node(flat_node)
                     node_mapping[node.name] = flat_id
-                elif len(in_shape) == 2:
-                    if target_shape is not None:
-                        t_list = list(target_shape)
-                        if len(t_list) != 2:
-                            raise UnsupportedOpError(target_str, f"arbitrary reshape of rank-2 tensor to target shape {target_shape} is not supported in v2.0")
+                elif norm_start == norm_end:
                     node_mapping[node.name] = in_id
                 else:
-                    raise UnsupportedOpError(target_str, f"arbitrary view/reshape for shape {in_shape} not supported")
+                    raise UnsupportedOpError(target_str, f"arbitrary partial flatten with start_dim={start_dim}, end_dim={end_dim} on shape {in_shape} is not supported in ForgeTune v2.0")
+
+            elif "aten.view" in target_str or "aten.reshape" in target_str:
+                in_node = node.args[0]
+                in_id = node_mapping[in_node.name]
+                in_shape = target_graph.nodes[in_id].shape
+                target_shape = node.args[1] if len(node.args) > 1 else None
+
+                if target_shape is None:
+                    raise UnsupportedOpError(target_str, "view/reshape missing target shape argument")
+
+                t_list = list(target_shape)
+                resolved_target = []
+                neg_idx = -1
+                prod = 1
+                for idx, d in enumerate(t_list):
+                    if isinstance(d, int):
+                        if d == -1:
+                            if neg_idx != -1:
+                                raise InvalidShapeError(f"Multiple -1 in reshape target shape: {t_list}")
+                            neg_idx = idx
+                            resolved_target.append(-1)
+                        elif d > 0:
+                            resolved_target.append(d)
+                            if idx > 0 or in_shape[0] != -1:
+                                prod *= d
+                        else:
+                            raise InvalidShapeError(f"Invalid non-positive dimension in target shape: {d}")
+                    else:
+                        # Symbolic batch dimension
+                        resolved_target.append(in_shape[0])
+
+                if in_shape[0] == -1 and len(resolved_target) > 0 and (resolved_target[0] == 1 or not isinstance(resolved_target[0], int) or resolved_target[0] <= 0):
+                    resolved_target[0] = -1
+
+                if neg_idx != -1:
+                    if neg_idx == 0:
+                        resolved_target[0] = in_shape[0]
+                    else:
+                        non_batch_in = 1
+                        for d in in_shape[1:]:
+                            non_batch_in *= d
+                        if non_batch_in % prod != 0:
+                            raise InvalidShapeError(f"Cannot infer -1 dimension: input non-batch {non_batch_in} not divisible by {prod}")
+                        resolved_target[neg_idx] = non_batch_in // prod
+
+                # Strict shape validation against supported patterns
+                if resolved_target == in_shape:
+                    node_mapping[node.name] = in_id
+                elif len(in_shape) == 4 and len(resolved_target) == 2 and (resolved_target[0] == in_shape[0]) and (resolved_target[1] == in_shape[1] * in_shape[2] * in_shape[3]):
+                    flat_id = target_graph.allocate_id()
+                    flat_node = Node(
+                        node_id=flat_id,
+                        op="FLATTEN",
+                        name=node.name,
+                        inputs=[in_id],
+                        shape=resolved_target,
+                        dtype="f32"
+                    )
+                    target_graph.add_node(flat_node)
+                    node_mapping[node.name] = flat_id
+                else:
+                    raise UnsupportedOpError(target_str, f"arbitrary reshape from {in_shape} to target shape {target_shape} (resolved {resolved_target}) is not supported in ForgeTune v2.0")
 
             elif "conv2d" in target_str or "convolution" in target_str:
                 x_node = node.args[0]
