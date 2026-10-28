@@ -19,6 +19,7 @@ class NativeRuntime:
         self.original_dll_path = os.path.abspath(dll_path)
         self.expected_input_shape = tuple(expected_input_shape)
         self.expected_output_shape = tuple(expected_output_shape)
+        self.is_closed = False
         self.is_shape_dynamic = (len(self.expected_input_shape) > 0 and self.expected_input_shape[0] == -1)
         if self.is_shape_dynamic:
             self.total_input_count = -1
@@ -87,7 +88,7 @@ class NativeRuntime:
         elif has_v2:
             self.is_dynamic = True
         elif has_v1:
-            self.is_dynamic = False
+            self.is_dynamic = self.is_shape_dynamic
         else:
             self.is_dynamic = self.is_shape_dynamic
 
@@ -105,24 +106,52 @@ class NativeRuntime:
         if self.is_dynamic:
             if hasattr(self.lib, "forgetune_run_v2"):
                 self.run_dynamic_fn = self.lib.forgetune_run_v2
+                self.run_dynamic_fn.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_int64
+                ]
+                self.run_dynamic_fn.restype = ctypes.c_int
+                self.run_fn = self.run_dynamic_fn
+                self.run_v1_dynamic_fn = None
             elif hasattr(self.lib, "forgetune_run"):
                 self.run_dynamic_fn = self.lib.forgetune_run
+                self.run_dynamic_fn.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_int64
+                ]
+                self.run_dynamic_fn.restype = ctypes.c_int
+                self.run_fn = self.run_dynamic_fn
+                self.run_v1_dynamic_fn = None
+            elif hasattr(self.lib, "forgetune_run_v1"):
+                # Support V1 dynamic invocation (4 args) when V2 is absent
+                self.run_dynamic_fn = None
+                self.run_v1_dynamic_fn = self.lib.forgetune_run_v1
+                self.run_v1_dynamic_fn.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_void_p,
+                    ctypes.c_size_t
+                ]
+                self.run_v1_dynamic_fn.restype = ctypes.c_int
+                self.run_fn = self.run_v1_dynamic_fn
             else:
                 raise RuntimeError(f"Missing dynamic entry point in {self.original_dll_path}")
 
-            self.run_dynamic_fn.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_size_t,
-                ctypes.c_void_p,
-                ctypes.c_size_t,
-                ctypes.c_int64
-            ]
-            self.run_dynamic_fn.restype = ctypes.c_int
-            self.run_fn = self.run_dynamic_fn
-
             if hasattr(self.lib, "forgetune_run_v2"):
                 self.run_v2_fn = self.lib.forgetune_run_v2
-                self.run_v2_fn.argtypes = self.run_dynamic_fn.argtypes
+                self.run_v2_fn.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_void_p,
+                    ctypes.c_size_t,
+                    ctypes.c_int64
+                ]
                 self.run_v2_fn.restype = ctypes.c_int
             else:
                 self.run_v2_fn = self.run_dynamic_fn
@@ -189,6 +218,9 @@ class NativeRuntime:
         Executes native inference on the given input tensor.
         Validates shape, dtype, and status code.
         """
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
+
         if self.is_dynamic:
             # Validate rank
             if input_tensor.ndim != len(self.expected_input_shape):
@@ -222,13 +254,23 @@ class NativeRuntime:
                 output_shape = self.expected_output_shape
             output_tensor = np.empty(output_shape, dtype=np.float32)
 
-            status = self.run_dynamic_fn(
-                input_tensor.ctypes.data,
-                int(input_tensor.size),
-                output_tensor.ctypes.data,
-                int(output_tensor.size),
-                actual_batch
-            )
+            if self.run_dynamic_fn is not None:
+                status = self.run_dynamic_fn(
+                    input_tensor.ctypes.data,
+                    int(input_tensor.size),
+                    output_tensor.ctypes.data,
+                    int(output_tensor.size),
+                    actual_batch
+                )
+            elif hasattr(self, "run_v1_dynamic_fn") and self.run_v1_dynamic_fn is not None:
+                status = self.run_v1_dynamic_fn(
+                    input_tensor.ctypes.data,
+                    int(input_tensor.size),
+                    output_tensor.ctypes.data,
+                    int(output_tensor.size)
+                )
+            else:
+                raise RuntimeError("No available execution function for dynamic model.")
 
             if status != 0:
                 error_msgs = {
@@ -281,6 +323,9 @@ class NativeRuntime:
         Executes the in-kernel benchmark inside pure C++ without ctypes per-call overhead.
         Returns average kernel latency in microseconds.
         """
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
+
         if self.benchmark_fn is None:
             raise RuntimeError("DLL does not export forgetune_benchmark_kernel")
 
@@ -328,6 +373,8 @@ class NativeRuntime:
 
     def get_arena_alloc_count(self) -> int:
         """Returns total native heap allocations (payload + block insertions) performed by arena pool."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_get_arena_alloc_count"):
             raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_alloc_count'")
         fn = getattr(self.lib, "forgetune_get_arena_alloc_count")
@@ -337,6 +384,8 @@ class NativeRuntime:
 
     def get_arena_payload_alloc_count(self) -> int:
         """Returns total payload buffer allocations performed by arena pool."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_get_arena_payload_alloc_count"):
             raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_payload_alloc_count'")
         fn = getattr(self.lib, "forgetune_get_arena_payload_alloc_count")
@@ -346,6 +395,8 @@ class NativeRuntime:
 
     def get_arena_block_insertion_count(self) -> int:
         """Returns total block container growth insertions performed by arena pool."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_get_arena_block_insertion_count"):
             raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_arena_block_insertion_count'")
         fn = getattr(self.lib, "forgetune_get_arena_block_insertion_count")
@@ -355,6 +406,8 @@ class NativeRuntime:
 
     def reset_arena_alloc_count(self) -> None:
         """Resets the thread-local arena allocation counters to zero."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_reset_arena_alloc_count"):
             raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_reset_arena_alloc_count'")
         fn = getattr(self.lib, "forgetune_reset_arena_alloc_count")
@@ -364,6 +417,8 @@ class NativeRuntime:
 
     def inject_test_arena_alloc(self) -> None:
         """Forces an allocation in the thread-local arena pool for regression testing."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_test_inject_arena_alloc"):
             raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_test_inject_arena_alloc'")
         fn = getattr(self.lib, "forgetune_test_inject_arena_alloc")
@@ -373,6 +428,14 @@ class NativeRuntime:
 
     def close(self) -> None:
         """Unloads the shared library handle on Windows to release file locks."""
+        self.is_closed = True
+        self.run_fn = None
+        self.run_dynamic_fn = None
+        self.run_v1_dynamic_fn = None
+        self.run_static_fn = None
+        self.run_v1_fn = None
+        self.run_v2_fn = None
+        self.benchmark_fn = None
         if hasattr(self, "lib") and self.lib is not None:
             if sys.platform == "win32" and hasattr(self.lib, "_handle") and self.lib._handle:
                 try:
@@ -380,6 +443,12 @@ class NativeRuntime:
                 except Exception:
                     pass
             self.lib = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def __del__(self) -> None:
         try:

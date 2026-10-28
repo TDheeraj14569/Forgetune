@@ -157,7 +157,10 @@ bool AlgebraicSimplificationPass::run(IRGraph& graph) {
         const auto& node = graph.get_node(id);
         if (node.deleted) continue;
 
-        // Rule 1: ADD(X, 0) -> X when 0 is all zeros with matching shape
+        // Rule 1: ADD(X, 0) -> X when 0 is all zeros with matching shape.
+        // Fast-math / signed-zero contract: Under IEEE 754, (-0.0f) + (+0.0f) = +0.0f.
+        // ForgeTune ML inference adopts fast-math semantics (-fno-signed-zeros), treating +0.0f and -0.0f
+        // as numerically equivalent.
         if (node.op == OpKind::ADD && node.inputs.size() == 2) {
             NodeId left_id = node.inputs[0];
             NodeId right_id = node.inputs[1];

@@ -57,7 +57,7 @@ ForgeTune builds all native components directly using Zig C++:
 bin\forgetune_test_suite.exe
 ```
 
-### 4.2 Full Python Test Suite (216 Tests)
+### 4.2 Full Python Test Suite (229 Tests)
 ```powershell
 $env:PYTHONPATH='python;.'
 pytest -v tests/

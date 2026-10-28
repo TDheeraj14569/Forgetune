@@ -89,18 +89,31 @@ class NativeCompiler:
         Compiles a C++ source file into a shared library.
         Returns a dict containing compilation metadata (duration, command, stdout, stderr).
         """
-        norm_opt = opt_level if opt_level.startswith("-") or opt_level.startswith("/") else f"-{opt_level}"
-        valid_opts = {"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "/Od", "/O1", "/O2", "/Ox"}
-        if norm_opt not in valid_opts and opt_level not in valid_opts:
+        # Canonical optimization level normalization
+        CANONICAL_MAP = {
+            "-O0": "-O0", "-O1": "-O1", "-O2": "-O2", "-O3": "-O3", "-Os": "-Os", "-Oz": "-Oz",
+            "/Od": "-O0", "/O1": "-O1", "/O2": "-O2", "/Ox": "-O3",
+            "O0": "-O0", "O1": "-O1", "O2": "-O2", "O3": "-O3", "Os": "-Os", "Oz": "-Oz",
+            "Od": "-O0", "Ox": "-O3"
+        }
+        if opt_level not in CANONICAL_MAP:
             raise ValueError(f"Invalid optimization level '{opt_level}'. Allowed levels: -O0, -O1, -O2, -O3, -Os, -Oz")
+        canonical_opt = CANONICAL_MAP[opt_level]
 
         if not os.path.isfile(cpp_source_path):
             raise FileNotFoundError(f"C++ source file not found: {cpp_source_path}")
 
-        os.makedirs(os.path.dirname(os.path.abspath(output_dll_path)), exist_ok=True)
-        if os.path.isfile(output_dll_path):
+        dest_dir = os.path.dirname(os.path.abspath(output_dll_path))
+        os.makedirs(dest_dir, exist_ok=True)
+
+        # Stage to a unique temporary file to allow atomic replacement and detect file locks
+        temp_dll_path = os.path.join(
+            dest_dir,
+            f".tmp_{os.getpid()}_{int(time.time() * 1000)}_{os.path.basename(output_dll_path)}"
+        )
+        if os.path.isfile(temp_dll_path):
             try:
-                os.remove(output_dll_path)
+                os.remove(temp_dll_path)
             except OSError:
                 pass
 
@@ -111,10 +124,10 @@ class NativeCompiler:
                 "c++",
                 *target_flag,
                 "-shared",
-                "-o", output_dll_path,
+                "-o", temp_dll_path,
                 cpp_source_path,
                 "-std=c++17",
-                opt_level,
+                canonical_opt,
                 "-Wall",
                 "-Wextra"
             ]
@@ -123,20 +136,21 @@ class NativeCompiler:
                 self.compiler_path,
                 "-shared",
                 "-fPIC",
-                "-o", output_dll_path,
+                "-o", temp_dll_path,
                 cpp_source_path,
                 "-std=c++17",
-                opt_level,
+                canonical_opt,
                 "-Wall",
                 "-Wextra"
             ]
         elif self.compiler_type == "msvc":
-            msvc_opt = "/O2" if opt_level in ("-O2", "-O3") else ("/Od" if opt_level == "-O0" else "/O1")
+            msvc_opt_map = {"-O0": "/Od", "-O1": "/O1", "-O2": "/O2", "-O3": "/O2", "-Os": "/O1", "-Oz": "/O1"}
+            msvc_opt = msvc_opt_map.get(canonical_opt, "/O2")
             cmd = [
                 self.compiler_path,
                 "/LD",
                 cpp_source_path,
-                f"/Fe:{output_dll_path}",
+                f"/Fe:{temp_dll_path}",
                 "/std:c++17",
                 msvc_opt,
                 "/W4"
@@ -145,10 +159,10 @@ class NativeCompiler:
             cmd = [
                 self.compiler_path,
                 "-shared",
-                "-o", output_dll_path,
+                "-o", temp_dll_path,
                 cpp_source_path,
                 "-std=c++17",
-                opt_level
+                canonical_opt
             ]
 
         start_time = time.perf_counter()
@@ -162,11 +176,21 @@ class NativeCompiler:
                 shell=False
             )
         except subprocess.TimeoutExpired as e:
+            if os.path.isfile(temp_dll_path):
+                try:
+                    os.remove(temp_dll_path)
+                except OSError:
+                    pass
             raise CompilationError(
                 f"Compilation timed out after {timeout_seconds} seconds",
                 command=cmd
             ) from e
         except Exception as e:
+            if os.path.isfile(temp_dll_path):
+                try:
+                    os.remove(temp_dll_path)
+                except OSError:
+                    pass
             raise CompilationError(
                 f"Failed to execute compiler: {e}",
                 command=cmd
@@ -174,13 +198,33 @@ class NativeCompiler:
 
         duration_sec = time.perf_counter() - start_time
 
-        if result.returncode != 0 or not os.path.isfile(output_dll_path):
+        if result.returncode != 0 or not os.path.isfile(temp_dll_path):
+            if os.path.isfile(temp_dll_path):
+                try:
+                    os.remove(temp_dll_path)
+                except OSError:
+                    pass
             raise CompilationError(
                 f"Compilation failed with exit code {result.returncode}",
                 stdout=result.stdout,
                 stderr=result.stderr,
                 command=cmd
             )
+
+        # Atomically replace final DLL path; catch locked DLL on Windows
+        try:
+            os.replace(temp_dll_path, output_dll_path)
+        except (PermissionError, OSError) as e:
+            if os.path.isfile(temp_dll_path):
+                try:
+                    os.remove(temp_dll_path)
+                except OSError:
+                    pass
+            raise CompilationError(
+                f"Failed to overwrite shared library '{output_dll_path}': file is locked by an active process or runtime. "
+                f"Ensure all NativeRuntime / CompiledModel instances using this library are closed before recompiling.",
+                command=cmd
+            ) from e
 
         return {
             "success": True,

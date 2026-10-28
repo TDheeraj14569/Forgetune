@@ -97,19 +97,20 @@ class Autotuner:
 
     def _get_compiler_sources_fingerprint(self) -> str:
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        sources = [
-            "python/forgetune/autotuner.py",
-            "python/forgetune/compiler.py",
-            "python/forgetune/export_frontend.py",
-            "src/codegen.cpp",
-            "src/optimizer.cpp",
-            "src/fusion.cpp",
-            "src/memory_planner.cpp"
-        ]
+        import glob
+        tracked_files = []
+        for pattern in [
+            "src/*.cpp",
+            "include/forgetune/*.hpp",
+            "python/forgetune/*.py"
+        ]:
+            tracked_files.extend(glob.glob(os.path.join(root, pattern)))
+        tracked_files = sorted(set(tracked_files))
         h = hashlib.sha256()
-        for s in sources:
-            p = os.path.join(root, s)
+        for p in tracked_files:
             if os.path.isfile(p):
+                rel_path = os.path.relpath(p, root).replace("\\", "/")
+                h.update(rel_path.encode("utf-8"))
                 with open(p, "rb") as f:
                     h.update(f.read())
         return h.hexdigest()
@@ -175,13 +176,29 @@ class Autotuner:
                 c for c in candidates_with_kernel
                 if (base_kernel / c[2]["in_kernel_latency_us"]) >= 1.05
             ]
-            if improving:
-                improving.sort(key=lambda x: x[2]["in_kernel_latency_us"])
-                fastest_k = improving[0][2]["in_kernel_latency_us"]
+
+            # Degradation safeguard: reject candidates whose end-to-end latency regresses significantly
+            non_degraded = []
+            for c in improving:
+                cand_e2e = c[2].get("benchmark", {}).get("median_latency_us")
+                if cand_e2e is not None and base_median > 0:
+                    e2e_ratio = cand_e2e / base_median
+                    e2e_delta = cand_e2e - base_median
+                    if e2e_ratio > 1.15 and e2e_delta > max(2.0, base_iqr):
+                        c[2]["degradation_warning"] = (
+                            f"Disqualified from winning: in-kernel speedup was accompanied by significant "
+                            f"end-to-end degradation (+{e2e_delta:.2f} us / {e2e_ratio:.2f}x baseline)"
+                        )
+                        continue
+                non_degraded.append(c)
+
+            if non_degraded:
+                non_degraded.sort(key=lambda x: x[2]["in_kernel_latency_us"])
+                fastest_k = non_degraded[0][2]["in_kernel_latency_us"]
 
                 # Group candidates within 5% of the fastest candidate (tie band)
                 top_tier = [
-                    c for c in improving
+                    c for c in non_degraded
                     if (c[2]["in_kernel_latency_us"] <= fastest_k * 1.05)
                 ]
 
@@ -273,6 +290,8 @@ class Autotuner:
                 selected = KernelCandidate(**cand_data)
                 valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget)}
                 if selected.candidate_id in valid_ids:
+                    report_path = os.path.join(artifacts_dir, "autotuning_report.json")
+                    write_atomic_json(report_path, cached_report)
                     return selected, cached_report
             except Exception:
                 pass # Cache invalid/corrupted -> re-tune
@@ -490,15 +509,29 @@ class Autotuner:
             for cand, rt, res_entry in verified_candidates:
                 try:
                     total_k_lat = 0.0
+                    valid_round = True
                     for inp in eval_inputs:
-                        total_k_lat += rt.benchmark_kernel(inp, iters=k_iters)
-                    k_samples[cand.candidate_id].append(total_k_lat)
+                        lat = rt.benchmark_kernel(inp, iters=k_iters)
+                        if lat <= 0:
+                            valid_round = False
+                            break
+                        total_k_lat += lat
+                    if valid_round and total_k_lat > 0:
+                        k_samples[cand.candidate_id].append(total_k_lat)
+                    else:
+                        if not res_entry.get("benchmark_warning"):
+                            res_entry["benchmark_warning"] = "Non-positive kernel latency measured"
                 except Exception as e:
                     res_entry["benchmark_warning"] = str(e)
 
         for cand, rt, res_entry in verified_candidates:
             samples = k_samples.get(cand.candidate_id, [])
-            res_entry["in_kernel_latency_us"] = float(np.median(samples)) if samples else None
+            if len(samples) == 3:
+                res_entry["in_kernel_latency_us"] = float(np.median(samples))
+            else:
+                res_entry["in_kernel_latency_us"] = None
+                if not res_entry.get("benchmark_warning"):
+                    res_entry["benchmark_warning"] = f"Incomplete benchmark rounds: {len(samples)}/3 succeeded"
 
         # 3. Interleaved end-to-end Python invocation measurements
         NUM_ROUNDS = 5

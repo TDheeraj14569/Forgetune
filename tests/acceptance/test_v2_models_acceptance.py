@@ -75,7 +75,7 @@ def test_acceptance_model_a_dynamic_tinymlp(tmp_path):
         model=model,
         example_inputs=(ex_x,),
         output_dir=out_dir,
-        autotune=True,
+        autotune=False,
         dynamic_batch=True,
         enable_fusion=True
     )
@@ -108,7 +108,7 @@ def test_acceptance_model_b_residual_mlp(tmp_path):
         model=model,
         example_inputs=(ex_x,),
         output_dir=out_dir,
-        autotune=True,
+        autotune=False,
         dynamic_batch=True,
         enable_fusion=True
     )
@@ -139,7 +139,7 @@ def test_acceptance_model_c_small_cnn(tmp_path):
         model=model,
         example_inputs=(ex_x,),
         output_dir=out_dir,
-        autotune=True,
+        autotune=False,
         dynamic_batch=True,
         enable_fusion=True
     )

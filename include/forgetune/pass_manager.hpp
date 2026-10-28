@@ -35,6 +35,13 @@ public:
     bool run(IRGraph& graph) override;
 };
 
+/// AlgebraicSimplificationPass:
+/// Implements standard algebraic identities:
+/// 1. ADD(X, 0) -> X when 0 is all zeros of compatible shape.
+///    Note on IEEE 754 signed zeros: In strict IEEE 754 round-to-nearest, (-0.0f) + (+0.0f) yields (+0.0f).
+///    ForgeTune operates under standard machine learning fast-math semantics (analogous to LLVM
+///    `-fno-signed-zeros`), treating +0.0f and -0.0f as numerically equivalent for inference.
+/// 2. RELU(RELU(X)) -> RELU(X) idempotent property.
 class AlgebraicSimplificationPass : public Pass {
 public:
     std::string name() const override { return "AlgebraicSimplification"; }

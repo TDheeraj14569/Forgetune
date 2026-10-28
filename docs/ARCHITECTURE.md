@@ -70,7 +70,7 @@ ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing 
 4. **Liveness-Based Memory Planner (`forgetune::MemoryPlanner`)**:
    - Performs topological liveness interval analysis $[birth, death]$ for all intermediate activation buffers.
    - Employs greedy interval-coloring to assign non-overlapping buffers to shared offsets within a single 64-byte aligned memory arena.
-   - Reduces intermediate buffer memory by 42.9% to 60.0% while eliminating stack overflow hazards on Windows.
+   - Reduces intermediate buffer memory by 38.5% to 58.6% while eliminating stack overflow hazards on Windows.
 
 5. **Code Generator & Dual ABI (`forgetune::CodeGenerator`)**:
    - Emits clean, readable C++17 source code without third-party tensor libraries.

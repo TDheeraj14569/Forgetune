@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](CMakeLists.txt)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/Tests-229%2F229%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-242%2F242%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Verification](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
 **ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state heap allocations.
@@ -43,7 +43,7 @@ flowchart TD
 
     subgraph Memory["3. Memory Planning"]
         E4 --> F["Liveness Analysis & Memory Planner<br/>(Topological Interval Coloring)"]
-        F -->|"42.9% - 60.0% Peak Buffer Reduction"| G["Static Arena Offsets<br/>(64-byte AVX-512 Aligned)"]
+        F -->|"38.5% - 58.6% Intermediate Buffer Reduction"| G["Static Arena Offsets<br/>(64-byte AVX-512 Aligned)"]
     end
 
     subgraph Native["4. Native Codegen & Runtime"]
@@ -71,7 +71,7 @@ flowchart TD
 ### Liveness-Based Intermediate Buffer Reuse
 - Analyzes activation birth and death intervals across topological execution steps.
 - Solves buffer allocation using interval-coloring register-allocation principles.
-- Packs all disjoint activation lifetimes into a single pre-allocated `AlignedArenaPool` (64-byte aligned for AVX2/AVX-512 vectorization), reducing intermediate activation storage by **42.9% to 60.0%**.
+- Packs all disjoint activation lifetimes into a single pre-allocated `AlignedArenaPool` (64-byte aligned to support AVX2/AVX-512 SIMD vector instructions and 64-byte cache-line boundaries), reducing calculated intermediate activation storage by **38.5% to 58.6%**.
 
 ### Dynamic Batch Execution ($B \in [1, 128]$)
 - Emits C++ inner loops parameterized on batch length $B$ without requiring recompilation per batch size.
@@ -116,7 +116,7 @@ To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block 
 - **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+23.773\ \mu\text{s}$ (ForgeTune is faster)
 - **Standard Error ($SE$):** $4.289\ \mu\text{s}$ ($df = 99$)
 - **One-Sided Non-Inferiority ($H_0: \mu_d \le -18.10\ \mu\text{s}$):** $t = 9.762$, exact Student's t $p = 1.81 \times 10^{-16} \ll 0.0001$. Non-inferiority is certified.
-- **Two-Sided TOST Equivalence ($\pm 5\%$ margin):** Inconclusive strictly because ForgeTune outperforms PyTorch 1T ($90\%\ \text{CI} = [+16.65, +30.89]\ \mu\text{s}$), placing the upper confidence bound above $+18.10\ \mu\text{s}$.
+- **Two-Sided TOST Equivalence ($\pm 5\%$ margin):** Inconclusive strictly because ForgeTune outperforms PyTorch 1T ($90\%\ \text{CI} = [+16.65, +30.89]\ \mu\text{s}$), placing the upper confidence bound above $+18.10\ \mu\text{s}$ (TOST lower-bound p-value $< 10^{-15}$, upper-bound p-value $\approx 0.9055$, proving non-inferiority while exceeding the upper equivalence limit due to genuine performance superiority).
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
   - Mean Difference: $[+17.03\ \mu\text{s},\; +30.91\ \mu\text{s}]$
   - Median Difference: $[+14.15\ \mu\text{s},\; +21.70\ \mu\text{s}]$
@@ -188,7 +188,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite:
 
 ```powershell
-# 1. Run full Python test suite (216 tests)
+# 1. Run full Python test suite (229 tests)
 .\.venv\Scripts\python.exe -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -199,8 +199,8 @@ The repository enforces a defensible, multi-tier automated test suite:
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **229 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **216 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, dual-ABI contracts, regression suites for identity models, tile boundaries, commutative broadcast, multi-process determinism, and 25 audit defect regressions.
+- **Total Enumerated Tests:** **242 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **229 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, dual-ABI contracts, regression suites for identity models, tile boundaries, commutative broadcast, multi-process determinism, and 38 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-target x86_64-windows-gnu -I include -std=c++17 -O2 -Wall -Wextra`.

@@ -858,30 +858,34 @@ bool test_aligned_arena_pool_and_reentrancy() {
 
         size_t total_allocations = 0;
 
-        Lease acquire(size_t required_bytes) {
-            for (size_t i = 0; i < blocks.size(); ++i) {
-                if (!blocks[i].in_use) {
-                    blocks[i].in_use = true;
-                    bool did_alloc = false;
-                    if (!blocks[i].ensure_capacity(required_bytes, &did_alloc)) {
-                        blocks[i].in_use = false;
-                        return Lease{nullptr, 0, nullptr};
+        Lease acquire(size_t required_bytes) noexcept {
+            try {
+                for (size_t i = 0; i < blocks.size(); ++i) {
+                    if (!blocks[i].in_use) {
+                        blocks[i].in_use = true;
+                        bool did_alloc = false;
+                        if (!blocks[i].ensure_capacity(required_bytes, &did_alloc)) {
+                            blocks[i].in_use = false;
+                            return Lease{nullptr, 0, nullptr};
+                        }
+                        if (did_alloc) total_allocations++;
+                        return Lease{this, i, blocks[i].aligned_ptr};
                     }
-                    if (did_alloc) total_allocations++;
-                    return Lease{this, i, blocks[i].aligned_ptr};
                 }
-            }
-            blocks.emplace_back();
-            total_allocations++;
-            size_t idx = blocks.size() - 1;
-            blocks[idx].in_use = true;
-            bool did_alloc = false;
-            if (!blocks[idx].ensure_capacity(required_bytes, &did_alloc)) {
-                blocks[idx].in_use = false;
+                blocks.emplace_back();
+                total_allocations++;
+                size_t idx = blocks.size() - 1;
+                blocks[idx].in_use = true;
+                bool did_alloc = false;
+                if (!blocks[idx].ensure_capacity(required_bytes, &did_alloc)) {
+                    blocks[idx].in_use = false;
+                    return Lease{nullptr, 0, nullptr};
+                }
+                if (did_alloc) total_allocations++;
+                return Lease{this, idx, blocks[idx].aligned_ptr};
+            } catch (...) {
                 return Lease{nullptr, 0, nullptr};
             }
-            if (did_alloc) total_allocations++;
-            return Lease{this, idx, blocks[idx].aligned_ptr};
         }
     };
 

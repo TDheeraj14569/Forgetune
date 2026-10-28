@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-28 15:00:43
+**Date:** 2026-10-28 22:50:54
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -11,7 +11,7 @@
 In naive neural network execution, every intermediate activation tensor is assigned dedicated storage.
 ForgeTune v2.0 performs compile-time liveness interval analysis to determine non-overlapping activation lifetimes,
 packing intermediate buffers into a single 64-byte cache-line aligned `thread_local` memory arena.
-Across all three benchmark models, ForgeTune v2.0 achieves between **42.9% and 60.0% calculated intermediate-buffer storage reduction**.
+Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 58.6% calculated intermediate-buffer storage reduction**.
 
 ---
 

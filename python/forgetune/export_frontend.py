@@ -492,16 +492,17 @@ def export_to_forgetune_ir(
                             neg_idx = idx
                             resolved_target.append(-1)
                         elif d > 0:
+                            if idx == 0 and in_shape[0] == -1:
+                                raise UnsupportedOpError(
+                                    target_str,
+                                    f"Reshaping dynamic batch input {in_shape} to fixed leading dimension {d} is not supported in ForgeTune v2.0"
+                                )
                             resolved_target.append(d)
                         else:
                             raise InvalidShapeError(f"Invalid non-positive dimension in target shape: {d}")
                     else:
                         # Symbolic batch dimension
                         resolved_target.append(in_shape[0])
-
-                if in_shape[0] == -1 and len(resolved_target) > 0:
-                    if resolved_target[0] == 1 or not isinstance(resolved_target[0], int) or resolved_target[0] <= 0:
-                        resolved_target[0] = -1
 
                 if neg_idx != -1:
                     if in_shape[0] == -1:

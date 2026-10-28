@@ -394,7 +394,7 @@ def test_regression_memory_planner_excludes_graph_outputs():
 
 
 def test_regression_json_eof_and_escape_decoding():
-    """
+    r"""
     JSON Lexer/Parser Audit:
     Truncated JSON inputs and unterminated strings must raise InvalidGraphError cleanly without hanging.
     String escapes (\n, \t, \", \\, \u0041) must be decoded correctly.
@@ -710,9 +710,9 @@ def test_regression_relu_nan_preservation():
 
 
 def test_regression_json_unicode_surrogate_pairs_and_strict_grammar():
-    """
+    r"""
     P2.4 / Bug 3 & 4 Audit:
-    1. Unicode surrogate pairs (e.g. \uD83D\uDE00 for emoji) must transcode to 4-byte UTF-8 cleanly.
+    1. Unicode surrogate pairs (e.g. U+D83D U+DE00 \uD83D\uDE00 for emoji) must transcode to 4-byte UTF-8 cleanly.
     2. Missing colon, unescaped raw newlines, and invalid number grammar (01, 1.) must be rejected.
     """
     import forgetune._forgetune_cpp as cpp
@@ -835,5 +835,239 @@ def test_regression_native_compiler_opt_level_validation():
     with pytest.raises(ValueError) as exc_info:
         comp.compile_shared_library("dummy.cpp", "dummy.dll", opt_level="-Ofastest")
     assert "Invalid optimization level" in str(exc_info.value)
+
+
+def test_regression_cross_model_artifact_reuse_prevention(tmp_path):
+    """
+    Audit P1: Artifact reuse for different models.
+    Compiling Model A, then Model B into the same output_dir, then Model A again
+    must invalidate and rebuild artifacts rather than executing stale kernels.
+    """
+    class ModelA(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(16, 8)
+        def forward(self, x):
+            return self.fc(x)
+
+    class ModelB(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(16, 16)
+            self.relu = nn.ReLU()
+            self.fc2 = nn.Linear(16, 8)
+        def forward(self, x):
+            return self.fc2(self.relu(self.fc1(x)))
+
+    out_dir = str(tmp_path / "shared_artifacts")
+    x = torch.randn(2, 16)
+
+    m_a = ModelA().eval()
+    m_b = ModelB().eval()
+
+    # 1. Compile Model A
+    comp_a1 = compile_model(m_a, (x,), output_dir=out_dir, autotune=False)
+    out_a1 = comp_a1.run(x)
+    ref_a = m_a(x).detach().numpy()
+    np.testing.assert_allclose(out_a1, ref_a, atol=1e-4)
+    comp_a1.close()
+
+    # 2. Compile Model B into the exact same output_dir
+    comp_b = compile_model(m_b, (x,), output_dir=out_dir, autotune=False)
+    out_b = comp_b.run(x)
+    ref_b = m_b(x).detach().numpy()
+    np.testing.assert_allclose(out_b, ref_b, atol=1e-4)
+    comp_b.close()
+
+    # 3. Re-compile Model A into the exact same output_dir (must rebuild, not reuse B's kernel)
+    comp_a2 = compile_model(m_a, (x,), output_dir=out_dir, autotune=False)
+    out_a2 = comp_a2.run(x)
+    np.testing.assert_allclose(out_a2, ref_a, atol=1e-4)
+    comp_a2.close()
+
+
+def test_regression_dynamic_reshape_rejects_fixed_batch_one():
+    """
+    Audit P2: Dynamic reshape must not confuse literal 1 with dynamic batch dimension.
+    Calling x.view(1, -1) on a dynamic batch tensor [-1, 16] must be rejected with UnsupportedOpError.
+    """
+    class BadReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.view(1, -1)
+
+    model = BadReshapeModel().eval()
+    x = torch.randn(2, 16)
+
+    with pytest.raises(UnsupportedOpError) as exc_info:
+        compile_model(model, (x,), dynamic_batch=True, autotune=False)
+    assert "fixed leading dimension" in str(exc_info.value).lower() or "not supported" in str(exc_info.value).lower()
+
+
+def test_regression_exact_64bit_integer_json_parsing():
+    """
+    Audit P2: C++ JSON parser must parse exact 64-bit integers and reject overflow.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    # Valid exact 64-bit integer > 2^53: 9007199254740993 in tensor shape
+    json_valid = r"""{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 9007199254740993], "dtype": "f32"}
+      ]
+    }"""
+    g = cpp.json_to_graph(json_valid)
+    assert g.get_node(0).output_meta.shape.dims == [1, 9007199254740993]
+
+    # Overflow beyond INT64_MAX: 9223372036854775808
+    json_overflow = r"""{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 9223372036854775808], "dtype": "f32"}
+      ]
+    }"""
+    with pytest.raises(Exception):
+        cpp.json_to_graph(json_overflow)
+
+
+def test_regression_strict_json_commas_and_trailing_characters():
+    """
+    Audit P2: JSON parser must enforce strict RFC 8259 comma separation and reject trailing garbage.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    # Missing comma between nodes
+    json_missing_comma = r"""{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [1],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 2], "dtype": "f32"}
+        {"id": 1, "op": "RELU", "name": "y", "inputs": [0], "shape": [1, 2], "dtype": "f32"}
+      ]
+    }"""
+    with pytest.raises(Exception):
+        cpp.json_to_graph(json_missing_comma)
+
+    # Trailing comma in array
+    json_trailing_comma = r"""{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0,],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 2], "dtype": "f32"}
+      ]
+    }"""
+    with pytest.raises(Exception):
+        cpp.json_to_graph(json_trailing_comma)
+
+    # Trailing garbage after root object
+    json_trailing_garbage = r"""{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 2], "dtype": "f32"}
+      ]
+    } extra_garbage"""
+    with pytest.raises(Exception):
+        cpp.json_to_graph(json_trailing_garbage)
+
+
+def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
+    """
+    Audit P2: Recompiling a locked shared library must raise an informative CompilationError.
+    """
+    class SimpleModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    out_dir = str(tmp_path / "locked_test")
+    x = torch.randn(1, 4)
+    compiled = compile_model(SimpleModel().eval(), (x,), output_dir=out_dir, autotune=False)
+
+    dll_path = compiled.manifest()["artifacts"]["shared_library"]
+    cpp_path = compiled.manifest()["artifacts"]["cpp_source"]
+
+    # Recompiling while compiled._runtime keeps the DLL locked on Windows
+    nc = NativeCompiler()
+    try:
+        with pytest.raises(CompilationError) as exc_info:
+            nc.compile_shared_library(cpp_path, dll_path)
+        assert "locked by an active process or runtime" in str(exc_info.value)
+    finally:
+        compiled.close()
+
+    # After close(), recompilation should succeed
+    res = nc.compile_shared_library(cpp_path, dll_path)
+    assert res["success"] is True
+
+
+def test_regression_closed_runtime_lifecycle(tmp_path):
+    """
+    Audit P2: Executing NativeRuntime after close() must raise RuntimeError.
+    """
+    class SimpleModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    out_dir = str(tmp_path / "lifecycle_test")
+    x = torch.randn(1, 4)
+
+    # 1. Manual close()
+    compiled = compile_model(SimpleModel().eval(), (x,), output_dir=out_dir, autotune=False)
+    assert compiled.run(x).shape == (1, 4)
+    compiled.close()
+    with pytest.raises(RuntimeError) as exc_info:
+        compiled.run(x)
+    assert "after it has been closed" in str(exc_info.value)
+
+    # 2. Context manager __enter__ / __exit__
+    with compile_model(SimpleModel().eval(), (x,), output_dir=str(tmp_path / "cm_test"), autotune=False) as cm:
+        assert cm.run(x).shape == (1, 4)
+    with pytest.raises(RuntimeError):
+        cm.run(x)
+
+
+def test_regression_api_parameter_strict_validation():
+    """
+    Audit P3: Strict parameter type validation (rejecting bool masquerading as int).
+    """
+    class SimpleModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    model = SimpleModel().eval()
+    x = torch.randn(1, 4)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), max_autotune_budget=True)
+    assert "max_autotune_budget" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), max_batch_size=True)
+    assert "max_batch_size" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), autotune=1)
+    assert "autotune" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), dynamic_batch=1)
+    assert "dynamic_batch" in str(exc.value)
 
 

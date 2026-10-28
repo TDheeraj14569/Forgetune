@@ -2,6 +2,8 @@
 ForgeTune exception hierarchy and error classes.
 """
 
+import builtins
+
 class ForgeTuneError(Exception):
     """Base exception for all ForgeTune errors."""
     pass
@@ -47,6 +49,6 @@ class AutotuningError(ForgeTuneError):
     """Raised when autotuning fails to find any valid candidate."""
     pass
 
-class RuntimeError(ForgeTuneError):
+class RuntimeError(ForgeTuneError, builtins.RuntimeError):
     """Raised when native runtime execution fails."""
     pass
