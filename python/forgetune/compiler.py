@@ -8,9 +8,10 @@ import sys
 import shutil
 import hashlib
 import json
+import platform
 import numpy as np
 import torch
-from typing import Tuple, Optional, Dict, Any, Union
+from typing import Tuple, Optional, Dict, Any, Union, Callable
 
 from .export_frontend import export_to_forgetune_ir
 from .native_compiler import NativeCompiler
@@ -18,6 +19,7 @@ from .runtime import NativeRuntime
 from .autotuner import Autotuner, KernelCandidate
 from .manifest import create_manifest, write_atomic_json, read_manifest
 from .benchmark import benchmark_function
+from .errors import CorrectnessError
 
 def _compute_file_sha256(path: str) -> str:
     """Computes SHA-256 hash of a file on disk."""
@@ -31,19 +33,30 @@ def _compute_graph_sha256(graph_json: str) -> str:
     """Computes SHA-256 hash of serialized IR graph JSON."""
     return hashlib.sha256(graph_json.encode("utf-8")).hexdigest()
 
+def _get_candidate_provenance_hash(graph_hash: str, cand: KernelCandidate) -> str:
+    """Generates unique deterministic hash of graph and exact candidate configuration."""
+    spec_str = json.dumps({"graph_hash": graph_hash, "cand": cand.to_dict()}, sort_keys=True)
+    return hashlib.sha256(spec_str.encode("utf-8")).hexdigest()[:12]
+
 def _is_artifact_valid_for_graph(
     cand_dir: str,
     graph_hash: str,
     cand: KernelCandidate,
-    compiler_info: Dict[str, Any]
+    compiler_info: Dict[str, Any],
+    dll_path: Optional[str] = None,
+    cpp_path: Optional[str] = None
 ) -> bool:
     """
     Validates whether existing compilation artifacts in cand_dir match the graph,
-    candidate configuration, and compiler version. Prevents cross-model artifact reuse.
+    complete candidate configuration, compiler, host platform, and DLL hash.
+    Prevents cross-model and cross-configuration artifact reuse.
     """
     manifest_path = os.path.join(cand_dir, "cand_manifest.json")
-    cpp_path = os.path.join(cand_dir, "kernel.cpp")
-    dll_path = os.path.join(cand_dir, "kernel.dll")
+    if cpp_path is None:
+        cpp_path = os.path.join(cand_dir, "kernel.cpp")
+    if dll_path is None:
+        dll_ext = ".dll" if sys.platform == "win32" else ".so"
+        dll_path = os.path.join(cand_dir, f"kernel{dll_ext}")
 
     if not (os.path.isfile(manifest_path) and os.path.isfile(cpp_path) and os.path.isfile(dll_path)):
         return False
@@ -55,7 +68,17 @@ def _is_artifact_valid_for_graph(
             return False
         if m.get("candidate_id") != cand.candidate_id:
             return False
+        if m.get("variant") != cand.variant:
+            return False
+        if m.get("enable_fusion") != cand.enable_fusion:
+            return False
+        if m.get("tile_sizes") != [cand.tile_m, cand.tile_n, cand.tile_k]:
+            return False
         if m.get("opt_level") != cand.opt_level:
+            return False
+        if m.get("platform") != sys.platform:
+            return False
+        if m.get("machine") != platform.machine():
             return False
         if m.get("compiler_type") != compiler_info.get("type"):
             return False
@@ -77,17 +100,73 @@ def _write_artifact_manifest(
     dll_path: str,
     compiler_info: Dict[str, Any]
 ) -> None:
-    """Writes candidate provenance manifest validating compilation artifacts."""
+    """Writes complete candidate provenance manifest validating compilation artifacts."""
     manifest_data = {
         "graph_hash": graph_hash,
+        "candidate": cand.to_dict(),
         "candidate_id": cand.candidate_id,
+        "variant": cand.variant,
+        "enable_fusion": cand.enable_fusion,
+        "tile_sizes": [cand.tile_m, cand.tile_n, cand.tile_k],
         "opt_level": cand.opt_level,
+        "platform": sys.platform,
+        "machine": platform.machine(),
         "compiler_type": compiler_info.get("type"),
         "compiler_version": compiler_info.get("version"),
+        "compiler_path": compiler_info.get("path"),
         "source_hash": _compute_file_sha256(cpp_path),
         "dll_hash": _compute_file_sha256(dll_path),
     }
     write_atomic_json(os.path.join(cand_dir, "cand_manifest.json"), manifest_data)
+
+def _verify_rebuilt_artifact(
+    dll_path: str,
+    ir_graph: Any,
+    example_input: np.ndarray,
+    reference_output: np.ndarray,
+    oracle: Callable[[np.ndarray], np.ndarray],
+    dynamic_batch: bool = False,
+    max_batch_size: int = 128,
+    atol: float = 1e-4,
+    rtol: float = 1e-4
+) -> None:
+    """Differential correctness gate executed on freshly compiled/rebuilt shared library."""
+    if dynamic_batch or ir_graph.has_dynamic_batch():
+        in_shape = tuple(-1 if i == 0 else s for i, s in enumerate(example_input.shape))
+        out_node = ir_graph.nodes[ir_graph.outputs[0]]
+        out_is_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
+        out_shape = tuple(-1 if (out_is_dyn and i == 0) else s for i, s in enumerate(reference_output.shape))
+    else:
+        in_shape = tuple(example_input.shape)
+        out_shape = tuple(reference_output.shape)
+
+    runtime = NativeRuntime(dll_path, in_shape, out_shape)
+    try:
+        # Test 1: Example input
+        out = runtime.run(example_input, batch_size=example_input.shape[0] if (dynamic_batch or ir_graph.has_dynamic_batch()) else None)
+        if not np.allclose(out, reference_output, atol=atol, rtol=rtol):
+            max_diff = float(np.max(np.abs(out - reference_output)))
+            raise CorrectnessError(
+                f"Rebuilt artifact {dll_path} failed differential correctness verification on example input (max abs diff: {max_diff:.3e})"
+            )
+
+        # Test 2: If dynamic batch, test multiple representative batches
+        if dynamic_batch or ir_graph.has_dynamic_batch():
+            test_batches = [1, min(4, max_batch_size)]
+            if max_batch_size >= 16:
+                test_batches.append(min(16, max_batch_size))
+            for b in test_batches:
+                shape = (b, *example_input.shape[1:])
+                test_in = np.ones(shape, dtype=np.float32) * 0.5
+                expected = oracle(test_in)
+                actual = runtime.run(test_in, batch_size=b)
+                if not np.allclose(actual, expected, atol=atol, rtol=rtol):
+                    max_diff = float(np.max(np.abs(actual - expected)))
+                    raise CorrectnessError(
+                        f"Rebuilt artifact {dll_path} failed differential correctness verification at dynamic batch {b} (max abs diff: {max_diff:.3e})"
+                    )
+    finally:
+        runtime.close()
 
 def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, cand_json_path: Optional[str] = None) -> None:
     """
@@ -293,10 +372,10 @@ def compile_model(
       8. Manifest and report generation
     """
     # Strict API parameter validation (reject bool masquerading as int)
-    if type(max_autotune_budget) is not int or max_autotune_budget <= 0:
-        raise ValueError(f"max_autotune_budget must be a positive integer, got {max_autotune_budget} ({type(max_autotune_budget).__name__})")
-    if type(max_batch_size) is not int or max_batch_size <= 0:
-        raise ValueError(f"max_batch_size must be a positive integer, got {max_batch_size} ({type(max_batch_size).__name__})")
+    if type(max_autotune_budget) is not int or not (1 <= max_autotune_budget <= 8):
+        raise ValueError(f"max_autotune_budget must be an integer between 1 and 8, got {max_autotune_budget} ({type(max_autotune_budget).__name__})")
+    if type(max_batch_size) is not int or not (1 <= max_batch_size <= 1000000):
+        raise ValueError(f"max_batch_size must be an integer between 1 and 1000000, got {max_batch_size} ({type(max_batch_size).__name__})")
     if type(autotune) is not bool:
         raise ValueError(f"autotune must be a bool, got {type(autotune).__name__}")
     if type(dynamic_batch) is not bool:
@@ -304,14 +383,34 @@ def compile_model(
     if type(enable_fusion) is not bool:
         raise ValueError(f"enable_fusion must be a bool, got {type(enable_fusion).__name__}")
 
+    if not isinstance(compiler_opt_level, str):
+        raise TypeError(f"compiler_opt_level must be a string, got {type(compiler_opt_level).__name__}")
+
     if tile_sizes is not None:
-        if len(tile_sizes) != 3 or any(type(t) is not int or t <= 0 for t in tile_sizes):
-            raise ValueError(f"tile_sizes must be a 3-tuple of positive integers, got {tile_sizes}")
+        if not isinstance(tile_sizes, (tuple, list)) or len(tile_sizes) != 3 or any(type(t) is not int or t <= 0 for t in tile_sizes):
+            raise ValueError(f"tile_sizes must be a 3-tuple/list of positive integers, got {tile_sizes}")
 
     norm_opt = compiler_opt_level if compiler_opt_level.startswith("-") or compiler_opt_level.startswith("/") else f"-{compiler_opt_level}"
     valid_opts = {"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "/Od", "/O1", "/O2", "/Ox"}
     if norm_opt not in valid_opts and compiler_opt_level not in valid_opts:
         raise ValueError(f"Unsupported compiler optimization level: '{compiler_opt_level}'")
+
+    if autotune:
+        if kernel_variant is not None:
+            raise ValueError(
+                f"Cannot specify 'kernel_variant' ('{kernel_variant}') when autotune=True. "
+                "Autotuner automatically explores kernel variants. Set autotune=False for manual kernel selection."
+            )
+        if tile_sizes is not None:
+            raise ValueError(
+                f"Cannot specify 'tile_sizes' ({tile_sizes}) when autotune=True. "
+                "Autotuner automatically explores tile configurations. Set autotune=False for manual tile sizes."
+            )
+        if compiler_opt_level not in ("-O2", "O2", "/O2"):
+            raise ValueError(
+                f"Cannot override 'compiler_opt_level' ('{compiler_opt_level}') when autotune=True. "
+                "Autotuning explores compiler optimization levels automatically. Set autotune=False for manual optimization level."
+            )
 
     # Enforce CPU execution contract on model parameters, buffers, and example inputs
     for name, p in model.named_parameters():
@@ -325,28 +424,28 @@ def compile_model(
             raise ValueError(f"Example input {i} is on device '{getattr(t, 'device', 'unknown')}', but ForgeTune requires CPU tensors.")
 
     os.makedirs(output_dir, exist_ok=True)
-    model.eval()
+    orig_training = getattr(model, "training", False)
+    try:
+        model.eval()
 
-    # 1. Export frontend
-    ir_graph = export_to_forgetune_ir(model, example_inputs, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
-    graph_json_str = ir_graph.to_json()
-    graph_hash = _compute_graph_sha256(graph_json_str)
+        # 1. Export frontend
+        ir_graph = export_to_forgetune_ir(model, example_inputs, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
+        graph_json_str = ir_graph.to_json()
+        graph_hash = _compute_graph_sha256(graph_json_str)
 
-    # Convert example input to numpy
-    ex_np = example_inputs[0].detach().cpu().to(torch.float32).numpy()
+        # Convert example input to numpy
+        ex_np = example_inputs[0].detach().cpu().to(torch.float32).numpy()
 
-    # Compute reference output using PyTorch model
-    with torch.no_grad():
-        torch_out = model(*example_inputs)
-        if isinstance(torch_out, tuple):
-            torch_out = torch_out[0]
-        ref_np = torch_out.detach().cpu().to(torch.float32).numpy()
+        # Compute reference output using PyTorch model
+        with torch.no_grad():
+            torch_out = model(*example_inputs)
+            if isinstance(torch_out, tuple):
+                torch_out = torch_out[0]
+            ref_np = torch_out.detach().cpu().to(torch.float32).numpy()
 
-    native_compiler = NativeCompiler()
-    compiler_info = native_compiler.get_compiler_info()
+        native_compiler = NativeCompiler()
+        compiler_info = native_compiler.get_compiler_info()
 
-    if autotune:
-        tuner = Autotuner(native_compiler=native_compiler)
         def oracle(x_arr: np.ndarray) -> np.ndarray:
             with torch.no_grad():
                 t = torch.from_numpy(x_arr)
@@ -355,84 +454,97 @@ def compile_model(
                     out = out[0]
                 return out.detach().cpu().to(torch.float32).numpy()
 
-        selected_cand, tuning_report = tuner.tune(
-            graph=ir_graph,
-            example_input=ex_np,
-            reference_output=ref_np,
-            artifacts_dir=output_dir,
-            max_budget=max_autotune_budget,
-            oracle=oracle
+        if autotune:
+            tuner = Autotuner(native_compiler=native_compiler)
+            selected_cand, tuning_report = tuner.tune(
+                graph=ir_graph,
+                example_input=ex_np,
+                reference_output=ref_np,
+                artifacts_dir=output_dir,
+                max_budget=max_autotune_budget,
+                oracle=oracle,
+                force_fusion=enable_fusion
+            )
+            cand_provenance_hash = _get_candidate_provenance_hash(graph_hash, selected_cand)
+            cand_dir = os.path.join(output_dir, f"{selected_cand.candidate_id}_{cand_provenance_hash}")
+            os.makedirs(cand_dir, exist_ok=True)
+            dll_ext = ".dll" if sys.platform == "win32" else ".so"
+            final_cpp_path = os.path.join(cand_dir, "kernel.cpp")
+            final_dll_path = os.path.join(cand_dir, f"kernel_{cand_provenance_hash}{dll_ext}")
+            opt_report = tuning_report
+
+            if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info, final_dll_path, final_cpp_path):
+                cand_json_path = os.path.join(cand_dir, "graph.json")
+                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, cand_json_path)
+                native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=selected_cand.opt_level)
+                _verify_rebuilt_artifact(final_dll_path, ir_graph, ex_np, ref_np, oracle, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
+                _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
+        else:
+            # Explicit or baseline compilation
+            VALID_VARIANTS = {"naive_ijk", "loop_ikj", "tiled", "fused_ikj", "fused_tiled"}
+            variant = kernel_variant or "naive_ijk"
+            if variant not in VALID_VARIANTS:
+                raise ValueError(f"Unknown kernel variant: '{variant}'. Valid variants: {sorted(list(VALID_VARIANTS))}")
+            cand_id = "baseline" if (variant == "naive_ijk" and not enable_fusion) else variant
+            tile_m = tile_sizes[0] if tile_sizes else None
+            tile_n = tile_sizes[1] if tile_sizes else None
+            tile_k = tile_sizes[2] if tile_sizes else None
+
+            selected_cand = KernelCandidate(
+                cand_id, variant, enable_fusion=enable_fusion,
+                tile_m=tile_m, tile_n=tile_n, tile_k=tile_k,
+                opt_level=compiler_opt_level
+            )
+            cand_provenance_hash = _get_candidate_provenance_hash(graph_hash, selected_cand)
+            cand_dir = os.path.join(output_dir, f"{selected_cand.candidate_id}_{cand_provenance_hash}")
+            os.makedirs(cand_dir, exist_ok=True)
+            dll_ext = ".dll" if sys.platform == "win32" else ".so"
+            final_json_path = os.path.join(cand_dir, "graph.json")
+            final_cpp_path = os.path.join(cand_dir, "kernel.cpp")
+            final_dll_path = os.path.join(cand_dir, f"kernel_{cand_provenance_hash}{dll_ext}")
+
+            if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info, final_dll_path, final_cpp_path):
+                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, final_json_path)
+                native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=compiler_opt_level)
+                _verify_rebuilt_artifact(final_dll_path, ir_graph, ex_np, ref_np, oracle, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
+                _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
+
+            opt_report = {"selected_candidate": selected_cand.to_dict()}
+
+        with open(final_cpp_path, "r", encoding="utf-8") as f:
+            cpp_source = f.read()
+
+        # Load runtime
+        if dynamic_batch or ir_graph.has_dynamic_batch():
+            in_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ex_np.shape))
+            out_node = ir_graph.nodes[ir_graph.outputs[0]]
+            out_is_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
+            out_shape = tuple(-1 if (out_is_dyn and i == 0) else s for i, s in enumerate(ref_np.shape))
+        else:
+            in_shape = tuple(ex_np.shape)
+            out_shape = tuple(ref_np.shape)
+
+        runtime = NativeRuntime(final_dll_path, in_shape, out_shape)
+
+        # Create and save manifest
+        manifest_data = create_manifest(
+            model_name=model.__class__.__name__,
+            input_shapes=[list(in_shape)],
+            output_shape=list(out_shape),
+            kernel_config=selected_cand.to_dict(),
+            compiler_info=native_compiler.get_compiler_info(),
+            artifacts={
+                "cpp_source": final_cpp_path,
+                "shared_library": final_dll_path
+            },
+            optimization_summary=opt_report
         )
-        cand_id = selected_cand.candidate_id
-        cand_dir = os.path.join(output_dir, cand_id)
-        os.makedirs(cand_dir, exist_ok=True)
-        final_cpp_path = os.path.join(cand_dir, "kernel.cpp")
-        final_dll_path = os.path.join(cand_dir, "kernel.dll")
-        opt_report = tuning_report
+        manifest_path = os.path.join(output_dir, "manifest.json")
+        write_atomic_json(manifest_path, manifest_data)
 
-        if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info):
-            cand_json_path = os.path.join(cand_dir, "graph.json")
-            emit_cpp_source(ir_graph, selected_cand, final_cpp_path, cand_json_path)
-            native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=selected_cand.opt_level)
-            _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
-    else:
-        # Explicit or baseline compilation
-        VALID_VARIANTS = {"naive_ijk", "loop_ikj", "tiled", "fused_ikj", "fused_tiled"}
-        variant = kernel_variant or "naive_ijk"
-        if variant not in VALID_VARIANTS:
-            raise ValueError(f"Unknown kernel variant: '{variant}'. Valid variants: {sorted(list(VALID_VARIANTS))}")
-        cand_id = "baseline" if (variant == "naive_ijk" and not enable_fusion) else variant
-        tile_m = tile_sizes[0] if tile_sizes else None
-        tile_n = tile_sizes[1] if tile_sizes else None
-        tile_k = tile_sizes[2] if tile_sizes else None
-
-        selected_cand = KernelCandidate(
-            cand_id, variant, enable_fusion=enable_fusion,
-            tile_m=tile_m, tile_n=tile_n, tile_k=tile_k,
-            opt_level=compiler_opt_level
-        )
-        cand_dir = os.path.join(output_dir, cand_id)
-        os.makedirs(cand_dir, exist_ok=True)
-        final_json_path = os.path.join(cand_dir, "graph.json")
-        final_cpp_path = os.path.join(cand_dir, "kernel.cpp")
-        final_dll_path = os.path.join(cand_dir, "kernel.dll")
-
-        if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info):
-            emit_cpp_source(ir_graph, selected_cand, final_cpp_path, final_json_path)
-            native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=compiler_opt_level)
-            _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
-
-        opt_report = {"selected_candidate": selected_cand.to_dict()}
-
-    with open(final_cpp_path, "r", encoding="utf-8") as f:
-        cpp_source = f.read()
-
-    # Load runtime
-    if dynamic_batch or ir_graph.has_dynamic_batch():
-        in_shape = tuple(-1 if i == 0 else s for i, s in enumerate(ex_np.shape))
-        out_node = ir_graph.nodes[ir_graph.outputs[0]]
-        out_is_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
-        out_shape = tuple(-1 if (out_is_dyn and i == 0) else s for i, s in enumerate(ref_np.shape))
-    else:
-        in_shape = tuple(ex_np.shape)
-        out_shape = tuple(ref_np.shape)
-
-    runtime = NativeRuntime(final_dll_path, in_shape, out_shape)
-
-    # Create and save manifest
-    manifest_data = create_manifest(
-        model_name=model.__class__.__name__,
-        input_shapes=[list(in_shape)],
-        output_shape=list(out_shape),
-        kernel_config=selected_cand.to_dict(),
-        compiler_info=native_compiler.get_compiler_info(),
-        artifacts={
-            "cpp_source": final_cpp_path,
-            "shared_library": final_dll_path
-        },
-        optimization_summary=opt_report
-    )
-    manifest_path = os.path.join(output_dir, "manifest.json")
-    write_atomic_json(manifest_path, manifest_data)
-
-    return CompiledModel(runtime, manifest_data, cpp_source, opt_report)
+        return CompiledModel(runtime, manifest_data, cpp_source, opt_report)
+    finally:
+        if orig_training:
+            model.train(True)
+        else:
+            model.eval()

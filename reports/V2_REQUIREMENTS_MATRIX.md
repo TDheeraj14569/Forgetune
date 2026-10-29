@@ -21,7 +21,7 @@
 | **REQ-05** | **IR & Schema** | Versioned IR schema 2.0 with symbolic dimension representation | `include/forgetune/ir.hpp`, `src/json_io.cpp` | `tests/unit/test_v2_ir.py` | Executed cleanly | **VERIFIED** |
 | **REQ-06** | **IR & Schema** | Rank-4 tensor shape metadata ($[B, C, H, W]$) | `include/forgetune/ir.hpp`, `src/graph_verifier.cpp` | `tests/unit/test_v2_ir.py` | Executed cleanly | **VERIFIED** |
 | **REQ-07** | **Operators** | Elementwise multiplication (`MUL`) with broadcast support | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_operators.py` | Executed cleanly | **VERIFIED** |
-| **REQ-08** | **Operators** | Numerically stable `SIGMOID` activation | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_operators.py` | Executed cleanly | **VERIFIED** |
+| **REQ-08** | **Operators** | IEEE 754 float32 `SIGMOID` activation ($\sigma(x) = \frac{1}{1 + e^{-x}}$ with asymptotic saturation) | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_operators.py` | Executed cleanly | **VERIFIED** |
 | **REQ-09** | **Operators** | Numerically stable `TANH` activation | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_operators.py` | Executed cleanly | **VERIFIED** |
 | **REQ-10** | **Operators** | Float32 2D Convolution (`CONV2D`) NCHW, OIHW, stride, pad, dil | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_conv2d.py` | Executed cleanly | **VERIFIED** |
 | **REQ-11** | **Operators** | Tensor spatial flattening (`FLATTEN`) preserving batch dimension | `src/interpreter.cpp`, `src/codegen.cpp` | `tests/unit/test_v2_operators.py` | Executed cleanly | **VERIFIED** |
@@ -48,6 +48,6 @@
 
 1. **Specification Coverage:** 27 out of 27 requirements (**100.0%**) are implemented in source code.
 2. **Direct Empirical Verification:** 27 out of 27 requirements (**100.0%**) are empirically verified by passing automated tests across both Windows CI ([Run 40174972712](https://github.com/TDheeraj14569/Forgetune/actions/runs/40174972712)) and the local environment. Zero requirements failed, zero blocked.
-3. **Defensible Test Inventory:** Exactly **204 enumerated test identifiers, with overlapping execution** (191 collected pytest items + 13 standalone native C++ test functions).
-4. **Outcome Totals:** 204 passed (191 Python items + 13 Native C++ test functions), 0 blocked, 0 failed (100% pass rate).
+3. **Defensible Test Inventory:** Exactly **248 enumerated test identifiers** (235 collected pytest items + 13 standalone native C++ test functions).
+4. **Outcome Totals:** 248 passed (235 Python items + 13 Native C++ test functions), 0 blocked, 0 failed (100% pass rate).
 5. **Execution Success:** Three-round verification protocol runs to completion with **EXIT CODE 0** in `--mode=full` across all three rounds, including 100% bitwise identity (0/65,536 mismatched floats) across independent compilations.

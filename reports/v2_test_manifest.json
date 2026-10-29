@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_python_tests_collected": 206,
-    "python_passed": 206,
+    "total_python_tests_collected": 235,
+    "python_passed": 235,
     "python_failed_blocked": 0,
     "python_error_blocked": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 219,
-    "total_passing": 219,
+    "total_tests_available": 248,
+    "total_passing": 248,
     "total_blocked_by_sac": 0
   },
   "native_cpp_test_cases": [
@@ -411,6 +411,93 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_regression_memory_planner_excludes_graph_outputs": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_json_eof_and_escape_decoding": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_memory_planner_arithmetic_overflow": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_flatten_start_end_dims": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_reshape_target_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_scalar_arithmetic_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_non_float32_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cli_strict_parsing_and_bogus_flags": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_graph_from_dict_duplicate_node_id_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotuner_cache_provenance_and_rng_isolation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_dynamic_input_static_output": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_static_view_reshape_minus_one_inference": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_relu_nan_preservation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_json_unicode_surrogate_pairs_and_strict_grammar": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_channel_broadcast_rank3": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cpp_interpreter_non_contiguous_numpy_input": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_native_compiler_opt_level_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cross_model_artifact_reuse_prevention": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_dynamic_reshape_rejects_fixed_batch_one": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_exact_64bit_integer_json_parsing": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_strict_json_commas_and_trailing_characters": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_closed_runtime_lifecycle": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_api_parameter_strict_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_kernel_config_immutable_dirs_and_no_stale_reuse": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotune_parameter_conflicts_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_compile_model_preserves_training_state": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_rebuild_after_artifact_purge_verifies_correctness": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_json_parsing_null_duplicate_keys_and_nonfinite": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_graph_adapter_strict_types_and_canonical_ops": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

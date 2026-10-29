@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](CMakeLists.txt)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/Tests-242%2F242%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-248%2F248%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Verification](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
 **ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state heap allocations.
@@ -123,24 +123,25 @@ To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block 
 
 ---
 
-## 5. Quickstart & Usage
+## 5. Quickstart & Installation
 
-### Prerequisites
-- Python 3.11 or 3.12
-- C++17 compatible toolchain (Zig C++ bundled via `ziglang` Python package, or Clang/GCC/MSVC)
+### Prerequisites & Verified Platforms
+- **Python:** 3.11 or 3.12
+- **Windows:** Windows 11 / Windows Server 2022 (AMD64, C++17, Python 3.11/3.12, Zig toolchain, MSVC ABI compatibility)
+- **Linux:** Ubuntu 22.04 / 24.04 (x86_64, GCC 12+ / Clang 16+, Python 3.11/3.12, POSIX toolchains)
 
-### Installation
-```powershell
-# Clone repository
+### Installation & Fresh Checkout Preparation
+```bash
+# 1. Clone repository
 git clone https://github.com/TDheeraj14569/Forgetune.git
 cd Forgetune
 
-# Create and activate virtual environment
-python -m venv .venv
-.\.venv\Scripts\activate
+# 2. Install dependencies and the package in editable mode
+pip install -r requirements.txt
+pip install -e .
 
-# Install required dependencies
-pip install torch numpy pytest ziglang pybind11
+# 3. Build native C++ targets (engine CLI, pybind11 extension, and standalone test suite)
+python scripts/build_native.py
 ```
 
 ### Compiling and Running a Dynamic Model
@@ -188,7 +189,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite:
 
 ```powershell
-# 1. Run full Python test suite (229 tests)
+# 1. Run full Python test suite (235 tests)
 .\.venv\Scripts\python.exe -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -199,8 +200,8 @@ The repository enforces a defensible, multi-tier automated test suite:
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **242 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **229 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, dual-ABI contracts, regression suites for identity models, tile boundaries, commutative broadcast, multi-process determinism, and 38 audit defect regressions.
+- **Total Enumerated Tests:** **248 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **235 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 44 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-target x86_64-windows-gnu -I include -std=c++17 -O2 -Wall -Wextra`.

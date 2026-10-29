@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-28 22:50:54
+**Date:** 2026-10-29 15:32:44
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -80,8 +80,8 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 5
 ## 4. Systems Programming, Accounting & Safety Verification
 
 1. **Accounting Disambiguation (Section 4.8):**
-   - **Logical Intermediate Tensors:** Represents the total number of intermediate activation nodes created during model execution that require storage. Model A has 5 logical tensors, Model B has 9 logical tensors, and Model C has 7 logical tensors.
-   - **Physical Reusable Arena Slots:** Represents the number of distinct spatial memory offset slots packed into the arena by interval coloring. Model A reuses 2 physical slots, Model B reuses 4 physical slots, and Model C reuses 3 physical slots.
+   - **Logical Intermediate Tensors:** Represents the total number of intermediate activation nodes created during model execution that require storage. Model A has 4 logical tensors, Model B has 8 logical tensors, and Model C has 6 logical tensors.
+   - **Physical Reusable Arena Slots:** Represents the number of distinct spatial memory offset slots packed into the arena by interval coloring. Model A reuses 2 physical slots, Model B reuses 3 physical slots, and Model C reuses 3 physical slots.
    - **Alignment Overhead:** Every individual buffer is padded to a multiple of 64 bytes (`align_up(bytes)`), and every offset is 64-byte aligned (`offset % 64 == 0`).
    - **Excluded Memory:** Constant weights and biases (`CONST` nodes) are compiled into the native shared library `.rodata` section; caller input and final output tensors are allocated and owned by the caller.
    - **Calculation Type:** Peak activation memory is calculated analytically at compile-time via interval-coloring liveness analysis and verified directly via heap allocation tracking during execution.

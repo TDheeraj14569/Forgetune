@@ -1,26 +1,72 @@
 """
 Build script to compile all native ForgeTune C++ targets using Zig.
 Targets:
-1. python/forgetune/_forgetune_cpp.pyd (Pybind11 extension)
-2. bin/forgetune_engine.exe (Compiler engine CLI)
-3. bin/forgetune_test_suite.exe (C++ native test suite)
+1. python/forgetune/_forgetune_cpp.pyd (or .so on POSIX) (Pybind11 extension)
+2. bin/forgetune_engine.exe (or bin/forgetune_engine on POSIX) (Compiler engine CLI)
+3. bin/forgetune_test_suite.exe (or bin/forgetune_test_suite on POSIX) (C++ native test suite)
 """
 
 import os
 import sys
+import shutil
 import subprocess
+import sysconfig
+
+def find_zig():
+    # 1. PATH
+    on_path = shutil.which("zig")
+    if on_path:
+        return on_path
+
+    # 2. ziglang package in current python env
+    try:
+        import ziglang
+        zig_dir = os.path.dirname(ziglang.__file__)
+        exe_name = "zig.exe" if sys.platform == "win32" else "zig"
+        cand = os.path.join(zig_dir, exe_name)
+        if os.path.isfile(cand):
+            return cand
+    except ImportError:
+        pass
+
+    # 3. repo root .venv or common virtualenv locations
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    for base in [sys.prefix, repo_root, os.path.join(repo_root, ".venv")]:
+        for sub in [
+            ("Lib", "site-packages", "ziglang", "zig.exe"),
+            ("lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "ziglang", "zig"),
+            ("Scripts", "zig.exe"),
+            ("bin", "zig")
+        ]:
+            cand = os.path.join(base, *sub)
+            if os.path.isfile(cand):
+                return cand
+
+    return "zig"
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.chdir(repo_root)
 
-    zig_exe = os.path.join(repo_root, ".venv", "Lib", "site-packages", "ziglang", "zig.exe")
-    if not os.path.isfile(zig_exe):
-        zig_exe = "zig"
+    zig_exe = find_zig()
 
-    py_inc = os.path.expandvars(r"C:\Users\dheer\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\include")
-    py_lib = os.path.expandvars(r"C:\Users\dheer\AppData\Roaming\uv\python\cpython-3.12-windows-x86_64-none\libs\python312.lib")
-    pybind_inc = os.path.join(repo_root, ".venv", "Lib", "site-packages", "pybind11", "include")
+    # Portable Python include path discovery
+    py_inc = sysconfig.get_path("include")
+    if not py_inc or not os.path.isdir(py_inc):
+        py_inc = sysconfig.get_paths().get("include", "")
+
+    # Portable Pybind11 include path discovery
+    try:
+        import pybind11
+        pybind_inc = pybind11.get_include()
+    except ImportError:
+        pybind_inc = os.path.join(sys.prefix, "Lib", "site-packages", "pybind11", "include")
+        if not os.path.isdir(pybind_inc):
+            pybind_inc = os.path.join(repo_root, ".venv", "Lib", "site-packages", "pybind11", "include")
+
+    is_win = sys.platform == "win32"
+    pyd_ext = ".pyd" if is_win else ".so"
+    exe_ext = ".exe" if is_win else ""
 
     srcs_core = [
         "src/ir.cpp",
@@ -37,35 +83,67 @@ def main():
     os.makedirs("bin", exist_ok=True)
     os.makedirs("python/forgetune", exist_ok=True)
 
-    # 1. _forgetune_cpp.pyd
-    print("1. Compiling python/forgetune/_forgetune_cpp.pyd...")
+    target_flags = ["-target", "x86_64-windows-gnu"] if is_win else ["-fPIC"]
+
+    # 1. _forgetune_cpp extension
+    pyd_path = f"python/forgetune/_forgetune_cpp{pyd_ext}"
+    print(f"1. Compiling {pyd_path}...")
     cmd_pyd = [
         zig_exe, "c++",
-        "-target", "x86_64-windows-gnu",
+        *target_flags,
         "-shared",
         "-DFORGETUNE_EXCLUDE_MAIN",
-        "-o", "python/forgetune/_forgetune_cpp.pyd",
+        "-o", pyd_path,
         "src/bindings.cpp", "tests/cpp/test_main.cpp", *srcs_core,
         "-I", "include",
         "-I", py_inc,
         "-I", pybind_inc,
-        py_lib,
-        "-std=c++17", "-O2",
-        "-Wall", "-Wextra"
     ]
+
+    if is_win:
+        # Dynamically discover pythonXY.lib on Windows
+        lib_name = f"python{sys.version_info.major}{sys.version_info.minor}.lib"
+        py_lib = None
+        cand_dirs = [
+            os.path.join(sys.base_prefix, "libs"),
+            os.path.join(sys.prefix, "libs"),
+        ]
+        inst_base = sysconfig.get_config_var("installed_base")
+        if inst_base:
+            cand_dirs.append(os.path.join(inst_base, "libs"))
+
+        for d in cand_dirs:
+            if d and os.path.isfile(os.path.join(d, lib_name)):
+                py_lib = os.path.join(d, lib_name)
+                break
+
+        if not py_lib:
+            for root, _, files in os.walk(sys.base_prefix):
+                if lib_name in files:
+                    py_lib = os.path.join(root, lib_name)
+                    break
+
+        if py_lib:
+            cmd_pyd.append(py_lib)
+        else:
+            raise RuntimeError(f"Could not locate Windows Python import library '{lib_name}'")
+
+    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra"])
+
     res1 = subprocess.run(cmd_pyd, capture_output=True, text=True)
     if res1.returncode != 0:
-        print("Failed to compile _forgetune_cpp.pyd:")
+        print(f"Failed to compile {pyd_path}:")
         print(res1.stderr)
         sys.exit(res1.returncode)
-    print("   _forgetune_cpp.pyd compiled successfully.")
+    print(f"   {pyd_path} compiled successfully.")
 
-    # 2. forgetune_engine.exe
-    print("2. Compiling bin/forgetune_engine.exe...")
+    # 2. forgetune_engine executable
+    engine_path = f"bin/forgetune_engine{exe_ext}"
+    print(f"2. Compiling {engine_path}...")
     cmd_engine = [
         zig_exe, "c++",
-        "-target", "x86_64-windows-gnu",
-        "-o", "bin/forgetune_engine.exe",
+        *target_flags,
+        "-o", engine_path,
         "src/main.cpp", *srcs_core,
         "-I", "include",
         "-std=c++17", "-O2",
@@ -73,17 +151,18 @@ def main():
     ]
     res2 = subprocess.run(cmd_engine, capture_output=True, text=True)
     if res2.returncode != 0:
-        print("Failed to compile forgetune_engine.exe:")
+        print(f"Failed to compile {engine_path}:")
         print(res2.stderr)
         sys.exit(res2.returncode)
-    print("   forgetune_engine.exe compiled successfully.")
+    print(f"   {engine_path} compiled successfully.")
 
-    # 3. forgetune_test_suite.exe
-    print("3. Compiling bin/forgetune_test_suite.exe...")
+    # 3. forgetune_test_suite executable
+    suite_path = f"bin/forgetune_test_suite{exe_ext}"
+    print(f"3. Compiling {suite_path}...")
     cmd_suite = [
         zig_exe, "c++",
-        "-target", "x86_64-windows-gnu",
-        "-o", "bin/forgetune_test_suite.exe",
+        *target_flags,
+        "-o", suite_path,
         "tests/cpp/test_main.cpp", *srcs_core,
         "-I", "include",
         "-std=c++17", "-O2",
@@ -91,10 +170,10 @@ def main():
     ]
     res3 = subprocess.run(cmd_suite, capture_output=True, text=True)
     if res3.returncode != 0:
-        print("Failed to compile forgetune_test_suite.exe:")
+        print(f"Failed to compile {suite_path}:")
         print(res3.stderr)
         sys.exit(res3.returncode)
-    print("   forgetune_test_suite.exe compiled successfully.")
+    print(f"   {suite_path} compiled successfully.")
 
     print("\nALL NATIVE BINARIES BUILT CLEANLY WITH ZERO WARNINGS!")
 

@@ -442,6 +442,12 @@ class NativeRuntime:
                     ctypes.windll.kernel32.FreeLibrary(ctypes.c_void_p(self.lib._handle))
                 except Exception:
                     pass
+            elif sys.platform != "win32" and hasattr(self.lib, "_handle") and self.lib._handle:
+                try:
+                    import _ctypes
+                    _ctypes.dlclose(self.lib._handle)
+                except Exception:
+                    pass
             self.lib = None
 
     def __enter__(self):

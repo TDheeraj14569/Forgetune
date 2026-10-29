@@ -1,4 +1,5 @@
 import pytest
+import sys
 import torch
 import torch.nn as nn
 import numpy as np
@@ -992,6 +993,9 @@ def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
     """
     Audit P2: Recompiling a locked shared library must raise an informative CompilationError.
     """
+    if sys.platform != "win32":
+        pytest.skip("Shared library file locking during active execution is Windows-specific")
+
     class SimpleModel(nn.Module):
         def forward(self, x):
             return x
@@ -1069,5 +1073,271 @@ def test_regression_api_parameter_strict_validation():
     with pytest.raises(ValueError) as exc:
         compile_model(model, (x,), dynamic_batch=1)
     assert "dynamic_batch" in str(exc.value)
+
+
+def test_regression_kernel_config_immutable_dirs_and_no_stale_reuse(tmp_path):
+    """
+    Audit 4 P1.1: Different tile sizes or configurations under the same candidate ID
+    must generate distinct immutable directories/libraries and not reuse stale artifacts.
+    """
+    class LinearModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(32, 32, bias=False)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = LinearModel().eval()
+    x = torch.randn(2, 32)
+    out_dir = str(tmp_path / "tile_reuse_test")
+
+    # 1. Compile with tile_sizes=(8, 8, 8)
+    comp_8 = compile_model(
+        model, (x,),
+        output_dir=out_dir,
+        autotune=False,
+        kernel_variant="tiled",
+        tile_sizes=(8, 8, 8)
+    )
+    lib_path_8 = comp_8.manifest()["artifacts"]["shared_library"]
+    manifest_8 = comp_8.manifest()
+
+    # 2. Compile same model with tile_sizes=(16, 16, 16) in the same output_dir
+    comp_16 = compile_model(
+        model, (x,),
+        output_dir=out_dir,
+        autotune=False,
+        kernel_variant="tiled",
+        tile_sizes=(16, 16, 16)
+    )
+    lib_path_16 = comp_16.manifest()["artifacts"]["shared_library"]
+    manifest_16 = comp_16.manifest()
+
+    # Must produce distinct paths and distinct tile configurations
+    assert lib_path_8 != lib_path_16, f"Expected distinct library paths, got {lib_path_8}"
+    assert manifest_8["kernel_config"]["tile_sizes"] == (8, 8, 8)
+    assert manifest_16["kernel_config"]["tile_sizes"] == (16, 16, 16)
+
+    comp_8.close()
+    comp_16.close()
+
+
+def test_regression_autotune_parameter_conflicts_rejected(tmp_path):
+    """
+    Audit 4 P2.5: Specifying manual kernel_variant or tile_sizes when autotune=True
+    must raise explicit ValueError rather than being silently ignored.
+    """
+    class SimpleModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    model = SimpleModel().eval()
+    x = torch.randn(2, 4)
+    out_dir = str(tmp_path / "autotune_conflict_test")
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), output_dir=out_dir, autotune=True, kernel_variant="tiled")
+    assert "Cannot specify 'kernel_variant'" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), output_dir=out_dir, autotune=True, tile_sizes=(8, 8, 8))
+    assert "Cannot specify 'tile_sizes'" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        compile_model(model, (x,), output_dir=out_dir, autotune=True, compiler_opt_level="-O0")
+    assert "Cannot override 'compiler_opt_level'" in str(exc.value)
+
+
+def test_regression_compile_model_preserves_training_state(tmp_path):
+    """
+    Audit 4 P3.12: compile_model() must preserve the caller's model.training state.
+    """
+    class SimpleModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleModel()
+    model.train(True)
+    assert model.training is True
+
+    x = torch.randn(2, 4)
+    out_dir = str(tmp_path / "preserve_train_test")
+    compiled = compile_model(model, (x,), output_dir=out_dir, autotune=False)
+    try:
+        assert model.training is True, "Expected model.training to remain True after compile_model()"
+    finally:
+        compiled.close()
+
+
+def test_regression_rebuild_after_artifact_purge_verifies_correctness(tmp_path):
+    """
+    Audit 4 P2.4: Rebuilding an artifact after deletion exercises the differential correctness gate.
+    """
+    class SimpleModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleModel().eval()
+    x = torch.randn(2, 4)
+    out_dir = str(tmp_path / "rebuild_gate_test")
+
+    # Initial compilation
+    compiled = compile_model(model, (x,), output_dir=out_dir, autotune=False)
+    lib_path = compiled.manifest()["artifacts"]["shared_library"]
+    compiled.close()
+
+    # Delete the compiled library to force a rebuild
+    os.remove(lib_path)
+    assert not os.path.exists(lib_path)
+
+    # Recompiling should rebuild, execute verification gate, and succeed
+    rebuilt = compile_model(model, (x,), output_dir=out_dir, autotune=False)
+    try:
+        out = rebuilt.run(x)
+        ref = model(x).detach().numpy()
+        np.testing.assert_allclose(out, ref, rtol=1e-5, atol=1e-5)
+    finally:
+        rebuilt.close()
+
+
+def test_regression_json_parsing_null_duplicate_keys_and_nonfinite(tmp_path):
+    """
+    Audit 4 P2.9 & P3.10: C++ JSON parser supports null, rejects duplicate keys,
+    rejects malformed nested unknown fields, and rejects non-finite constants.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    # 1. Valid JSON with null value in unknown field
+    json_with_null = """{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "extra_meta": null,
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+      ]
+    }"""
+    g = cpp.json_to_graph(json_with_null)
+    assert g.live_node_count() == 1
+
+    # 2. Duplicate property in root object
+    json_dup_root = """{
+      "schema_version_major": 2,
+      "schema_version_major": 2,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": []
+    }"""
+    with pytest.raises(Exception) as exc:
+        cpp.json_to_graph(json_dup_root)
+    assert "duplicate property" in str(exc.value)
+
+    # 3. Duplicate property in node object
+    json_dup_node = """{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+      ]
+    }"""
+    with pytest.raises(Exception) as exc:
+        cpp.json_to_graph(json_dup_node)
+    assert "duplicate property" in str(exc.value)
+
+    # 4. Malformed nested unknown field
+    json_malformed_nested = """{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "unknown_block": { "bad": [1, 2, } },
+      "nodes": [
+        {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+      ]
+    }"""
+    with pytest.raises(Exception) as exc:
+        cpp.json_to_graph(json_malformed_nested)
+
+    # 5. Non-finite constant in const_data
+    json_inf_const = """{
+      "schema_version_major": 2,
+      "schema_version_minor": 0,
+      "max_batch_size": 128,
+      "inputs": [0],
+      "outputs": [0],
+      "nodes": [
+        {"id": 0, "op": "CONST", "name": "c", "inputs": [], "shape": [1], "dtype": "f32", "const_data": [1e40]}
+      ]
+    }"""
+    with pytest.raises(Exception) as exc:
+        cpp.json_to_graph(json_inf_const)
+    assert "overflow" in str(exc.value) or "non-finite" in str(exc.value)
+
+
+def test_regression_graph_adapter_strict_types_and_canonical_ops():
+    """
+    Audit 4 P2.7 & P2.8: Python Graph.from_dict() rejects booleans as ints,
+    normalizes aliases (CONSTANT -> CONST), and rejects unsupported ops (SUB, DIV).
+    """
+    from forgetune.graph_adapter import Graph
+    from forgetune.errors import InvalidGraphError, UnsupportedOpError
+
+    base_dict = {
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [0],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+        ]
+    }
+
+    # Reject boolean as max_batch_size
+    bad_batch = dict(base_dict, max_batch_size=True)
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict(bad_batch)
+
+    # Reject boolean as node id
+    bad_id = dict(base_dict, nodes=[
+        {"id": True, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+    ])
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict(bad_id)
+
+    # Reject SUB op
+    bad_op = dict(base_dict, nodes=[
+        {"id": 0, "op": "SUB", "name": "s", "inputs": [], "shape": [1, 4], "dtype": "f32"}
+    ])
+    with pytest.raises(UnsupportedOpError):
+        Graph.from_dict(bad_op)
+
+    # Normalize CONSTANT alias
+    alias_dict = {
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [0],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4], "dtype": "f32"},
+            {"id": 1, "op": "CONSTANT", "name": "c", "inputs": [], "shape": [1], "dtype": "f32", "const_data": [1.0]}
+        ]
+    }
+    g = Graph.from_dict(alias_dict)
+    assert g.nodes[1].op == "CONST"
+
 
 

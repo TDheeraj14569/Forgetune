@@ -32,6 +32,11 @@ class Node:
         self.conv_attrs = conv_attrs or {}
 
     def to_dict(self) -> Dict[str, Any]:
+        if self.const_data:
+            import math
+            for c in self.const_data:
+                if type(c) is bool or not isinstance(c, (int, float)) or not math.isfinite(c) or abs(c) > 3.4028235e38:
+                    raise InvalidGraphError(f"Non-finite or overflowing float32 constant value in node {self.id}: {c}")
         d = {
             "id": self.id,
             "op": self.op,
@@ -139,29 +144,45 @@ class Graph:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Graph":
-        schema_major = d.get("schema_version_major", 2)
-        if schema_major not in (1, 2):
-            raise InvalidGraphError(f"Unsupported schema_version_major: {schema_major} (supported: 1 or 2)")
+        import math
+        if "schema_version_major" in d:
+            schema_major = d["schema_version_major"]
+            if type(schema_major) is not int or schema_major not in (1, 2):
+                raise InvalidGraphError(f"Unsupported schema_version_major: {schema_major} (supported: 1 or 2)")
+        else:
+            schema_major = 2
+
+        if "schema_version_minor" in d:
+            schema_minor = d["schema_version_minor"]
+            if type(schema_minor) is not int or schema_minor != 0:
+                raise InvalidGraphError(f"Unsupported schema_version_minor: {schema_minor} (supported: 0)")
+
         g = cls()
         max_batch = d.get("max_batch_size", 128)
-        if not isinstance(max_batch, int) or max_batch <= 0:
-            raise InvalidGraphError(f"max_batch_size must be a positive integer, got {max_batch}")
+        if type(max_batch) is not int or not (1 <= max_batch <= 1000000):
+            raise InvalidGraphError(f"max_batch_size must be an integer between 1 and 1000000, got {max_batch}")
         g.max_batch_size = max_batch
 
         inputs = d.get("inputs", [])
         if not isinstance(inputs, list):
             raise InvalidGraphError(f"inputs must be a list, got {type(inputs).__name__}")
+        for in_id in inputs:
+            if type(in_id) is not int or in_id < 0:
+                raise InvalidGraphError(f"Input node ID must be a non-negative int, got {in_id} ({type(in_id).__name__})")
         g.set_inputs(inputs)
 
         outputs = d.get("outputs", [])
         if not isinstance(outputs, list):
             raise InvalidGraphError(f"outputs must be a list, got {type(outputs).__name__}")
+        for out_id in outputs:
+            if type(out_id) is not int or out_id < 0:
+                raise InvalidGraphError(f"Output node ID must be a non-negative int, got {out_id} ({type(out_id).__name__})")
         g.set_outputs(outputs)
 
-        VALID_OPS = {
-            "INPUT", "CONST", "CONSTANT", "MATMUL", "ADD", "MUL", "SUB", "DIV",
+        CANONICAL_OPS = {
+            "INPUT", "CONST", "MATMUL", "ADD", "MUL",
             "RELU", "SIGMOID", "TANH", "FLATTEN", "CONV2D", "FUSED_CONV2D_RELU",
-            "FUSED_MATMUL_ADD_RELU", "FUSED_MATMUL_BIAS_RELU", "OUTPUT"
+            "FUSED_MATMUL_ADD_RELU", "OUTPUT"
         }
 
         seen_ids = set()
@@ -169,22 +190,28 @@ class Graph:
             if not isinstance(nd, dict):
                 raise InvalidGraphError(f"Node element must be a dict, got {type(nd).__name__}")
             nid = nd.get("id")
-            if not isinstance(nid, int) or nid < 0:
-                raise InvalidGraphError(f"Node id must be a non-negative int, got {nid}")
+            if type(nid) is not int or nid < 0:
+                raise InvalidGraphError(f"Node id must be a non-negative int, got {nid} ({type(nid).__name__})")
             if nid in seen_ids:
                 raise InvalidGraphError(f"Duplicate node ID in JSON: {nid}")
             seen_ids.add(nid)
 
-            op = str(nd.get("op", "")).upper()
-            if op not in VALID_OPS:
-                raise UnsupportedOpError(f"Unsupported node op: '{op}'")
+            raw_op = str(nd.get("op", "")).upper()
+            if raw_op == "CONSTANT":
+                op = "CONST"
+            elif raw_op == "FUSED_MATMUL_BIAS_RELU":
+                op = "FUSED_MATMUL_ADD_RELU"
+            elif raw_op in CANONICAL_OPS:
+                op = raw_op
+            else:
+                raise UnsupportedOpError(f"Unsupported node op: '{raw_op}'")
 
             shape = nd.get("shape", [])
             if not isinstance(shape, list):
                 raise InvalidShapeError(f"Node shape must be a list, got {type(shape).__name__}")
             for dim_idx, s in enumerate(shape):
-                if not isinstance(s, int):
-                    raise InvalidShapeError(f"Node shape dimensions must be ints, got {s}")
+                if type(s) is not int:
+                    raise InvalidShapeError(f"Node shape dimensions must be ints, got {s} ({type(s).__name__})")
                 if s == -1:
                     if dim_idx != 0:
                         raise InvalidShapeError(f"Dynamic dimension -1 is only supported on leading batch dimension, got shape {shape}")
@@ -194,8 +221,23 @@ class Graph:
             node_inputs = nd.get("inputs", [])
             if not isinstance(node_inputs, list):
                 raise InvalidGraphError(f"Node inputs must be a list, got {type(node_inputs).__name__}")
+            for op_id in node_inputs:
+                if type(op_id) is not int or op_id < 0:
+                    raise InvalidGraphError(f"Node input operand ID must be a non-negative int, got {op_id} ({type(op_id).__name__})")
 
-            node = Node.from_dict(nd)
+            const_data = nd.get("const_data", [])
+            if const_data is not None:
+                if not isinstance(const_data, list):
+                    raise InvalidGraphError(f"const_data must be a list, got {type(const_data).__name__}")
+                for c in const_data:
+                    if type(c) is bool or not isinstance(c, (int, float)):
+                        raise InvalidGraphError(f"const_data element must be a float or int, got {c}")
+                    if not math.isfinite(c) or abs(c) > 3.4028235e38:
+                        raise InvalidGraphError(f"Non-finite or overflowing float32 constant value: {c}")
+
+            nd_copy = dict(nd)
+            nd_copy["op"] = op
+            node = Node.from_dict(nd_copy)
             g.add_node(node)
 
         # Validate graph inputs

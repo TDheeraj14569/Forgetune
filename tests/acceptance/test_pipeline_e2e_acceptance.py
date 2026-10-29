@@ -69,7 +69,8 @@ def test_acceptance_single_linear_no_bias(temp_output_dir):
     )
 
     assert isinstance(compiled, CompiledModel)
-    assert os.path.isfile(os.path.join(temp_output_dir, "baseline", "kernel.dll"))
+    lib_path = compiled.manifest()["artifacts"]["shared_library"]
+    assert os.path.isfile(lib_path)
     assert os.path.isfile(os.path.join(temp_output_dir, "manifest.json"))
 
     # Execute compiled model

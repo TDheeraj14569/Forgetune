@@ -6,6 +6,8 @@ passing candidates on the host machine, and selects the optimal plan with cachin
 """
 
 import os
+import sys
+import platform
 import hashlib
 import json
 import numpy as np
@@ -69,7 +71,7 @@ class Autotuner:
         self.atol = atol
         self.rtol = rtol
 
-    def get_candidate_space(self, max_budget: int = 8) -> List[KernelCandidate]:
+    def get_candidate_space(self, max_budget: int = 8, force_fusion: bool = False) -> List[KernelCandidate]:
         """
         Defines a bounded, deterministic search space of kernel configurations.
         """
@@ -93,6 +95,8 @@ class Autotuner:
             # 8. Fused kernel with -O3
             KernelCandidate("fused_ikj_o3", "fused_ikj", enable_fusion=True, opt_level="-O3"),
         ]
+        if force_fusion:
+            candidates = [c for c in candidates if c.enable_fusion]
         return candidates[:max_budget]
 
     def _get_compiler_sources_fingerprint(self) -> str:
@@ -115,20 +119,33 @@ class Autotuner:
                     h.update(f.read())
         return h.hexdigest()
 
-    def _compute_cache_key(self, graph_json: str, input_shape: Tuple[int, ...], max_budget: int = 8) -> str:
+    def _compute_cache_key(
+        self,
+        graph_json: str,
+        input_shape: Tuple[int, ...],
+        max_budget: int = 8,
+        force_fusion: bool = False
+    ) -> str:
         h = hashlib.sha256()
-        h.update(b"forgetune_v6_reproducible_provenance_2.0_")
+        h.update(b"forgetune_v7_complete_provenance_2.0_")
         h.update(graph_json.encode("utf-8"))
         h.update(str(input_shape).encode("utf-8"))
         h.update(str(max_budget).encode("utf-8"))
+        h.update(str(force_fusion).encode("utf-8"))
         h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
         h.update(self._get_compiler_sources_fingerprint().encode("utf-8"))
+        h.update(sys.platform.encode("utf-8"))
+        h.update(platform.machine().encode("utf-8"))
         compiler_info = self.compiler.get_compiler_info()
         h.update(str(compiler_info.get("type", "")).encode("utf-8"))
         h.update(str(compiler_info.get("version", "")).encode("utf-8"))
+        h.update(str(compiler_info.get("path", "")).encode("utf-8"))
         machine_meta = get_machine_metadata()
         h.update(str(machine_meta.get("processor", "")).encode("utf-8"))
         h.update(str(machine_meta.get("machine", "")).encode("utf-8"))
+        cands = self.get_candidate_space(max_budget, force_fusion=force_fusion)
+        cand_list_str = json.dumps([c.to_dict() for c in cands], sort_keys=True)
+        h.update(cand_list_str.encode("utf-8"))
         return h.hexdigest()
 
     def select_best_candidate(
@@ -265,7 +282,8 @@ class Autotuner:
         artifacts_dir: str,
         max_budget: int = 8,
         use_cache: bool = True,
-        oracle: Optional[Any] = None
+        oracle: Optional[Any] = None,
+        force_fusion: bool = False
     ) -> Tuple[KernelCandidate, Dict[str, Any]]:
         """
         Runs correctness-gated autotuning across candidate configurations.
@@ -279,7 +297,7 @@ class Autotuner:
         input_shape = tuple(example_input.shape)
         output_shape = tuple(reference_output.shape)
 
-        cache_key = self._compute_cache_key(graph_json, input_shape, max_budget=max_budget)
+        cache_key = self._compute_cache_key(graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion)
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
         if use_cache and os.path.isfile(cache_file):
@@ -288,7 +306,7 @@ class Autotuner:
                     cached_report = json.load(f)
                 cand_data = cached_report["selected_candidate"]
                 selected = KernelCandidate(**cand_data)
-                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget)}
+                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget, force_fusion=force_fusion)}
                 if selected.candidate_id in valid_ids:
                     report_path = os.path.join(artifacts_dir, "autotuning_report.json")
                     write_atomic_json(report_path, cached_report)
@@ -296,7 +314,7 @@ class Autotuner:
             except Exception:
                 pass # Cache invalid/corrupted -> re-tune
 
-        candidates = self.get_candidate_space(max_budget)
+        candidates = self.get_candidate_space(max_budget, force_fusion=force_fusion)
         candidate_results = []
         verified_candidates = []
         best_candidate = None

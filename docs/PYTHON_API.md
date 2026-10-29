@@ -91,5 +91,5 @@ runtime = NativeRuntime(dll_path, expected_input_shape, expected_output_shape)
 output = runtime.run(input_array)
 ```
 - Direct artifact loading with full security metadata preservation (no stream deletion, no temporary staging). Bounded retries strictly for transient file contention.
-- Supports dual C ABI dispatch (`forgetune_run` vs `forgetune_run_v1`).
+- Supports versioned C ABI dispatch: `forgetune_run_v2` (64-bit dynamic batch), `forgetune_run_v1` (32-bit dynamic batch), and legacy `forgetune_run` (static).
 - Validates shapes, bounds, dtypes, and null pointers before invocation.

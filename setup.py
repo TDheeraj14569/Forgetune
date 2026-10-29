@@ -1,45 +1,34 @@
 import os
 import sys
 from setuptools import setup, find_packages
+from setuptools.command.build_ext import build_ext
 
-try:
-    from pybind11.setup_helpers import Pybind11Extension, build_ext
-    has_pybind11 = True
-except ImportError:
-    has_pybind11 = False
-
-ext_modules = []
-cmdclass = {}
-
-if has_pybind11:
-    ext_modules = [
-        Pybind11Extension(
-            "forgetune._forgetune_cpp",
-            [
-                "src/bindings.cpp",
-                "src/ir.cpp",
-                "src/graph_verifier.cpp",
-                "src/interpreter.cpp",
-                "src/pass_manager.cpp",
-                "src/optimizer.cpp",
-                "src/fusion.cpp",
-                "src/codegen.cpp",
-                "src/json_io.cpp",
-                "src/memory_planner.cpp",
-                "tests/cpp/test_main.cpp",
-            ],
-            include_dirs=["include"],
-            define_macros=[("FORGETUNE_EXCLUDE_MAIN", "1")],
-            cxx_std=17,
-        ),
-    ]
-    cmdclass["build_ext"] = build_ext
+class SmartBuildExt(build_ext):
+    def run(self):
+        ext_suffix = ".pyd" if sys.platform == "win32" else ".so"
+        target_path = os.path.join("python", "forgetune", f"_forgetune_cpp{ext_suffix}")
+        if os.path.isfile(target_path):
+            print(f"[setup.py] Found native extension: {target_path}")
+            return
+        build_script = os.path.join(os.path.dirname(__file__), "scripts", "build_native.py")
+        if os.path.isfile(build_script):
+            try:
+                import subprocess
+                print(f"[setup.py] Compiling native extension via scripts/build_native.py...")
+                subprocess.run([sys.executable, build_script], check=True)
+                return
+            except Exception as e:
+                print(f"[setup.py] scripts/build_native.py invocation failed: {e}")
+        try:
+            super().run()
+        except Exception as e:
+            print(f"[setup.py] Native C++ compilation deferred: {e}. Run 'python scripts/build_native.py' to build.")
 
 setup(
     name="forgetune",
     version="2.0.0",
     package_dir={"": "python"},
     packages=find_packages(where="python"),
-    ext_modules=ext_modules,
-    cmdclass=cmdclass,
+    package_data={"forgetune": ["*.pyd", "*.so", "*.dll"]},
+    cmdclass={"build_ext": SmartBuildExt},
 )

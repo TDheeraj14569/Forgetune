@@ -65,7 +65,7 @@ bool is_valid_json_number(const std::string& s) {
 }
 
 // Forward declarations for strict JSON integer parsing
-enum class TokType { LBRACE, RBRACE, LBRACKET, RBRACKET, COLON, COMMA, STRING, NUMBER, BOOLEAN, END_OF_FILE };
+enum class TokType { LBRACE, RBRACE, LBRACKET, RBRACKET, COLON, COMMA, STRING, NUMBER, BOOLEAN, NULL_VAL, END_OF_FILE };
 
 struct Token {
     TokType type;
@@ -101,7 +101,7 @@ int64_t parse_json_integer(const Token& tok, const std::string& field_name, int6
 
 OpKind string_to_opkind(const std::string& op_str) {
     if (op_str == "INPUT") return OpKind::INPUT;
-    if (op_str == "CONST") return OpKind::CONST;
+    if (op_str == "CONST" || op_str == "CONSTANT") return OpKind::CONST;
     if (op_str == "MATMUL") return OpKind::MATMUL;
     if (op_str == "ADD") return OpKind::ADD;
     if (op_str == "RELU") return OpKind::RELU;
@@ -111,7 +111,7 @@ OpKind string_to_opkind(const std::string& op_str) {
     if (op_str == "CONV2D") return OpKind::CONV2D;
     if (op_str == "FLATTEN") return OpKind::FLATTEN;
     if (op_str == "OUTPUT") return OpKind::OUTPUT;
-    if (op_str == "FUSED_MATMUL_ADD_RELU") return OpKind::FUSED_MATMUL_ADD_RELU;
+    if (op_str == "FUSED_MATMUL_ADD_RELU" || op_str == "FUSED_MATMUL_BIAS_RELU") return OpKind::FUSED_MATMUL_ADD_RELU;
     if (op_str == "FUSED_CONV2D_RELU") return OpKind::FUSED_CONV2D_RELU;
     throw InvalidGraphError("json_to_graph: Unknown op kind '" + op_str + "'");
 }
@@ -188,7 +188,11 @@ std::string graph_to_json(const IRGraph& graph) {
         oss << "      \"const_data\": [";
         for (size_t j = 0; j < n.const_data.size(); ++j) {
             if (j > 0) oss << ", ";
-            oss << std::setprecision(std::numeric_limits<float>::max_digits10) << n.const_data[j];
+            float f = n.const_data[j];
+            if (!std::isfinite(f)) {
+                throw InvalidGraphError("graph_to_json: non-finite float32 in const_data");
+            }
+            oss << std::setprecision(std::numeric_limits<float>::max_digits10) << f;
         }
         oss << "]\n";
 
@@ -360,6 +364,7 @@ namespace {
                         std::string word = src_.substr(start, pos_ - start);
                         if (word == "true") return {TokType::BOOLEAN, word, 1.0, true};
                         if (word == "false") return {TokType::BOOLEAN, word, 0.0, false};
+                        if (word == "null") return {TokType::NULL_VAL, word, 0.0, false};
                         throw InvalidGraphError("JSON Lexer: Unexpected identifier: '" + word + "'");
                     }
                     throw InvalidGraphError(std::string("JSON Lexer: Unexpected character '") + c + "'");
@@ -369,25 +374,51 @@ namespace {
 
         void skip_value(Token t) {
             if (t.type == TokType::LBRACE) {
-                int depth = 1;
-                while (depth > 0) {
+                bool first = true;
+                while (true) {
                     Token cur = next();
-                    if (cur.type == TokType::LBRACE) depth++;
-                    else if (cur.type == TokType::RBRACE) depth--;
-                    else if (cur.type == TokType::END_OF_FILE) {
-                        throw InvalidGraphError("json_to_graph: Unexpected EOF while skipping nested object");
+                    if (cur.type == TokType::RBRACE) break;
+                    if (!first) {
+                        if (cur.type != TokType::COMMA) {
+                            throw InvalidGraphError("json_to_graph: expected ',' between nested object properties");
+                        }
+                        cur = next();
                     }
+                    first = false;
+                    if (cur.type == TokType::END_OF_FILE) {
+                        throw InvalidGraphError("json_to_graph: Unexpected EOF in nested object");
+                    }
+                    if (cur.type != TokType::STRING) {
+                        throw InvalidGraphError("json_to_graph: expected string key in nested object");
+                    }
+                    Token col = next();
+                    if (col.type != TokType::COLON) {
+                        throw InvalidGraphError("json_to_graph: expected ':' after key in nested object");
+                    }
+                    skip_value(next());
                 }
             } else if (t.type == TokType::LBRACKET) {
-                int depth = 1;
-                while (depth > 0) {
+                bool first = true;
+                while (true) {
                     Token cur = next();
-                    if (cur.type == TokType::LBRACKET) depth++;
-                    else if (cur.type == TokType::RBRACKET) depth--;
-                    else if (cur.type == TokType::END_OF_FILE) {
-                        throw InvalidGraphError("json_to_graph: Unexpected EOF while skipping nested array");
+                    if (cur.type == TokType::RBRACKET) break;
+                    if (!first) {
+                        if (cur.type != TokType::COMMA) {
+                            throw InvalidGraphError("json_to_graph: expected ',' between nested array elements");
+                        }
+                        cur = next();
                     }
+                    first = false;
+                    if (cur.type == TokType::END_OF_FILE) {
+                        throw InvalidGraphError("json_to_graph: Unexpected EOF in nested array");
+                    }
+                    skip_value(cur);
                 }
+            } else if (t.type == TokType::STRING || t.type == TokType::NUMBER ||
+                       t.type == TokType::BOOLEAN || t.type == TokType::NULL_VAL) {
+                // Valid scalar value
+            } else {
+                throw InvalidGraphError("json_to_graph: unexpected token while parsing JSON value: " + std::to_string(static_cast<int>(t.type)));
             }
         }
 
@@ -411,6 +442,11 @@ IRGraph json_to_graph(const std::string& json_str) {
     std::vector<NodeId> graph_outputs;
     bool closed = false;
     bool first_prop = true;
+    bool has_schema_major = false;
+    bool has_inputs = false;
+    bool has_outputs = false;
+    bool has_nodes = false;
+    std::unordered_set<std::string> seen_root_keys;
 
     while (true) {
         t = lexer.next();
@@ -431,12 +467,16 @@ IRGraph json_to_graph(const std::string& json_str) {
         }
 
         std::string key = t.str_val;
+        if (!seen_root_keys.insert(key).second) {
+            throw InvalidGraphError("json_to_graph: duplicate property '" + key + "' in root object");
+        }
         Token colon = lexer.next(); // Strictly require colon
         if (colon.type != TokType::COLON) {
             throw InvalidGraphError("json_to_graph: expected ':' after key '" + key + "'");
         }
 
         if (key == "schema_version_major") {
+            has_schema_major = true;
             Token v_tok = lexer.next();
             if (v_tok.type == TokType::NUMBER) {
                 int64_t v = parse_json_integer(v_tok, "schema_version_major", 1, IR_SCHEMA_VERSION_MAJOR);
@@ -460,6 +500,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 throw InvalidGraphError("json_to_graph: max_batch_size must be a number");
             }
         } else if (key == "inputs") {
+            has_inputs = true;
             Token lbrk = lexer.next(); // Consume '['
             if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for inputs");
             bool first_in = true;
@@ -481,6 +522,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 }
             }
         } else if (key == "outputs") {
+            has_outputs = true;
             Token lbrk = lexer.next(); // Consume '['
             if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for outputs");
             bool first_out = true;
@@ -502,6 +544,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 }
             }
         } else if (key == "nodes") {
+            has_nodes = true;
             Token lbrk = lexer.next(); // Consume '['
             if (lbrk.type != TokType::LBRACKET) throw InvalidGraphError("json_to_graph: expected '[' for nodes");
             bool first_node = true;
@@ -524,6 +567,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 bool node_closed = false;
                 bool has_id = false, has_op = false, has_name = false, has_shape = false, has_dtype = false;
                 bool first_field = true;
+                std::unordered_set<std::string> seen_node_keys;
                 while (true) {
                     Token f_tok = lexer.next();
                     if (f_tok.type == TokType::RBRACE) {
@@ -543,6 +587,9 @@ IRGraph json_to_graph(const std::string& json_str) {
                     }
 
                     std::string f_key = f_tok.str_val;
+                    if (!seen_node_keys.insert(f_key).second) {
+                        throw InvalidGraphError("json_to_graph: duplicate property '" + f_key + "' in node object");
+                    }
                     Token f_colon = lexer.next();
                     if (f_colon.type != TokType::COLON) {
                         throw InvalidGraphError("json_to_graph: expected ':' after node property '" + f_key + "'");
@@ -674,6 +721,9 @@ IRGraph json_to_graph(const std::string& json_str) {
                             if (num_tok.type != TokType::NUMBER) {
                                 throw InvalidGraphError("json_to_graph: const_data elements must be numbers");
                             }
+                            if (!std::isfinite(num_tok.num_val) || std::abs(num_tok.num_val) > 3.4028235e38) {
+                                throw InvalidGraphError("json_to_graph: const_data element is non-finite or overflows float32");
+                            }
                             node.const_data.push_back(static_cast<float>(num_tok.num_val));
                         }
                     } else {
@@ -699,6 +749,19 @@ IRGraph json_to_graph(const std::string& json_str) {
 
     if (!closed) {
         throw InvalidGraphError("json_to_graph: Unexpected EOF before closing '}' of graph object");
+    }
+
+    if (!has_schema_major) {
+        throw InvalidGraphError("json_to_graph: missing required root property 'schema_version_major'");
+    }
+    if (!has_inputs) {
+        throw InvalidGraphError("json_to_graph: missing required root property 'inputs'");
+    }
+    if (!has_outputs) {
+        throw InvalidGraphError("json_to_graph: missing required root property 'outputs'");
+    }
+    if (!has_nodes) {
+        throw InvalidGraphError("json_to_graph: missing required root property 'nodes'");
     }
 
     Token trailing = lexer.next();
