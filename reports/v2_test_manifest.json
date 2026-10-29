@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_python_tests_collected": 235,
-    "python_passed": 235,
+    "total_python_tests_collected": 244,
+    "python_passed": 244,
     "python_failed_blocked": 0,
     "python_error_blocked": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 248,
-    "total_passing": 248,
+    "total_tests_available": 257,
+    "total_passing": 257,
     "total_blocked_by_sac": 0
   },
   "native_cpp_test_cases": [
@@ -498,6 +498,33 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_regression_graph_adapter_strict_types_and_canonical_ops": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_max_batch_size_propagation_autotune_true": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cli_max_batch_size_propagation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_enable_fusion_contract": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_artifact_invalidation_on_compiler_fingerprint_change": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_graph_validation_hardening": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_undeclared_input_node_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_shared_python_cpp_json_schema": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_submodule_mixed_training_mode_preservation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_runtime_batch_size_and_iters_strict_types": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

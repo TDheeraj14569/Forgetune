@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "Specification-Driven, Correctness-Checked, Self-Optimizing Machine-Learning Compiler"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 authors = [
     { name = "ForgeTune Authors" }
 ]

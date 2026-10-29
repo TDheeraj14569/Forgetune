@@ -130,12 +130,28 @@ def main():
 
     cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra"])
 
+    def check_compilation_result(target_name, result):
+        combined = (result.stdout or "") + "\n" + (result.stderr or "")
+        warning_lines = []
+        for line in combined.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            if "warning:" in line_str.lower():
+                warning_lines.append(line_str)
+        if result.returncode != 0:
+            print(f"Failed to compile {target_name} (exit code {result.returncode}):")
+            print(result.stderr)
+            sys.exit(result.returncode)
+        if warning_lines:
+            print(f"FAILED zero-warning requirement for {target_name}:")
+            for w in warning_lines:
+                print(f"  {w}")
+            sys.exit(1)
+        print(f"   {target_name} compiled successfully with 0 warnings.")
+
     res1 = subprocess.run(cmd_pyd, capture_output=True, text=True)
-    if res1.returncode != 0:
-        print(f"Failed to compile {pyd_path}:")
-        print(res1.stderr)
-        sys.exit(res1.returncode)
-    print(f"   {pyd_path} compiled successfully.")
+    check_compilation_result(pyd_path, res1)
 
     # 2. forgetune_engine executable
     engine_path = f"bin/forgetune_engine{exe_ext}"
@@ -150,11 +166,7 @@ def main():
         "-Wall", "-Wextra"
     ]
     res2 = subprocess.run(cmd_engine, capture_output=True, text=True)
-    if res2.returncode != 0:
-        print(f"Failed to compile {engine_path}:")
-        print(res2.stderr)
-        sys.exit(res2.returncode)
-    print(f"   {engine_path} compiled successfully.")
+    check_compilation_result(engine_path, res2)
 
     # 3. forgetune_test_suite executable
     suite_path = f"bin/forgetune_test_suite{exe_ext}"
@@ -169,11 +181,7 @@ def main():
         "-Wall", "-Wextra"
     ]
     res3 = subprocess.run(cmd_suite, capture_output=True, text=True)
-    if res3.returncode != 0:
-        print(f"Failed to compile {suite_path}:")
-        print(res3.stderr)
-        sys.exit(res3.returncode)
-    print(f"   {suite_path} compiled successfully.")
+    check_compilation_result(suite_path, res3)
 
     # Cross-platform compatibility: ensure both .exe and extensionless binaries
     # exist, as well as forgetune_test_engine aliases, so both Windows and Linux CI

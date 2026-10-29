@@ -33,9 +33,40 @@ def _compute_graph_sha256(graph_json: str) -> str:
     """Computes SHA-256 hash of serialized IR graph JSON."""
     return hashlib.sha256(graph_json.encode("utf-8")).hexdigest()
 
-def _get_candidate_provenance_hash(graph_hash: str, cand: KernelCandidate) -> str:
-    """Generates unique deterministic hash of graph and exact candidate configuration."""
-    spec_str = json.dumps({"graph_hash": graph_hash, "cand": cand.to_dict()}, sort_keys=True)
+def _get_compiler_sources_fingerprint() -> str:
+    """Computes SHA-256 fingerprint of compiler sources, headers, and code generator implementation."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    import glob
+    tracked_files = []
+    for pattern in [
+        "src/*.cpp",
+        "include/forgetune/*.hpp",
+        "python/forgetune/*.py"
+    ]:
+        tracked_files.extend(glob.glob(os.path.join(root, pattern)))
+    tracked_files = sorted(set(tracked_files))
+    h = hashlib.sha256()
+    for p in tracked_files:
+        if os.path.isfile(p):
+            rel_path = os.path.relpath(p, root).replace("\\", "/")
+            h.update(rel_path.encode("utf-8"))
+            with open(p, "rb") as f:
+                h.update(f.read())
+    return h.hexdigest()[:16]
+
+def _get_candidate_provenance_hash(
+    graph_hash: str,
+    cand: KernelCandidate,
+    compiler_fingerprint: Optional[str] = None
+) -> str:
+    """Generates unique deterministic hash of graph, exact candidate configuration, and compiler implementation."""
+    if compiler_fingerprint is None:
+        compiler_fingerprint = _get_compiler_sources_fingerprint()
+    spec_str = json.dumps({
+        "graph_hash": graph_hash,
+        "cand": cand.to_dict(),
+        "compiler_fingerprint": compiler_fingerprint
+    }, sort_keys=True)
     return hashlib.sha256(spec_str.encode("utf-8")).hexdigest()[:12]
 
 def _is_artifact_valid_for_graph(
@@ -44,12 +75,13 @@ def _is_artifact_valid_for_graph(
     cand: KernelCandidate,
     compiler_info: Dict[str, Any],
     dll_path: Optional[str] = None,
-    cpp_path: Optional[str] = None
+    cpp_path: Optional[str] = None,
+    compiler_fingerprint: Optional[str] = None
 ) -> bool:
     """
     Validates whether existing compilation artifacts in cand_dir match the graph,
-    complete candidate configuration, compiler, host platform, and DLL hash.
-    Prevents cross-model and cross-configuration artifact reuse.
+    complete candidate configuration, compiler path/version, host platform, code generator fingerprint, and DLL hash.
+    Prevents cross-model, cross-configuration, and stale-compiler artifact reuse.
     """
     manifest_path = os.path.join(cand_dir, "cand_manifest.json")
     if cpp_path is None:
@@ -84,6 +116,12 @@ def _is_artifact_valid_for_graph(
             return False
         if m.get("compiler_version") != compiler_info.get("version"):
             return False
+        if compiler_info.get("path") and m.get("compiler_path") != compiler_info.get("path"):
+            return False
+        if compiler_fingerprint is None:
+            compiler_fingerprint = _get_compiler_sources_fingerprint()
+        if m.get("compiler_fingerprint") != compiler_fingerprint:
+            return False
         if m.get("source_hash") != _compute_file_sha256(cpp_path):
             return False
         if m.get("dll_hash") != _compute_file_sha256(dll_path):
@@ -98,9 +136,12 @@ def _write_artifact_manifest(
     cand: KernelCandidate,
     cpp_path: str,
     dll_path: str,
-    compiler_info: Dict[str, Any]
+    compiler_info: Dict[str, Any],
+    compiler_fingerprint: Optional[str] = None
 ) -> None:
     """Writes complete candidate provenance manifest validating compilation artifacts."""
+    if compiler_fingerprint is None:
+        compiler_fingerprint = _get_compiler_sources_fingerprint()
     manifest_data = {
         "graph_hash": graph_hash,
         "candidate": cand.to_dict(),
@@ -114,6 +155,7 @@ def _write_artifact_manifest(
         "compiler_type": compiler_info.get("type"),
         "compiler_version": compiler_info.get("version"),
         "compiler_path": compiler_info.get("path"),
+        "compiler_fingerprint": compiler_fingerprint,
         "source_hash": _compute_file_sha256(cpp_path),
         "dll_hash": _compute_file_sha256(dll_path),
     }
@@ -150,11 +192,15 @@ def _verify_rebuilt_artifact(
                 f"Rebuilt artifact {dll_path} failed differential correctness verification on example input (max abs diff: {max_diff:.3e})"
             )
 
-        # Test 2: If dynamic batch, test multiple representative batches
+        # Test 2: If dynamic batch, test multiple representative batches including configured maximum
         if dynamic_batch or ir_graph.has_dynamic_batch():
             test_batches = [1, min(4, max_batch_size)]
             if max_batch_size >= 16:
                 test_batches.append(min(16, max_batch_size))
+            # Test configured maximum batch size (bounded to safe limit 256 for test latency/memory)
+            safe_max = min(max_batch_size, 256)
+            if safe_max not in test_batches:
+                test_batches.append(safe_max)
             for b in test_batches:
                 shape = (b, *example_input.shape[1:])
                 test_in = np.ones(shape, dtype=np.float32) * 0.5
@@ -224,6 +270,8 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
         ])
     if candidate.enable_fusion:
         cmd.append("--fusion")
+    if hasattr(ir_graph, "max_batch_size"):
+        cmd.extend(["--max-batch-size", str(ir_graph.max_batch_size)])
     subprocess.run(cmd, check=True)
 
 
@@ -432,7 +480,13 @@ def compile_model(
             raise ValueError(f"Example input {i} is on device '{getattr(t, 'device', 'unknown')}', but ForgeTune requires CPU tensors.")
 
     os.makedirs(output_dir, exist_ok=True)
-    orig_training = getattr(model, "training", False)
+    saved_modes = {}
+    if hasattr(model, "named_modules"):
+        for m_name, mod in model.named_modules():
+            saved_modes[m_name] = getattr(mod, "training", False)
+    else:
+        saved_modes[""] = getattr(model, "training", False)
+
     try:
         model.eval()
 
@@ -471,7 +525,7 @@ def compile_model(
                 artifacts_dir=output_dir,
                 max_budget=max_autotune_budget,
                 oracle=oracle,
-                force_fusion=enable_fusion
+                enable_fusion=enable_fusion
             )
             cand_provenance_hash = _get_candidate_provenance_hash(graph_hash, selected_cand)
             cand_dir = os.path.join(output_dir, f"{selected_cand.candidate_id}_{cand_provenance_hash}")
@@ -493,6 +547,10 @@ def compile_model(
             variant = kernel_variant or "naive_ijk"
             if variant not in VALID_VARIANTS:
                 raise ValueError(f"Unknown kernel variant: '{variant}'. Valid variants: {sorted(list(VALID_VARIANTS))}")
+            if not enable_fusion and variant.startswith("fused"):
+                raise ValueError(
+                    f"Contradictory options: fused kernel_variant '{variant}' requested with enable_fusion=False"
+                )
             cand_id = "baseline" if (variant == "naive_ijk" and not enable_fusion) else variant
             tile_m = tile_sizes[0] if tile_sizes else None
             tile_n = tile_sizes[1] if tile_sizes else None
@@ -547,12 +605,18 @@ def compile_model(
             },
             optimization_summary=opt_report
         )
+        manifest_data["provenance_hash"] = cand_provenance_hash
+        manifest_data["latest_note"] = "Root manifest describes latest compilation. Per-artifact manifests are saved alongside candidate artifacts."
         manifest_path = os.path.join(output_dir, "manifest.json")
+        prov_manifest_path = os.path.join(output_dir, f"manifest_{cand_provenance_hash}.json")
         write_atomic_json(manifest_path, manifest_data)
+        write_atomic_json(prov_manifest_path, manifest_data)
 
         return CompiledModel(runtime, manifest_data, cpp_source, opt_report)
     finally:
-        if orig_training:
-            model.train(True)
-        else:
-            model.eval()
+        if hasattr(model, "named_modules"):
+            for m_name, mod in model.named_modules():
+                if m_name in saved_modes:
+                    mod.training = saved_modes[m_name]
+        elif "" in saved_modes:
+            model.training = saved_modes[""]

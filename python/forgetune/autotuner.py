@@ -71,12 +71,21 @@ class Autotuner:
         self.atol = atol
         self.rtol = rtol
 
-    def get_candidate_space(self, max_budget: int = 8, force_fusion: bool = False) -> List[KernelCandidate]:
+    def get_candidate_space(
+        self,
+        max_budget: int = 8,
+        force_fusion: bool = False,
+        enable_fusion: Optional[bool] = None
+    ) -> List[KernelCandidate]:
         """
         Defines a bounded, deterministic search space of kernel configurations.
+        Contract:
+          - enable_fusion=False: strictly excludes all fused candidates.
+          - force_fusion=True: strictly requires fused candidates.
+          - enable_fusion=True (default): allows both unfused and fused candidates.
         """
-        if not isinstance(max_budget, int) or max_budget <= 0:
-            raise ValueError(f"max_budget must be a positive integer, got {max_budget}")
+        if type(max_budget) is not int or isinstance(max_budget, bool) or not (1 <= max_budget <= 8):
+            raise ValueError(f"max_budget must be an integer between 1 and 8, got {max_budget} ({type(max_budget).__name__})")
         candidates = [
             # 1. Baseline Naive
             KernelCandidate("baseline_naive", "naive_ijk", enable_fusion=False, opt_level="-O2"),
@@ -95,7 +104,9 @@ class Autotuner:
             # 8. Fused kernel with -O3
             KernelCandidate("fused_ikj_o3", "fused_ikj", enable_fusion=True, opt_level="-O3"),
         ]
-        if force_fusion:
+        if enable_fusion is False:
+            candidates = [c for c in candidates if not c.enable_fusion]
+        elif force_fusion:
             candidates = [c for c in candidates if c.enable_fusion]
         return candidates[:max_budget]
 
@@ -124,7 +135,8 @@ class Autotuner:
         graph_json: str,
         input_shape: Tuple[int, ...],
         max_budget: int = 8,
-        force_fusion: bool = False
+        force_fusion: bool = False,
+        enable_fusion: Optional[bool] = None
     ) -> str:
         h = hashlib.sha256()
         h.update(b"forgetune_v7_complete_provenance_2.0_")
@@ -132,6 +144,7 @@ class Autotuner:
         h.update(str(input_shape).encode("utf-8"))
         h.update(str(max_budget).encode("utf-8"))
         h.update(str(force_fusion).encode("utf-8"))
+        h.update(str(enable_fusion).encode("utf-8"))
         h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
         h.update(self._get_compiler_sources_fingerprint().encode("utf-8"))
         h.update(sys.platform.encode("utf-8"))
@@ -143,7 +156,7 @@ class Autotuner:
         machine_meta = get_machine_metadata()
         h.update(str(machine_meta.get("processor", "")).encode("utf-8"))
         h.update(str(machine_meta.get("machine", "")).encode("utf-8"))
-        cands = self.get_candidate_space(max_budget, force_fusion=force_fusion)
+        cands = self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)
         cand_list_str = json.dumps([c.to_dict() for c in cands], sort_keys=True)
         h.update(cand_list_str.encode("utf-8"))
         return h.hexdigest()
@@ -283,21 +296,24 @@ class Autotuner:
         max_budget: int = 8,
         use_cache: bool = True,
         oracle: Optional[Any] = None,
-        force_fusion: bool = False
+        force_fusion: bool = False,
+        enable_fusion: Optional[bool] = None
     ) -> Tuple[KernelCandidate, Dict[str, Any]]:
         """
         Runs correctness-gated autotuning across candidate configurations.
         Returns the winning KernelCandidate and the full tuning report.
         """
-        if not isinstance(max_budget, int) or max_budget <= 0:
-            raise ValueError(f"max_budget must be a positive integer, got {max_budget}")
+        if type(max_budget) is not int or isinstance(max_budget, bool) or not (1 <= max_budget <= 8):
+            raise ValueError(f"max_budget must be an integer between 1 and 8, got {max_budget} ({type(max_budget).__name__})")
 
         os.makedirs(artifacts_dir, exist_ok=True)
         graph_json = graph.to_json()
         input_shape = tuple(example_input.shape)
         output_shape = tuple(reference_output.shape)
 
-        cache_key = self._compute_cache_key(graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion)
+        cache_key = self._compute_cache_key(
+            graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion
+        )
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
         if use_cache and os.path.isfile(cache_file):
@@ -306,7 +322,7 @@ class Autotuner:
                     cached_report = json.load(f)
                 cand_data = cached_report["selected_candidate"]
                 selected = KernelCandidate(**cand_data)
-                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget, force_fusion=force_fusion)}
+                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)}
                 if selected.candidate_id in valid_ids:
                     report_path = os.path.join(artifacts_dir, "autotuning_report.json")
                     write_atomic_json(report_path, cached_report)
@@ -314,7 +330,7 @@ class Autotuner:
             except Exception:
                 pass # Cache invalid/corrupted -> re-tune
 
-        candidates = self.get_candidate_space(max_budget, force_fusion=force_fusion)
+        candidates = self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)
         candidate_results = []
         verified_candidates = []
         best_candidate = None
@@ -390,6 +406,7 @@ class Autotuner:
                 g_cpp = cpp.json_to_graph(graph_json)
                 cfg = cpp.KernelConfig()
                 cfg.candidate_id = cand.candidate_id
+                cfg.max_batch_size = g_cpp.max_batch_size()
                 variant_map = {
                     "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
                     "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
@@ -425,7 +442,8 @@ class Autotuner:
                     "--compile", cand_json,
                     "-o", cand_cpp,
                     "--variant", cand.variant,
-                    "--candidate-id", cand.candidate_id
+                    "--candidate-id", cand.candidate_id,
+                    "--max-batch-size", str(getattr(graph, "max_batch_size", 128))
                 ]
                 if cand.tile_m is not None:
                     engine_cmd.extend([

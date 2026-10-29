@@ -1,11 +1,14 @@
 import pytest
 import sys
+import os
+import json
+import platform
+import hashlib
+import ctypes
+import tempfile
 import torch
 import torch.nn as nn
 import numpy as np
-import os
-import ctypes
-import tempfile
 import forgetune
 from forgetune.compiler import compile_model, emit_cpp_source, KernelCandidate
 from forgetune.export_frontend import export_to_forgetune_ir
@@ -1338,6 +1341,406 @@ def test_regression_graph_adapter_strict_types_and_canonical_ops():
     }
     g = Graph.from_dict(alias_dict)
     assert g.nodes[1].op == "CONST"
+
+
+def test_regression_max_batch_size_propagation_autotune_true(tmp_path):
+    """
+    Audit 5 P1.1: Verify max_batch_size=256 propagates through autotuner compilation path
+    and CLI engine path, correctly running at batch 200 and 256.
+    """
+    class DynMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = DynMLP().eval()
+    ex = torch.randn(2, 8)
+    out_dir = str(tmp_path / "autotune_mb256")
+    compiled = compile_model(
+        model,
+        (ex,),
+        dynamic_batch=True,
+        max_batch_size=256,
+        autotune=True,
+        max_autotune_budget=2,
+        output_dir=out_dir
+    )
+
+    # Test batch size 200 and 256
+    x200 = np.ones((200, 8), dtype=np.float32)
+    res200 = compiled.run(x200)
+    assert res200.shape == (200, 4)
+
+    x256 = np.ones((256, 8), dtype=np.float32)
+    res256 = compiled.run(x256)
+    assert res256.shape == (256, 4)
+
+    # Reject batch size 257 (> max_batch_size 256)
+    x257 = np.ones((257, 8), dtype=np.float32)
+    with pytest.raises(Exception):
+        compiled.run(x257)
+
+
+def test_regression_cli_max_batch_size_propagation(tmp_path):
+    """
+    Audit 5 P1.1: Direct CLI engine compilation adopts graph max_batch_size or --max-batch-size flag.
+    """
+    from forgetune.compiler import get_engine_executable
+    from forgetune.graph_adapter import Graph, Node
+    import subprocess
+
+    g = Graph()
+    g.max_batch_size = 256
+    x = g.add_node(Node(0, "INPUT", shape=[-1, 4]))
+    w = g.add_node(Node(1, "CONST", shape=[4, 2], const_data=[1.0] * 8))
+    mm = g.add_node(Node(2, "MATMUL", inputs=[x, w], shape=[-1, 2]))
+    g.set_inputs([x])
+    g.set_outputs([mm])
+
+    json_p = str(tmp_path / "graph.json")
+    cpp_p = str(tmp_path / "kernel.cpp")
+    with open(json_p, "w", encoding="utf-8") as f:
+        f.write(g.to_json())
+
+    engine_exe = get_engine_executable()
+    res = subprocess.run([engine_exe, "--compile", json_p, "-o", cpp_p, "--variant", "naive_ijk"], capture_output=True, text=True)
+    assert res.returncode == 0, f"CLI compilation failed: {res.stderr}"
+
+    with open(cpp_p, "r", encoding="utf-8") as f:
+        code = f.read()
+    assert "256" in code, "Max batch size 256 was not propagated into generated C++ source!"
+
+
+def test_regression_enable_fusion_contract(tmp_path):
+    """
+    Audit 5 P2.2:
+    - enable_fusion=False strictly excludes all fused candidates in autotuner.
+    - Contradictory manual variant (fused_ikj with enable_fusion=False) raises ValueError.
+    """
+    from forgetune.autotuner import Autotuner
+
+    tuner = Autotuner()
+    cands_nofusion = tuner.get_candidate_space(8, enable_fusion=False)
+    for c in cands_nofusion:
+        assert not c.enable_fusion, f"Candidate {c.candidate_id} has fusion enabled when enable_fusion=False!"
+
+    class SimpleLin(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+            self.relu = nn.ReLU()
+        def forward(self, x):
+            return self.relu(self.fc(x))
+
+    model = SimpleLin().eval()
+    ex = torch.randn(1, 4)
+
+    # Contradictory options rejection
+    with pytest.raises(ValueError, match="Contradictory options"):
+        compile_model(
+            model,
+            (ex,),
+            autotune=False,
+            kernel_variant="fused_ikj",
+            enable_fusion=False,
+            output_dir=str(tmp_path / "contra")
+        )
+
+    # Autotune with enable_fusion=False must never select fused candidate
+    compiled = compile_model(
+        model,
+        (ex,),
+        autotune=True,
+        enable_fusion=False,
+        max_autotune_budget=4,
+        output_dir=str(tmp_path / "nofusion_autotune")
+    )
+    assert not compiled.manifest()["kernel_config"]["enable_fusion"]
+
+
+def test_regression_artifact_invalidation_on_compiler_fingerprint_change(tmp_path):
+    """
+    Audit 5 P2.3 & P2.10: Stored candidate manifest is invalidated if compiler_fingerprint,
+    compiler_path, or DLL hash changes.
+    """
+    from forgetune.compiler import _is_artifact_valid_for_graph
+    from forgetune.autotuner import KernelCandidate
+
+    cand = KernelCandidate("cand1", "loop_ikj", enable_fusion=False, opt_level="-O2")
+    cand_dir = str(tmp_path / "cand1")
+    os.makedirs(cand_dir, exist_ok=True)
+    manifest_p = os.path.join(cand_dir, "cand_manifest.json")
+    cpp_p = os.path.join(cand_dir, "kernel.cpp")
+    dll_ext = ".dll" if sys.platform == "win32" else ".so"
+    dll_p = os.path.join(cand_dir, f"kernel{dll_ext}")
+
+    with open(cpp_p, "w") as f:
+        f.write("// dummy code")
+    with open(dll_p, "wb") as f:
+        f.write(b"dummy dll")
+
+    compiler_info = {"type": "zig_cxx", "version": "0.16.0", "path": "C:/fake/zig.exe"}
+    manifest = {
+        "graph_hash": "graph123",
+        "candidate_id": "cand1",
+        "variant": "loop_ikj",
+        "enable_fusion": False,
+        "tile_sizes": [None, None, None],
+        "opt_level": "-O2",
+        "platform": sys.platform,
+        "machine": platform.machine(),
+        "compiler_type": "zig_cxx",
+        "compiler_version": "0.16.0",
+        "compiler_path": "C:/fake/zig.exe",
+        "compiler_fingerprint": "fingerprint_v1",
+        "source_hash": hashlib.sha256(b"// dummy code").hexdigest(),
+        "dll_hash": hashlib.sha256(b"dummy dll").hexdigest(),
+    }
+    with open(manifest_p, "w", encoding="utf-8") as f:
+        json.dump(manifest, f)
+
+    # Valid with matching fingerprint and path
+    assert _is_artifact_valid_for_graph(cand_dir, "graph123", cand, compiler_info, dll_p, cpp_p, compiler_fingerprint="fingerprint_v1")
+
+    # Invalid if compiler implementation fingerprint changed
+    assert not _is_artifact_valid_for_graph(cand_dir, "graph123", cand, compiler_info, dll_p, cpp_p, compiler_fingerprint="fingerprint_v2_changed")
+
+    # Invalid if compiler path changed
+    diff_compiler_info = dict(compiler_info, path="C:/other/zig.exe")
+    assert not _is_artifact_valid_for_graph(cand_dir, "graph123", cand, diff_compiler_info, dll_p, cpp_p, compiler_fingerprint="fingerprint_v1")
+
+
+def test_regression_graph_validation_hardening():
+    """
+    Audit 5 P2.4: Comprehensive graph property and operation contract validation in Python loader.
+    """
+    from forgetune.graph_adapter import Graph
+    from forgetune.errors import InvalidGraphError, InvalidShapeError
+
+    # 1. Root not dict
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict(["not", "a", "dict"])
+
+    # 2. Nodes not a list
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({"inputs": [0], "outputs": [0], "nodes": "not_a_list"})
+
+    # 3. Node name not string
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [{"id": 0, "op": "INPUT", "name": 12345, "shape": [1, 2]}]
+        })
+
+    # 4. Node deleted not bool
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [{"id": 0, "op": "INPUT", "deleted": "false", "shape": [1, 2]}]
+        })
+
+    # 5. Unsupported dtype (float64)
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [{"id": 0, "op": "INPUT", "dtype": "float64", "shape": [1, 2]}]
+        })
+
+    # 6. Invalid conv_attrs
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [{"id": 0, "op": "INPUT", "conv_attrs": "not_a_dict", "shape": [1, 2]}]
+        })
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [{"id": 0, "op": "INPUT", "conv_attrs": {"stride": -1}, "shape": [1, 2]}]
+        })
+
+    # 7. Operator input arity mismatch (ADD with 1 input)
+    with pytest.raises(InvalidGraphError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [1],
+            "nodes": [
+                {"id": 0, "op": "INPUT", "shape": [2, 2]},
+                {"id": 1, "op": "ADD", "inputs": [0], "shape": [2, 2]}
+            ]
+        })
+
+    # 8. CONST node shape vs data count mismatch
+    with pytest.raises(InvalidShapeError):
+        Graph.from_dict({
+            "inputs": [0], "outputs": [0],
+            "nodes": [
+                {"id": 0, "op": "INPUT", "shape": [1, 2]},
+                {"id": 1, "op": "CONST", "shape": [2, 2], "const_data": [1.0, 2.0]} # expects 4, got 2
+            ]
+        })
+
+
+def test_regression_undeclared_input_node_rejected():
+    """
+    Audit 5 P2.5: Live INPUT nodes not declared in graph.inputs must be rejected.
+    """
+    from forgetune.graph_adapter import Graph
+    from forgetune.errors import InvalidGraphError
+
+    bad_graph = {
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0], # Only node 0 declared! Node 1 is an undeclared live INPUT!
+        "outputs": [2],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x0", "inputs": [], "shape": [1, 4], "dtype": "f32"},
+            {"id": 1, "op": "INPUT", "name": "x1_undeclared", "inputs": [], "shape": [1, 4], "dtype": "f32"},
+            {"id": 2, "op": "ADD", "name": "add", "inputs": [0, 1], "shape": [1, 4], "dtype": "f32"}
+        ]
+    }
+    with pytest.raises(InvalidGraphError, match="Live INPUT node.*not declared in graph.inputs"):
+        Graph.from_dict(bad_graph)
+
+
+def test_regression_shared_python_cpp_json_schema():
+    """
+    Audit 5 P2.6: Shared corpus of JSON graphs tested against both Python and C++ graph loaders.
+    Verifies agreement on accept/reject behavior.
+    """
+    from forgetune.graph_adapter import Graph
+    import forgetune._forgetune_cpp as cpp
+
+    # Case 1: Valid graph
+    valid_json = json.dumps({
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [1],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "f32"},
+            {"id": 1, "op": "RELU", "name": "r", "inputs": [0], "shape": [2, 4], "dtype": "f32"}
+        ]
+    })
+    g_py = Graph.from_json(valid_json)
+    g_cpp = cpp.json_to_graph(valid_json)
+    assert len(g_py.nodes) == 2
+    assert g_cpp.live_node_count() == 2
+
+    # Case 2: Large string literal exceeding 4096 bytes (DoS prevention)
+    giant_string = "a" * 5000
+    bad_large_str = json.dumps({
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [0],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": giant_string, "inputs": [], "shape": [1, 2], "dtype": "f32"}
+        ]
+    })
+    # C++ lexer rejects string > 4096 bytes
+    with pytest.raises(Exception):
+        cpp.json_to_graph(bad_large_str)
+
+    # Case 3: Unsupported dtype float64 rejected by both
+    bad_dtype = json.dumps({
+        "schema_version_major": 2,
+        "schema_version_minor": 0,
+        "max_batch_size": 128,
+        "inputs": [0],
+        "outputs": [0],
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 2], "dtype": "float64"}
+        ]
+    })
+    with pytest.raises(Exception):
+        Graph.from_json(bad_dtype)
+    with pytest.raises(Exception):
+        cpp.json_to_graph(bad_dtype)
+
+
+def test_regression_submodule_mixed_training_mode_preservation(tmp_path):
+    """
+    Audit 5 P3.16: compile_model() preserves mixed training/evaluation states of submodules.
+    """
+    class SubModule(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = nn.Linear(4, 4)
+        def forward(self, x):
+            return self.linear(x)
+
+    class CompositeModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.sub1 = SubModule()
+            self.sub2 = SubModule()
+        def forward(self, x):
+            return self.sub2(self.sub1(x))
+
+    model = CompositeModel()
+    # Establish mixed modes
+    model.train(True)
+    model.sub2.eval() # sub2 explicitly in eval mode
+
+    assert model.training is True
+    assert model.sub1.training is True
+    assert model.sub2.training is False
+
+    ex = torch.randn(1, 4)
+    compiled = compile_model(model, (ex,), autotune=False, output_dir=str(tmp_path / "mixed_mode"))
+
+    # Verify exact mixed modes restored
+    assert model.training is True
+    assert model.sub1.training is True
+    assert model.sub2.training is False
+
+
+def test_regression_runtime_batch_size_and_iters_strict_types():
+    """
+    Audit 5 P3.17 & P2.8: Strict integer validation (reject booleans) on batch_size, iters, and max_budget.
+    """
+    from forgetune.autotuner import Autotuner
+    from forgetune.runtime import NativeRuntime
+    from forgetune.errors import InvalidShapeError
+
+    tuner = Autotuner()
+    with pytest.raises(ValueError):
+        tuner.get_candidate_space(max_budget=True) # boolean rejected
+    with pytest.raises(ValueError):
+        tuner.get_candidate_space(max_budget=0)
+    with pytest.raises(ValueError):
+        tuner.get_candidate_space(max_budget=9)
+
+    # Validate batch_size in NativeRuntime
+    rt = NativeRuntime.__new__(NativeRuntime)
+    rt.is_closed = False
+    rt.is_dynamic = True
+    rt.expected_input_shape = (-1, 4)
+    rt.max_batch_size = 128
+
+    inp = np.ones((1, 4), dtype=np.float32)
+    # Boolean True passed as batch_size must be rejected
+    with pytest.raises(InvalidShapeError):
+        rt.run(inp, batch_size=True)
+    with pytest.raises(InvalidShapeError):
+        rt.run(inp, batch_size=0)
+    with pytest.raises(InvalidShapeError):
+        rt.run(inp, batch_size=-5)
+
+    # Boolean True passed as iters in benchmark_kernel must be rejected
+    rt.benchmark_fn = lambda a, b, c: 0.0
+    with pytest.raises(ValueError):
+        rt.benchmark_kernel(inp, iters=True)
+    with pytest.raises(ValueError):
+        rt.benchmark_kernel(inp, iters=0)
+        def __init__(self):
+            from forgetune.runtime import NativeRuntime
+            # Test direct NativeRuntime validation logic via dummy
+    
 
 
 

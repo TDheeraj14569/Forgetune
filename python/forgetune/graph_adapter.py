@@ -145,6 +145,12 @@ class Graph:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Graph":
         import math
+        if not isinstance(d, dict):
+            raise InvalidGraphError(f"Root JSON element must be a dict/object, got {type(d).__name__}")
+
+        if "nodes" not in d or not isinstance(d["nodes"], list):
+            raise InvalidGraphError(f"Root 'nodes' property must be a list, got {type(d.get('nodes')).__name__}")
+
         if "schema_version_major" in d:
             schema_major = d["schema_version_major"]
             if type(schema_major) is not int or schema_major not in (1, 2):
@@ -196,6 +202,26 @@ class Graph:
                 raise InvalidGraphError(f"Duplicate node ID in JSON: {nid}")
             seen_ids.add(nid)
 
+            if "name" in nd and not isinstance(nd["name"], str):
+                raise InvalidGraphError(f"Node 'name' must be a string, got {type(nd['name']).__name__}")
+
+            if "deleted" in nd and type(nd["deleted"]) is not bool:
+                raise InvalidGraphError(f"Node 'deleted' must be a boolean, got {type(nd['deleted']).__name__}")
+
+            dtype = nd.get("dtype", "f32")
+            if not isinstance(dtype, str) or dtype.lower() not in ("f32", "float32", "float"):
+                raise InvalidGraphError(f"Unsupported node dtype: '{dtype}' (ForgeTune only supports float32)")
+
+            conv_attrs = nd.get("conv_attrs")
+            if conv_attrs is not None:
+                if not isinstance(conv_attrs, dict):
+                    raise InvalidGraphError(f"conv_attrs must be a dict, got {type(conv_attrs).__name__}")
+                for attr_k in ("stride", "padding", "dilation", "groups"):
+                    if attr_k in conv_attrs:
+                        val = conv_attrs[attr_k]
+                        if type(val) is not int or val < 0:
+                            raise InvalidGraphError(f"conv_attrs '{attr_k}' must be a non-negative integer, got {val}")
+
             raw_op = str(nd.get("op", "")).upper()
             if raw_op == "CONSTANT":
                 op = "CONST"
@@ -225,6 +251,27 @@ class Graph:
                 if type(op_id) is not int or op_id < 0:
                     raise InvalidGraphError(f"Node input operand ID must be a non-negative int, got {op_id} ({type(op_id).__name__})")
 
+            # Validate operator input arity
+            expected_arities = {
+                "INPUT": (0, 0),
+                "CONST": (0, 0),
+                "ADD": (2, 2),
+                "MUL": (2, 2),
+                "MATMUL": (2, 2),
+                "RELU": (1, 1),
+                "SIGMOID": (1, 1),
+                "TANH": (1, 1),
+                "FLATTEN": (1, 1),
+                "CONV2D": (2, 3), # x, weight, optional bias
+                "FUSED_CONV2D_RELU": (2, 3),
+                "FUSED_MATMUL_ADD_RELU": (3, 3),
+                "OUTPUT": (1, 1)
+            }
+            if op in expected_arities:
+                min_a, max_a = expected_arities[op]
+                if not (min_a <= len(node_inputs) <= max_a):
+                    raise InvalidGraphError(f"Node op '{op}' requires {min_a} to {max_a} inputs, got {len(node_inputs)}")
+
             const_data = nd.get("const_data", [])
             if const_data is not None:
                 if not isinstance(const_data, list):
@@ -234,6 +281,16 @@ class Graph:
                         raise InvalidGraphError(f"const_data element must be a float or int, got {c}")
                     if not math.isfinite(c) or abs(c) > 3.4028235e38:
                         raise InvalidGraphError(f"Non-finite or overflowing float32 constant value: {c}")
+
+            # Validate CONST node shape and data count parity
+            if op == "CONST":
+                expected_elems = 1
+                for dim in shape:
+                    if dim == -1:
+                        raise InvalidShapeError("CONST node cannot have dynamic dimension -1")
+                    expected_elems *= dim
+                if len(const_data) != expected_elems:
+                    raise InvalidShapeError(f"CONST node data count ({len(const_data)}) does not match shape {shape} (expected {expected_elems})")
 
             nd_copy = dict(nd)
             nd_copy["op"] = op
@@ -251,6 +308,17 @@ class Graph:
                 raise InvalidGraphError(f"Graph input node {in_id} is marked as deleted")
             if in_node.op != "INPUT":
                 raise InvalidGraphError(f"Graph input node {in_id} has op '{in_node.op}' (expected 'INPUT')")
+
+        # Validate that declared inputs exactly match live INPUT nodes (reject undeclared live inputs)
+        declared_inputs = set(g.inputs)
+        live_inputs = {nid for nid, node in g.nodes.items() if not node.deleted and node.op == "INPUT"}
+        if declared_inputs != live_inputs:
+            undeclared = live_inputs - declared_inputs
+            if undeclared:
+                raise InvalidGraphError(f"Live INPUT node(s) {sorted(list(undeclared))} are not declared in graph.inputs")
+            missing = declared_inputs - live_inputs
+            if missing:
+                raise InvalidGraphError(f"Declared input(s) {sorted(list(missing))} are not live INPUT nodes in graph")
 
         # Validate graph outputs
         if not g.outputs:

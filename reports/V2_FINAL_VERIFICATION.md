@@ -1,9 +1,10 @@
 # FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT
 
-**Date:** 2026-10-29 15:54:42
+**Date:** 2026-10-30 01:44:25
 **Git Branch:** `v2.0-dev`
-**Source Revision:** `aeff2d1d7736f6d8a3f5ba5a59f7e298ad3fc731`
-**Tree Fingerprint:** `b5a75080c064cfe8a5cfda4c848d481a223cc51e (dirty working tree)`
+**Source Revision:** `17f503308e1ab1d5fc82f4bb757ae4a281e5bf25`
+**Git Index Fingerprint:** `09511c58e8ebf8264dfdb865905c064fd71396bd (dirty working tree)`
+**Working-Tree SHA-256:** `0e42bdeb8566f48178ac28b4c935b55d9af913c2a3fdcae8d01a8ee9885af314`
 **Verification Mode:** `FULL`
 **Final Status:** **FULLY VERIFIED**
 
@@ -13,7 +14,7 @@
 
 | Verification Round | Scope | Checks Executed | Status | Evidence |
 |---|---|:---:|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (235 collected, 235 passed, 0 failures), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
+| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (244 collected, 244 passed, 0 failures), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), dual ABI wrappers, Memory reports (Benchmarks bypassed via --skip-benchmarks) | **VERIFIED** | `V2_MEMORY_REPORT.md` (benchmarks bypassed via `--skip-benchmarks`; prior authoritative baseline preserved in `V2_BENCHMARK_REPORT.md`) |
 | **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun, 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |
 
@@ -32,5 +33,5 @@
 ## 3. Backward Compatibility & Platform Code Integrity Statement
 
 All 119 original v1.0 and 97 v2.0 compiler graph, verifier, interpreter, memory planner, and codegen components are verified.
-Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 235 Python tests, 13 native C++ tests (248 total), and 65,536-float bitwise reproducibility checks execute with 100% pass rate.
+Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 244 Python tests, 13 native C++ tests (257 total), and 65,536-float bitwise reproducibility checks execute with 100% pass rate.
 The runtime reliably propagates explicit actionable diagnostics, preserving platform security policy while executing all compiled workload models cleanly within the project tree.

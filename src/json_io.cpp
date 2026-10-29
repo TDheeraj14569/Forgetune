@@ -241,6 +241,9 @@ namespace {
                         if (c2 == '"') {
                             return {TokType::STRING, s, 0.0, false};
                         }
+                        if (s.size() > 4096) {
+                            throw InvalidGraphError("JSON Lexer: String literal exceeds maximum allowed length (4096 bytes)");
+                        }
                         // RFC 8259 Section 7: Unescaped control characters (< 0x20) are strictly forbidden
                         if (static_cast<unsigned char>(c2) < 0x20) {
                             throw InvalidGraphError("JSON Lexer: Unescaped control character in string literal (ASCII " + std::to_string(static_cast<int>(static_cast<unsigned char>(c2))) + ")");

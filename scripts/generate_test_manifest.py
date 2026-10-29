@@ -1,6 +1,6 @@
 """
 Generates the authoritative ForgeTune v2.0 Test Manifest (reports/v2_test_manifest.json).
-Executes all 187 Python tests + 13 native C++ tests and captures:
+Executes all 244 Python tests + 13 native C++ tests (257 total) and captures:
 - Exact test nodeid
 - Execution outcome (PASSED, BLOCKED/FAILED, ERROR)
 - Error exception class and diagnostic message

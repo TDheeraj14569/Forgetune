@@ -36,6 +36,19 @@ static bool parse_strict_positive_int(const std::string& str, int* out) {
     }
 }
 
+static bool parse_strict_positive_int(const std::string& str, int64_t* out) {
+    if (str.empty()) return false;
+    size_t idx = 0;
+    try {
+        long long v = std::stoll(str, &idx);
+        if (idx != str.size() || v <= 0) return false;
+        *out = static_cast<int64_t>(v);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "Usage: forgetune_engine <command> [options]\n"
@@ -76,6 +89,7 @@ int main(int argc, char** argv) {
             std::string input_json = argv[2];
             std::string output_cpp;
             KernelConfig config;
+            bool max_batch_size_explicit = false;
 
             for (int i = 3; i < argc; ++i) {
                 std::string arg = argv[i];
@@ -92,6 +106,13 @@ int main(int argc, char** argv) {
                     config.enable_fusion = true;
                 } else if (arg == "--candidate-id" && i + 1 < argc) {
                     config.candidate_id = argv[++i];
+                } else if (arg == "--max-batch-size" && i + 1 < argc) {
+                    std::string val_str = argv[++i];
+                    if (!parse_strict_positive_int(val_str, &config.max_batch_size)) {
+                        std::cerr << "Error: invalid value for --max-batch-size: '" << val_str << "' (expected positive integer)\n";
+                        return 1;
+                    }
+                    max_batch_size_explicit = true;
                 } else if (arg == "--tile-m" && i + 1 < argc) {
                     std::string val_str = argv[++i];
                     if (!parse_strict_positive_int(val_str, &config.tile_m)) {
@@ -116,6 +137,13 @@ int main(int argc, char** argv) {
                 }
             }
 
+            std::string json_content = read_file(input_json);
+            IRGraph graph = json_to_graph(json_content);
+
+            if (!max_batch_size_explicit && graph.max_batch_size() > 0) {
+                config.max_batch_size = graph.max_batch_size();
+            }
+
             std::string err;
             if (!config.validate(&err)) {
                 std::cerr << "Error: invalid kernel configuration: " << err << "\n";
@@ -126,9 +154,6 @@ int main(int argc, char** argv) {
                 std::cerr << "Error: missing -o <output.cpp>\n";
                 return 1;
             }
-
-            std::string json_content = read_file(input_json);
-            IRGraph graph = json_to_graph(json_content);
 
             Compiler compiler(config);
             auto res = compiler.compile(graph);

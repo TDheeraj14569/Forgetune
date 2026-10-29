@@ -235,10 +235,15 @@ class NativeRuntime:
                     )
 
             actual_batch = input_tensor.shape[0]
-            if batch_size is not None and batch_size != actual_batch:
-                raise InvalidShapeError(
-                    f"Explicit batch_size {batch_size} does not match input leading dimension {actual_batch}"
-                )
+            if batch_size is not None:
+                if type(batch_size) is not int or isinstance(batch_size, bool) or batch_size <= 0:
+                    raise InvalidShapeError(
+                        f"batch_size must be a strictly positive non-boolean integer, got {batch_size} ({type(batch_size).__name__})"
+                    )
+                if batch_size != actual_batch:
+                    raise InvalidShapeError(
+                        f"Explicit batch_size {batch_size} does not match input leading dimension {actual_batch}"
+                    )
             if actual_batch <= 0 or actual_batch > self.max_batch_size:
                 raise InvalidShapeError(
                     f"Dynamic batch size {actual_batch} out of valid range [1, {self.max_batch_size}]"
@@ -323,6 +328,9 @@ class NativeRuntime:
         Executes the in-kernel benchmark inside pure C++ without ctypes per-call overhead.
         Returns average kernel latency in microseconds.
         """
+        if type(iters) is not int or isinstance(iters, bool) or iters <= 0:
+            raise ValueError(f"iters must be a positive non-boolean integer, got {iters} ({type(iters).__name__})")
+
         if getattr(self, "is_closed", False):
             raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
 

@@ -31,48 +31,42 @@ pip install torch numpy pytest pybind11 ziglang
 
 ## 3. Building Compiler Binaries and Extensions
 
-ForgeTune builds all native components directly using Zig C++:
+ForgeTune builds all native components cleanly using the cross-platform native build script:
 
-### 3.1 Compile C++ Test Suite
-```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_test_suite.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp tests/cpp/test_main.cpp -I include -std=c++17 -O2 -Wall -Wextra
+```bash
+# Compile native extension (_forgetune_cpp), engine CLI, and test suite with -Wall -Wextra
+python scripts/build_native.py
 ```
-
-### 3.2 Compile C++ Engine CLI
-```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -o bin/forgetune_engine.exe src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp src/main.cpp -I include -std=c++17 -O2 -Wall -Wextra
-```
-
-### 3.3 Compile pybind11 Python Extension Module
-```powershell
-.venv\Lib\site-packages\ziglang\zig.exe c++ -target x86_64-windows-gnu -shared -o python/forgetune/_forgetune_cpp.pyd src/bindings.cpp src/ir.cpp src/graph_verifier.cpp src/interpreter.cpp src/pass_manager.cpp src/optimizer.cpp src/fusion.cpp src/codegen.cpp src/json_io.cpp src/memory_planner.cpp -I include -I <Python_Include_Path> -I <Pybind11_Include_Path> <Python_Lib_Path> -std=c++17 -O2 -Wall -Wextra
-```
+This automatically compiles:
+- `python/forgetune/_forgetune_cpp.pyd` (Windows) / `_forgetune_cpp.so` (Linux)
+- `bin/forgetune_engine` and `bin/forgetune_engine.exe`
+- `bin/forgetune_test_suite` and `bin/forgetune_test_suite.exe`
 
 ---
 
 ## 4. Running Tests
 
 ### 4.1 Native C++ Test Suite (13 Tests)
-```powershell
-bin\forgetune_test_suite.exe
+```bash
+./bin/forgetune_test_suite      # Linux
+# or .\bin\forgetune_test_suite.exe on Windows
 ```
 
-### 4.2 Full Python Test Suite (229 Tests)
-```powershell
-$env:PYTHONPATH='python;.'
-pytest -v tests/
+### 4.2 Full Python Test Suite (244 Tests)
+```bash
+python -m pytest -v tests/
 ```
 
 ### 4.3 Focused Acceptance Suites
-```powershell
+```bash
 # Run v2 model acceptance tests
-pytest -v tests/acceptance/test_v2_models_acceptance.py
+python -m pytest -v tests/acceptance/test_v2_models_acceptance.py
 
 # Run adversarial boundary and dual ABI tests
-pytest -v tests/acceptance/test_v2_adversarial_boundary.py
+python -m pytest -v tests/acceptance/test_v2_adversarial_boundary.py
 
 # Run dynamic codegen runtime tests
-pytest -v tests/unit/test_v2_codegen_runtime.py
+python -m pytest -v tests/unit/test_v2_codegen_runtime.py
 ```
 
 ---

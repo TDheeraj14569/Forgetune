@@ -3,10 +3,12 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Standard](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](CMakeLists.txt)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/Tests-248%2F248%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
-[![Verification](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
+[![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
+[![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
+[![Tests](https://img.shields.io/badge/Tests-257%2F257%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
-**ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state heap allocations.
+**ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state native arena allocations after warm-up.
 
 ---
 
@@ -89,22 +91,22 @@ flowchart TD
 
 All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). Latency measurements are reported using authoritative on-disk artifacts (`reports/v2_benchmark_report.json` and `reports/v2_paired_b64_benchmark_data.json`).
 
-### Multi-Model Benchmark Table (Dataset: `v2-bench-1792863787-0233951b`)
+### Multi-Model Benchmark Table (Dataset: `v2-bench-1793163636-4a6b7683`)
 
 | Workload Model | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8T)** | **Controlled E2E Speedup (1T)** | ForgeTune Native Kernel (μs) | **Native Kernel Speedup** | E2E - Kernel Residual (μs) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A (Dynamic TinyMLP)** | $B=1$ | 41.90 | 39.40 | 8.70 | **4.82x** | **4.53x** | 0.289 | **1.00x** | 8.41 |
-| *Linear(16->32) -> ReLU -> Linear(32->8)* | $B=4$ | 45.85 | 37.35 | 13.50 | **3.40x** | **2.77x** | 1.143 | **1.00x** | 12.36 |
-| *(Selected: `baseline_naive`)* | $B=16$ | 55.70 | 27.70 | 16.40 | **3.40x** | **1.69x** | 3.367 | **1.00x** | 13.03 |
-| | $B=64$ | 49.90 | 44.20 | 22.10 | **2.26x** | **2.00x** | 16.937 | **1.00x** | 5.16 |
-| **Model B (Residual MLP)** | $B=1$ | 41.80 | 41.80 | 13.60 | **3.07x** | **3.07x** | 0.117 | **1.00x** | 13.48 |
-| *Linear + Residual Skip + ReLU* | $B=4$ | 43.60 | 44.30 | 9.20 | **4.74x** | **4.82x** | 0.394 | **1.00x** | 8.81 |
-| *(Selected: `baseline_naive`)* | $B=16$ | 45.60 | 45.20 | 10.30 | **4.43x** | **4.39x** | 1.446 | **1.00x** | 8.85 |
-| | $B=64$ | 77.10 | 50.50 | 14.40 | **5.35x** | **3.51x** | 6.057 | **1.00x** | 8.34 |
-| **Model C (Small CNN)** | $B=1$ | 84.05 | 88.45 | 16.80 | **5.00x** | **5.26x** | 7.986 | **1.18x** | 8.81 |
-| *Conv2d -> ReLU -> Conv2d -> ReLU -> FC* | $B=4$ | 321.70 | 307.60 | 37.60 | **8.56x** | **8.18x** | 26.789 | **1.26x** | 10.81 |
-| *(Selected: `loop_ikj`)* | $B=16$ | 352.00 | 286.90 | 89.65 | **3.93x** | **3.20x** | 92.864 | **1.30x** | -3.21\* |
-| | $B=64$ | 409.53 | 462.02 | 442.70 | **0.93x** | **1.04x** | 421.300 | **1.10x** | 24.13 |
+| **Model A (Dynamic TinyMLP)** | $B=1$ | 25.10 | 25.00 | 5.90 | **4.25x** | **4.24x** | 0.152 | **1.51x** | 5.75 |
+| *Linear(16->32) -> ReLU -> Linear(32->8)* | $B=4$ | 42.90 | 37.40 | 9.10 | **4.71x** | **4.11x** | 0.646 | **1.77x** | 8.45 |
+| *(Selected: `tiled_16`)* | $B=16$ | 47.10 | 40.20 | 10.90 | **4.32x** | **3.69x** | 2.512 | **1.78x** | 8.39 |
+| | $B=64$ | 50.55 | 44.30 | 18.60 | **2.72x** | **2.38x** | 9.946 | **1.75x** | 8.65 |
+| **Model B (Residual MLP)** | $B=1$ | 41.80 | 42.15 | 5.70 | **7.33x** | **7.39x** | 0.089 | **1.11x** | 5.61 |
+| *Linear + Residual Skip + ReLU* | $B=4$ | 44.20 | 44.40 | 5.90 | **7.49x** | **7.53x** | 0.241 | **1.22x** | 5.66 |
+| *(Selected: `fused_ikj`)* | $B=16$ | 45.80 | 46.00 | 6.60 | **6.94x** | **6.97x** | 0.913 | **1.21x** | 5.69 |
+| | $B=64$ | 77.00 | 49.10 | 9.60 | **8.02x** | **5.11x** | 5.182 | **0.91x** | 4.42 |
+| **Model C (Small CNN)** | $B=1$ | 96.75 | 65.90 | 11.80 | **8.20x** | **5.58x** | 7.059 | **1.34x** | 4.74 |
+| *Conv2d -> ReLU -> Conv2d -> ReLU -> FC* | $B=4$ | 321.85 | 297.55 | 34.20 | **9.41x** | **8.70x** | 24.386 | **1.35x** | 9.81 |
+| *(Selected: `loop_ikj`)* | $B=16$ | 336.40 | 321.25 | 77.30 | **4.35x** | **4.16x** | 76.269 | **1.62x** | 1.03 |
+| | $B=64$ | 393.57 | 448.27 | 380.48 | **1.03x** | **1.18x** | 361.990 | **1.28x** | 18.49 |
 
 *\*Residual Note: For Model C at $B=16$, the negative residual (-3.21 μs) is a known sequential timing artifact resulting from CPU frequency scaling across non-interleaved benchmark loops. To resolve this, interleaved paired testing was conducted at $B=64$.*
 
@@ -186,25 +188,26 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 
 ## 6. Verification & Test Suite Accounting
 
-The repository enforces a defensible, multi-tier automated test suite:
+The repository enforces a defensible, multi-tier automated test suite across Windows and Linux:
 
-```powershell
-# 1. Run full Python test suite (235 tests)
-.\.venv\Scripts\python.exe -m pytest -v tests/
+```bash
+# 1. Run full Python test suite (244 tests)
+python -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
-.\bin\forgetune_test_suite.exe
+./bin/forgetune_test_suite   # Linux/POSIX
+# or .\bin\forgetune_test_suite.exe on Windows
 
 # 3. Execute master 3-round verification protocol
-.\.venv\Scripts\python.exe scripts/v2_verify_all.py --mode=full
+python scripts/v2_verify_all.py --mode=full
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **248 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **235 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 44 audit defect regressions.
-  - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite.exe`.
+- **Total Enumerated Tests:** **257 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **244 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 52 audit defect regressions.
+  - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
-- **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-target x86_64-windows-gnu -I include -std=c++17 -O2 -Wall -Wextra`.
+- **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-std=c++17 -O2 -Wall -Wextra` on both Linux and Windows.
 - **Bitwise Reproducibility:** 3-round verification protocol compares 65,536 float32 values across independent clean compilations with **0 bit divergences** (0/2,097,152 bits).
 
 ---
@@ -226,7 +229,7 @@ To maintain architectural transparency, the current scope and limitations are ex
 - **Frontend & Graph Capture:** PyTorch 2.14+, `torch.export` (AOT FX graph tracing).
 - **Bindings & ABI:** C ABI (`extern "C"`), `ctypes`, `pybind11`.
 - **Testing & Verification:** `pytest`, `numpy`, `scipy.stats` (hypothesis testing & bootstrap estimation).
-- **CI/CD:** GitHub Actions (`windows-latest` automated matrix).
+- **CI/CD:** GitHub Actions dual cross-platform matrix (`windows-latest` and `ubuntu-latest`).
 
 ---
 

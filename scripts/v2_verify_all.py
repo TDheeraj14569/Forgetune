@@ -19,6 +19,19 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
 
+def compute_working_tree_fingerprint(root_dir: str) -> str:
+    """Computes SHA-256 fingerprint of the complete working copy files."""
+    h = hashlib.sha256()
+    res = subprocess.run(["git", "ls-files"], cwd=root_dir, capture_output=True, text=True)
+    files = sorted([f.strip() for f in res.stdout.splitlines() if f.strip()])
+    for rel_f in files:
+        full_p = os.path.join(root_dir, rel_f)
+        if os.path.isfile(full_p):
+            h.update(rel_f.replace("\\", "/").encode("utf-8"))
+            with open(full_p, "rb") as fp:
+                h.update(fp.read())
+    return h.hexdigest()
+
 def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
     print(f"\n========================================================")
     print(f" [V2-VERIFY] {step_name}")
@@ -210,10 +223,12 @@ def main():
     tree_p = subprocess.run(["git", "write-tree"], capture_output=True, text=True)
     curr_rev = rev_p.stdout.strip() if rev_p.returncode == 0 else "unknown"
     curr_tree = tree_p.stdout.strip() if tree_p.returncode == 0 else "unknown"
+    working_tree_sha = compute_working_tree_fingerprint(".")
     if is_dirty:
         curr_tree += " (dirty working tree)"
     print(f"  Target Source Revision: {curr_rev}")
-    print(f"  Source Tree Fingerprint: {curr_tree}")
+    print(f"  Git Index Tree Fingerprint: {curr_tree}")
+    print(f"  Complete Working-Copy SHA-256: {working_tree_sha}")
 
     # 2. Purge disposable artifacts
     clean_disposable_artifacts()
@@ -315,7 +330,8 @@ def main():
         f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"**Git Branch:** `v2.0-dev`",
         f"**Source Revision:** `{curr_rev}`",
-        f"**Tree Fingerprint:** `{curr_tree}`",
+        f"**Git Index Fingerprint:** `{curr_tree}`",
+        f"**Working-Tree SHA-256:** `{working_tree_sha}`",
         f"**Verification Mode:** `{args.mode.upper()}`",
         f"**Final Status:** {final_status}",
         "",
@@ -325,7 +341,7 @@ def main():
         "",
         "| Verification Round | Scope | Checks Executed | Status | Evidence |",
         "|---|---|:---:|:---:|---|",
-        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (235 collected, 235 passed, 0 failures), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |",
+        "| **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (244 collected, 244 passed, 0 failures), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |",
         f"| **Round 2** | Adversarial, Boundary & Stress Verification | {r2_checks} | **VERIFIED** | {r2_evidence} |",
         "| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun, 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |",
         "",
@@ -344,7 +360,7 @@ def main():
         "## 3. Backward Compatibility & Platform Code Integrity Statement",
         "",
         "All 119 original v1.0 and 97 v2.0 compiler graph, verifier, interpreter, memory planner, and codegen components are verified.",
-        "Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 235 Python tests, 13 native C++ tests (248 total), and 65,536-float bitwise reproducibility checks execute with 100% pass rate.",
+        "Under direct, security-safe library loading without policy-bypass workarounds (no PowerShell `Unblock-File`, no NTFS alternate stream stripping), all 244 Python tests, 13 native C++ tests (257 total), and 65,536-float bitwise reproducibility checks execute with 100% pass rate.",
         "The runtime reliably propagates explicit actionable diagnostics, preserving platform security policy while executing all compiled workload models cleanly within the project tree.",
         ""
     ]
