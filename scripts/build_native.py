@@ -175,6 +175,28 @@ def main():
         sys.exit(res3.returncode)
     print(f"   {suite_path} compiled successfully.")
 
+    # Cross-platform compatibility: ensure both .exe and extensionless binaries
+    # exist, as well as forgetune_test_engine aliases, so both Windows and Linux CI
+    # and all test harnesses find the executable immediately.
+    aliases = [
+        (engine_path, "bin/forgetune_engine.exe"),
+        (engine_path, "bin/forgetune_engine"),
+        (engine_path, "bin/forgetune_test_engine.exe"),
+        (engine_path, "bin/forgetune_test_engine"),
+        (suite_path, "bin/forgetune_test_suite.exe"),
+        (suite_path, "bin/forgetune_test_suite"),
+    ]
+    for src, dst in aliases:
+        src_norm = os.path.normpath(src)
+        dst_norm = os.path.normpath(dst)
+        if src_norm != dst_norm:
+            try:
+                shutil.copy2(src, dst)
+                if not is_win:
+                    os.chmod(dst, 0o755)
+            except Exception as e:
+                print(f"Warning creating alias {dst} from {src}: {e}")
+
     print("\nALL NATIVE BINARIES BUILT CLEANLY WITH ZERO WARNINGS!")
 
 if __name__ == "__main__":

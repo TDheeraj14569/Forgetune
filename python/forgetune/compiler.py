@@ -236,12 +236,20 @@ def get_engine_executable() -> str:
         os.path.join(root, "build", "bin", "Debug"),
         os.path.join(root, "build"),
     ]
-    exe_names = [
-        "forgetune_test_engine.exe",
-        "forgetune_engine.exe",
-        "forgetune_test_engine",
-        "forgetune_engine"
-    ]
+    if sys.platform == "win32":
+        exe_names = [
+            "forgetune_test_engine.exe",
+            "forgetune_engine.exe",
+            "forgetune_test_engine",
+            "forgetune_engine"
+        ]
+    else:
+        exe_names = [
+            "forgetune_test_engine",
+            "forgetune_engine",
+            "forgetune_test_engine.exe",
+            "forgetune_engine.exe"
+        ]
     for d in search_dirs:
         for name in exe_names:
             cand = os.path.join(d, name)

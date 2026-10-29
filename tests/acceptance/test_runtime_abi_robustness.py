@@ -35,8 +35,8 @@ def sample_runtime_fixture(tmp_path_factory):
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(g.to_json())
 
-    _test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
-    engine_exe = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+    from forgetune.compiler import get_engine_executable
+    engine_exe = get_engine_executable()
     import subprocess
     subprocess.run([engine_exe, "--compile", json_path, "-o", cpp_path, "--variant", "naive_ijk"], check=True)
 

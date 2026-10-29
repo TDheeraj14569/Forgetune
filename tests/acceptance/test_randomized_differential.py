@@ -34,8 +34,8 @@ def compile_custom_graph(
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(graph.to_json())
 
-    _test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
-    engine_exe = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+    from forgetune.compiler import get_engine_executable
+    engine_exe = get_engine_executable()
     import subprocess
     cmd = [
         engine_exe, "--compile", json_path, "-o", cpp_path,

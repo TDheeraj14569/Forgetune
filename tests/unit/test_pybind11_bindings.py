@@ -166,7 +166,8 @@ def test_in_process_vs_cli_codegen_parity(tmp_path):
     with open(json_path, "w", encoding="utf-8") as f:
         f.write(_forgetune_cpp.graph_to_json(g))
 
-    cli_exe = "bin/forgetune_engine.exe"
+    from forgetune.compiler import get_engine_executable
+    cli_exe = get_engine_executable()
     if os.path.isfile(cli_exe):
         cmd = [
             cli_exe, "--compile", json_path, "-o", cli_out_path,

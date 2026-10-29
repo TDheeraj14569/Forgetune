@@ -16,12 +16,9 @@ import tempfile
 import pytest
 
 from forgetune.graph_adapter import Graph, Node
+from forgetune.compiler import get_engine_executable
 
-_ENGINE_CANDIDATES = [
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe")),
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe")),
-]
-ENGINE_EXE = next((p for p in _ENGINE_CANDIDATES if os.path.isfile(p)), None)
+ENGINE_EXE = get_engine_executable()
 
 
 def _compute_sha256(file_path: str) -> str:

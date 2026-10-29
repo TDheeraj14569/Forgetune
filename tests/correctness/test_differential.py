@@ -21,9 +21,9 @@ import pytest
 from forgetune import compile_model, export_to_forgetune_ir
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
+from forgetune.compiler import get_engine_executable
 
-_test_engine = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_test_engine.exe"))
-ENGINE_EXE = _test_engine if os.path.isfile(_test_engine) else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", "forgetune_engine.exe"))
+ENGINE_EXE = get_engine_executable()
 
 class DifferentialMLP(nn.Module):
     def __init__(self):
