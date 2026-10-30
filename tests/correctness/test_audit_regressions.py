@@ -2049,6 +2049,9 @@ def test_regression_build_metadata_freshness_rebuild(tmp_path):
     P1 Regression: Native build metadata tracks Python ABI, platform, machine, compiler, and flags.
     Mismatched metadata must invalidate cached native extensions.
     """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     from setup import is_build_metadata_valid
     import sysconfig
 

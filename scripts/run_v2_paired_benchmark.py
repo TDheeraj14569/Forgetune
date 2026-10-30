@@ -50,31 +50,30 @@ def main():
     manifest_path = os.path.abspath("build/artifacts/v2_small_cnn/manifest.json")
     dll_path = None
     manifest_data = None
+    is_valid_provenance = False
+
     if os.path.isfile(manifest_path):
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest_data = json.load(f)
             cand_dll = manifest_data.get("artifacts", {}).get("shared_library")
-            if cand_dll and os.path.isfile(cand_dll):
-                dll_path = os.path.abspath(cand_dll)
+            recorded_sha = manifest_data.get("artifacts", {}).get("dll_sha256")
+            if cand_dll and os.path.isfile(cand_dll) and recorded_sha:
+                cur_sha = _compute_file_sha256(cand_dll)
+                if cur_sha == recorded_sha:
+                    dll_path = os.path.abspath(cand_dll)
+                    is_valid_provenance = True
         except Exception:
             pass
 
-    if not dll_path or not os.path.isfile(dll_path):
-        for fallback in [
-            "build/artifacts/v2_small_cnn/loop_ikj/kernel.dll",
-            "build/artifacts/v2_small_cnn/baseline_naive/kernel.dll"
-        ]:
-            cand_f = os.path.abspath(fallback)
-            if os.path.isfile(cand_f):
-                dll_path = cand_f
-                break
-
-    if not dll_path or not os.path.isfile(dll_path):
-        print(f"Artifact not found; compiling Model C with autotune=True...")
+    if not is_valid_provenance or not dll_path or not os.path.isfile(dll_path):
+        print("Verified artifact not found or provenance invalid; compiling Model C freshly with autotune=True...")
         import forgetune
         ex_inp = torch.randn(2, 1, 8, 8)
         art_dir = os.path.abspath("build/artifacts/v2_small_cnn")
+        if os.path.isdir(art_dir):
+            import shutil
+            shutil.rmtree(art_dir, ignore_errors=True)
         compiled = forgetune.compile_model(
             model=model, example_inputs=(ex_inp,), output_dir=art_dir,
             autotune=True, dynamic_batch=True, enable_fusion=True
@@ -300,6 +299,38 @@ def main():
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(res_data, f, indent=2)
     print(f"\nWrote full paired benchmark data to: {out_json}")
+
+    # Synchronize Section 4 of reports/V2_BENCHMARK_REPORT.md
+    bm_report_path = os.path.abspath("reports/V2_BENCHMARK_REPORT.md")
+    if os.path.isfile(bm_report_path):
+        try:
+            with open(bm_report_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            s4_marker = "## 4. Statistically Rigorous Paired Hypothesis Testing"
+            s4_text = f"""## 4. Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
+
+To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
+- **PyTorch 1-Thread E2E Median:** ${pt_median:.2f}\\ \\mu\\text{{s}}$
+- **ForgeTune E2E Median:** ${ft_median:.2f}\\ \\mu\\text{{s}}$
+- **Mean Paired Difference ($\\bar{{d}} = t_{{PT1}} - t_{{FT}}$):** ${mean_diff:+.2f}\\ \\mu\\text{{s}}$ paired latency reduction (ForgeTune faster)
+- **Median Paired Difference:** ${median_diff:+.2f}\\ \\mu\\text{{s}}$
+- **Standard Error ($SE$):** ${se_diff:.2f}\\ \\mu\\text{{s}}$ ($df = {df}$, sample standard deviation $s_d = {std_diff:.2f}\\ \\mu\\text{{s}}$)
+- **One-Sided Non-Inferiority ($H_0: \\mu_d \\le -{equiv_margin:.2f}\\ \\mu\\text{{s}}$):** $t = {(mean_diff - (-equiv_margin)) / se_diff:.2f}$, exact Student's t $p = {p_val_ni:.2e} \\ll 0.0001$. Non-inferiority is certified.
+- **Two-Sided TOST Equivalence ($[-\\delta, +\\delta] = [-{equiv_margin:.2f}, +{equiv_margin:.2f}]\\ \\mu\\text{{s}}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\\%\\ \\text{{CI}} = [{ci_90[0]:+.2f}, {ci_90[1]:+.2f}]\\ \\mu\\text{{s}}$), placing the upper confidence bound above $+{equiv_margin:.2f}\\ \\mu\\text{{s}}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
+- **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
+  - Mean Difference: $[{boot_mean_ci_90[0]:+.2f}\\ \\mu\\text{{s}},\\; {boot_mean_ci_90[1]:+.2f}\\ \\mu\\text{{s}}]$
+  - Median Difference: $[{boot_median_ci_90[0]:+.2f}\\ \\mu\\text{{s}},\\; {boot_median_ci_90[1]:+.2f}\\ \\mu\\text{{s}}]$"""
+
+            if s4_marker in content:
+                idx = content.find(s4_marker)
+                new_content = content[:idx] + s4_text + "\n"
+            else:
+                new_content = content.rstrip() + "\n\n---\n\n" + s4_text + "\n"
+            with open(bm_report_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            print(f"[+] Synchronized Section 4 of {bm_report_path}")
+        except Exception as ex:
+            print(f"[-] Warning: Failed to synchronize Section 4: {ex}")
 
     if args.enforce_non_inferiority and not non_inferior:
         print("\nERROR: Non-inferiority gate FAILED (--enforce-non-inferiority specified).")

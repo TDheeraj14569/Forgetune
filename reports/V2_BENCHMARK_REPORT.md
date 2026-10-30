@@ -82,13 +82,13 @@ To rigorously verify Model C performance at batch size $B=64$, 30 independent sa
 ## 4. Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
 To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
-- **PyTorch 1-Thread E2E Median:** $359.35\ \mu\text{s}$
-- **ForgeTune E2E Median:** $288.60\ \mu\text{s}$
-- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+82.58\ \mu\text{s}$ paired latency reduction (ForgeTune faster)
-- **Median Paired Difference:** $+64.73\ \mu\text{s}$
-- **Standard Error ($SE$):** $7.27\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 72.65\ \mu\text{s}$)
-- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.97\ \mu\text{s}$):** $t = 13.84$, exact Student's t $p = 3.50 \times 10^{-25} \ll 0.0001$. Non-inferiority is certified.
-- **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.97, +17.97]\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+70.52, +94.65]\ \mu\text{s}$), placing the upper confidence bound above $+17.97\ \mu\text{s}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
+- **PyTorch 1-Thread E2E Median:** $340.42\ \mu\text{s}$
+- **ForgeTune E2E Median:** $288.35\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+77.38\ \mu\text{s}$ paired latency reduction (ForgeTune faster)
+- **Median Paired Difference:** $+50.55\ \mu\text{s}$
+- **Standard Error ($SE$):** $7.25\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 72.54\ \mu\text{s}$)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.02\ \mu\text{s}$):** $t = 13.01$, exact Student's t $p = 1.83e-23 \ll 0.0001$. Non-inferiority is certified.
+- **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.02, +17.02]\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+65.33, +89.42]\ \mu\text{s}$), placing the upper confidence bound above $+17.02\ \mu\text{s}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[+71.15\ \mu\text{s},\; +95.04\ \mu\text{s}]$
-  - Median Difference: $[+58.67\ \mu\text{s},\; +76.70\ \mu\text{s}]$
+  - Mean Difference: $[+65.84\ \mu\text{s},\; +89.84\ \mu\text{s}]$
+  - Median Difference: $[+49.45\ \mu\text{s},\; +55.05\ \mu\text{s}]$
