@@ -111,7 +111,7 @@ jobs:
           & .\bin\forgetune_test_suite.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 8. Run Full PyTest Suite (244 tests)
+      - name: 8. Run Full PyTest Suite (254 tests)
         shell: powershell
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"
@@ -140,7 +140,7 @@ jobs:
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"
           $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-          python scripts/run_v2_paired_benchmark.py
+          python scripts/run_v2_paired_benchmark.py --enforce-non-inferiority
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 12. Upload Test & Benchmark Artifacts

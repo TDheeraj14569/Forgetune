@@ -2,13 +2,15 @@
   "summary": {
     "total_python_tests_collected": 254,
     "python_passed": 254,
-    "python_failed_blocked": 0,
-    "python_error_blocked": 0,
+    "python_skipped": 0,
+    "python_failed": 0,
+    "python_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
     "total_tests_available": 267,
     "total_passing": 267,
-    "total_blocked_by_sac": 0
+    "total_blocked_by_sac": 0,
+    "pytest_return_code": 0
   },
   "native_cpp_test_cases": [
     {

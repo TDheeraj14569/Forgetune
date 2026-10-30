@@ -268,7 +268,27 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                     TensorShape expected_out;
                     if (in_shape.rank() == 4) {
                         int64_t B = in_shape.dims[0];
-                        int64_t feats = in_shape.dims[1] * in_shape.dims[2] * in_shape.dims[3];
+                        int64_t c = in_shape.dims[1];
+                        int64_t h = in_shape.dims[2];
+                        int64_t w = in_shape.dims[3];
+                        if (c <= 0 || h <= 0 || w <= 0) {
+                            res.add_error("FLATTEN node %" + std::to_string(node.id) +
+                                          " feature dimensions must be positive, got [" +
+                                          std::to_string(c) + ", " + std::to_string(h) + ", " + std::to_string(w) + "]");
+                            break;
+                        }
+                        if (c > (std::numeric_limits<int64_t>::max() / h)) {
+                            res.add_error("FLATTEN node %" + std::to_string(node.id) +
+                                          " feature dimensions overflow 64-bit integer");
+                            break;
+                        }
+                        int64_t ch = c * h;
+                        if (ch > (std::numeric_limits<int64_t>::max() / w)) {
+                            res.add_error("FLATTEN node %" + std::to_string(node.id) +
+                                          " feature dimensions overflow 64-bit integer");
+                            break;
+                        }
+                        int64_t feats = ch * w;
                         expected_out = TensorShape{B, feats};
                     } else if (in_shape.rank() == 2) {
                         expected_out = in_shape;

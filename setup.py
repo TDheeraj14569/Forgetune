@@ -10,6 +10,7 @@ def is_build_metadata_valid(meta_path: str) -> bool:
     import json
     import platform
     import sysconfig
+    import shutil
     if not os.path.isfile(meta_path):
         return False
     try:
@@ -21,6 +22,26 @@ def is_build_metadata_valid(meta_path: str) -> bool:
             meta.get("python_abi") != cur_abi or
             meta.get("python_version", "").split(".")[:2] != [str(sys.version_info.major), str(sys.version_info.minor)]):
             return False
+        if meta.get("build_flags") is not None and not isinstance(meta.get("build_flags"), list):
+            return False
+        if "pybind11_version" in meta and meta.get("pybind11_version"):
+            try:
+                import pybind11
+                if meta["pybind11_version"] != getattr(pybind11, "__version__", "unknown"):
+                    return False
+            except ImportError:
+                pass
+        comp_path = meta.get("compiler_path")
+        if comp_path:
+            is_known_cmd = comp_path in ("zig", "clang", "gcc", "cl", "g++", "clang++")
+            is_valid_file = os.path.isfile(comp_path) or shutil.which(comp_path) is not None
+            try:
+                import ziglang
+                has_ziglang = (comp_path == "zig" or os.path.basename(comp_path).startswith("zig"))
+            except ImportError:
+                has_ziglang = False
+            if not (is_valid_file or is_known_cmd or has_ziglang):
+                return False
         return True
     except Exception:
         return False
@@ -36,10 +57,10 @@ class SmartBuildExt(build_ext):
         if needs_rebuild and os.path.isfile(target_path):
             print(f"[setup.py] Missing or stale build metadata in '{meta_path}' for current environment, rebuilding...")
 
-        # Check source freshness: if any C++ header or source is newer than target_path, must rebuild
+        # Check source freshness: if any C++ header, source, or build script is newer than target_path, must rebuild
         if not needs_rebuild:
             target_mtime = os.path.getmtime(target_path)
-            for pattern in ["src/*.cpp", "include/**/*.hpp", "include/**/*.h", "tests/cpp/*.cpp"]:
+            for pattern in ["src/*.cpp", "include/**/*.hpp", "include/**/*.h", "tests/cpp/*.cpp", "scripts/build_native.py"]:
                 for src_file in glob.glob(pattern, recursive=True):
                     if os.path.isfile(src_file) and os.path.getmtime(src_file) > target_mtime:
                         needs_rebuild = True

@@ -157,12 +157,20 @@ def main():
     meta_path = os.path.join(os.path.dirname(pyd_path), "_forgetune_cpp.build_meta.json")
     try:
         import json, platform
+        zig_version = "unknown"
+        try:
+            p_v = subprocess.run([zig_exe, "version"], capture_output=True, text=True)
+            if p_v.returncode == 0:
+                zig_version = p_v.stdout.strip()
+        except Exception:
+            pass
         meta_data = {
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "python_abi": sysconfig.get_config_var("SOABI") or f"{sys.version_info.major}.{sys.version_info.minor}",
             "platform": sys.platform,
             "machine": platform.machine(),
             "compiler_path": zig_exe,
+            "compiler_version": zig_version,
             "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra"],
             "pybind11_version": getattr(pybind11, "__version__", "unknown")
         }
@@ -212,6 +220,7 @@ def main():
         (suite_path, "bin/forgetune_test_suite.exe"),
         (suite_path, "bin/forgetune_test_suite"),
     ]
+    alias_failed = False
     for src, dst in aliases:
         src_norm = os.path.normpath(src)
         dst_norm = os.path.normpath(dst)
@@ -221,7 +230,12 @@ def main():
                 if not is_win:
                     os.chmod(dst, 0o755)
             except Exception as e:
-                print(f"Warning creating alias {dst} from {src}: {e}")
+                print(f"ERROR creating alias {dst} from {src}: {e}")
+                alias_failed = True
+
+    if alias_failed:
+        print("FAILED to create all required binary aliases.")
+        sys.exit(1)
 
     print("\nALL NATIVE BINARIES BUILT CLEANLY WITH ZERO WARNINGS!")
 

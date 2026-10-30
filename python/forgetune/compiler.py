@@ -44,6 +44,7 @@ def get_compiler_sources_fingerprint() -> str:
         "include/**/*.h",
         "include/**/*.hpp",
         "python/forgetune/*.py",
+        "scripts/build_native.py",
         "setup.py",
         "pyproject.toml"
     ]:
@@ -71,16 +72,25 @@ def get_bounded_test_batches(
     Guarantees that test allocations will not exceed the memory budget.
     """
     if len(input_shape) > 0 and input_shape[0] != -1:
+        elem_count = int(np.prod(input_shape))
+        total_bytes = elem_count * 4
+        if total_bytes > max_single_batch_bytes:
+            from .errors import InvalidShapeError
+            raise InvalidShapeError(
+                f"Static input shape {input_shape} ({total_bytes / (1024*1024):.1f} MB) "
+                f"exceeds maximum single batch memory limit ({max_single_batch_bytes / (1024*1024):.1f} MB)"
+            )
         return [int(input_shape[0])]
 
     elem_per_sample = int(np.prod(input_shape[1:])) if len(input_shape) > 1 else 1
     bytes_per_sample = max(1, elem_per_sample * 4)  # float32 = 4 bytes
     max_safe_b_by_mem = max(1, max_single_batch_bytes // bytes_per_sample)
     safe_cap = min(max_batch_size, 256, max_safe_b_by_mem)
-    batches = {1, example_batch, min(16, max_batch_size), safe_cap}
+    clamped_example = min(max(1, example_batch), safe_cap)
+    batches = {1, clamped_example, min(16, max_batch_size), safe_cap}
     if max_batch_size * bytes_per_sample <= max_single_batch_bytes and max_batch_size <= 256:
         batches.add(max_batch_size)
-    return sorted([int(b) for b in batches if 1 <= b <= max_batch_size])
+    return sorted([int(b) for b in batches if 1 <= b <= safe_cap])
 
 def _get_candidate_provenance_hash(
     graph_hash: str,

@@ -714,7 +714,9 @@ IRGraph json_to_graph(const std::string& json_str) {
                         if (dt_tok.type != TokType::STRING) {
                             throw InvalidGraphError("json_to_graph: node.dtype must be a string");
                         }
-                        if (dt_tok.str_val != "f32" && dt_tok.str_val != "float32") {
+                        std::string dt_lower = dt_tok.str_val;
+                        std::transform(dt_lower.begin(), dt_lower.end(), dt_lower.begin(), [](unsigned char c) { return std::tolower(c); });
+                        if (dt_lower != "f32" && dt_lower != "float32") {
                             throw InvalidGraphError("json_to_graph: Unsupported dtype '" + dt_tok.str_val + "', only 'f32'/'float32' supported in ForgeTune v2.0");
                         }
                         node.output_meta.dtype = DType::FLOAT32;

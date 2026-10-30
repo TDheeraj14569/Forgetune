@@ -403,7 +403,7 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
     int64_t dw = attrs.dilation_w;
 
     oss << "static inline void " << func_name << "(\n"
-        << "    int64_t B, const float* X, const float* W, const float* bias, float* out\n"
+        << "    int64_t B, const float* FORGETUNE_RESTRICT X, const float* FORGETUNE_RESTRICT W, const float* FORGETUNE_RESTRICT bias, float* FORGETUNE_RESTRICT out\n"
         << ") {\n"
         << "    constexpr int64_t C_out = " << C_out << ";\n"
         << "    constexpr int64_t C_in = " << C_in << ";\n"
@@ -431,27 +431,30 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
             << "    constexpr int64_t W_pad = W_in + 2 * pw;\n"
             << "    constexpr int64_t in_row_stride = W_pad;\n"
             << "    static thread_local std::vector<float> pad_buf_vec;\n"
-            << "    size_t pad_elems = static_cast<size_t>(C_in * H_pad * W_pad);\n"
+            << "    constexpr size_t pad_elems = static_cast<size_t>(C_in * H_pad * W_pad);\n"
             << "    if (pad_buf_vec.size() < pad_elems) {\n"
-            << "        pad_buf_vec.assign(pad_elems, 0.0f);\n"
+            << "        try { pad_buf_vec.assign(pad_elems, 0.0f); } catch (...) { return; }\n"
             << "    } else {\n"
             << "        std::memset(pad_buf_vec.data(), 0, pad_elems * sizeof(float));\n"
             << "    }\n"
-            << "    float* pad_buf = pad_buf_vec.data();\n\n";
+            << "    float* FORGETUNE_RESTRICT pad_buf = pad_buf_vec.data();\n"
+            << "    if (!pad_buf) return;\n\n";
     } else {
         oss << "    constexpr int64_t in_row_stride = W_in;\n\n";
     }
 
     oss << "    for (int64_t b = 0; b < B; ++b) {\n"
-        << "        const float* x_b = X + b * x_b_stride;\n"
-        << "        float* out_b = out + b * out_b_stride;\n\n";
+        << "        const float* FORGETUNE_RESTRICT x_b = X + b * x_b_stride;\n"
+        << "        float* FORGETUNE_RESTRICT out_b = out + b * out_b_stride;\n\n";
 
     if (ph > 0 || pw > 0) {
         oss << "        for (int64_t ci = 0; ci < C_in; ++ci) {\n"
-            << "            const float* src_ci = x_b + ci * x_c_stride;\n"
-            << "            float* dst_ci = pad_buf + ci * H_pad * W_pad;\n"
+            << "            const float* FORGETUNE_RESTRICT src_ci = x_b + ci * x_c_stride;\n"
+            << "            float* FORGETUNE_RESTRICT dst_ci = pad_buf + ci * H_pad * W_pad;\n"
             << "            for (int64_t h = 0; h < H_in; ++h) {\n"
-            << "                std::memcpy(dst_ci + (h + ph) * W_pad + pw, src_ci + h * W_in, W_in * sizeof(float));\n"
+            << "                const float* FORGETUNE_RESTRICT s_row = src_ci + h * W_in;\n"
+            << "                float* FORGETUNE_RESTRICT d_row = dst_ci + (h + ph) * W_pad + pw;\n"
+            << "                for (int64_t w = 0; w < W_in; ++w) d_row[w] = s_row[w];\n"
             << "            }\n"
             << "        }\n\n";
     }
@@ -461,102 +464,117 @@ void CodeGenerator::emit_conv2d_kernel(std::ostringstream& oss, const std::strin
         << "            float b1 = (bias != nullptr) ? bias[co + 1] : 0.0f;\n"
         << "            float b2 = (bias != nullptr) ? bias[co + 2] : 0.0f;\n"
         << "            float b3 = (bias != nullptr) ? bias[co + 3] : 0.0f;\n"
-        << "            const float* w0 = W + (co + 0) * w_co_stride;\n"
-        << "            const float* w1 = W + (co + 1) * w_co_stride;\n"
-        << "            const float* w2 = W + (co + 2) * w_co_stride;\n"
-        << "            const float* w3 = W + (co + 3) * w_co_stride;\n"
-        << "            float* out0 = out_b + (co + 0) * out_co_stride;\n"
-        << "            float* out1 = out_b + (co + 1) * out_co_stride;\n"
-        << "            float* out2 = out_b + (co + 2) * out_co_stride;\n"
-        << "            float* out3 = out_b + (co + 3) * out_co_stride;\n\n"
+        << "            const float* FORGETUNE_RESTRICT w0 = W + (co + 0) * w_co_stride;\n"
+        << "            const float* FORGETUNE_RESTRICT w1 = W + (co + 1) * w_co_stride;\n"
+        << "            const float* FORGETUNE_RESTRICT w2 = W + (co + 2) * w_co_stride;\n"
+        << "            const float* FORGETUNE_RESTRICT w3 = W + (co + 3) * w_co_stride;\n"
+        << "            float* FORGETUNE_RESTRICT out0 = out_b + (co + 0) * out_co_stride;\n"
+        << "            float* FORGETUNE_RESTRICT out1 = out_b + (co + 1) * out_co_stride;\n"
+        << "            float* FORGETUNE_RESTRICT out2 = out_b + (co + 2) * out_co_stride;\n"
+        << "            float* FORGETUNE_RESTRICT out3 = out_b + (co + 3) * out_co_stride;\n\n"
         << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
-        << "                float* r0 = out0 + ho * W_out;\n"
-        << "                float* r1 = out1 + ho * W_out;\n"
-        << "                float* r2 = out2 + ho * W_out;\n"
-        << "                float* r3 = out3 + ho * W_out;\n"
+        << "                float* FORGETUNE_RESTRICT r0 = out0 + ho * W_out;\n"
+        << "                float* FORGETUNE_RESTRICT r1 = out1 + ho * W_out;\n"
+        << "                float* FORGETUNE_RESTRICT r2 = out2 + ho * W_out;\n"
+        << "                float* FORGETUNE_RESTRICT r3 = out3 + ho * W_out;\n"
+        << "                float acc0[W_out];\n"
+        << "                float acc1[W_out];\n"
+        << "                float acc2[W_out];\n"
+        << "                float acc3[W_out];\n"
         << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-        << "                    r0[wo] = b0; r1[wo] = b1; r2[wo] = b2; r3[wo] = b3;\n"
+        << "                    acc0[wo] = b0; acc1[wo] = b1; acc2[wo] = b2; acc3[wo] = b3;\n"
         << "                }\n"
         << "                int64_t h_base = ho * sh;\n\n"
         << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
 
     if (ph > 0 || pw > 0) {
-        oss << "                    const float* in_ci = pad_buf + ci * H_pad * W_pad;\n";
+        oss << "                    const float* FORGETUNE_RESTRICT in_ci = pad_buf + ci * H_pad * W_pad;\n";
     } else {
-        oss << "                    const float* in_ci = x_b + ci * x_c_stride;\n";
+        oss << "                    const float* FORGETUNE_RESTRICT in_ci = x_b + ci * x_c_stride;\n";
     }
 
-    oss << "                    const float* w0_ci = w0 + ci * w_ci_stride;\n"
-        << "                    const float* w1_ci = w1 + ci * w_ci_stride;\n"
-        << "                    const float* w2_ci = w2 + ci * w_ci_stride;\n"
-        << "                    const float* w3_ci = w3 + ci * w_ci_stride;\n\n"
+    oss << "                    const float* FORGETUNE_RESTRICT w0_ci = w0 + ci * w_ci_stride;\n"
+        << "                    const float* FORGETUNE_RESTRICT w1_ci = w1 + ci * w_ci_stride;\n"
+        << "                    const float* FORGETUNE_RESTRICT w2_ci = w2 + ci * w_ci_stride;\n"
+        << "                    const float* FORGETUNE_RESTRICT w3_ci = w3 + ci * w_ci_stride;\n\n"
         << "                    for (int64_t kh = 0; kh < Kh; ++kh) {\n"
-        << "                        const float* in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
-        << "                        const float* w0_row = w0_ci + kh * Kw;\n"
-        << "                        const float* w1_row = w1_ci + kh * Kw;\n"
-        << "                        const float* w2_row = w2_ci + kh * Kw;\n"
-        << "                        const float* w3_row = w3_ci + kh * Kw;\n\n"
+        << "                        const float* FORGETUNE_RESTRICT in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
+        << "                        const float* FORGETUNE_RESTRICT w0_row = w0_ci + kh * Kw;\n"
+        << "                        const float* FORGETUNE_RESTRICT w1_row = w1_ci + kh * Kw;\n"
+        << "                        const float* FORGETUNE_RESTRICT w2_row = w2_ci + kh * Kw;\n"
+        << "                        const float* FORGETUNE_RESTRICT w3_row = w3_ci + kh * Kw;\n\n"
         << "                        for (int64_t kw = 0; kw < Kw; ++kw) {\n"
         << "                            float v0 = w0_row[kw];\n"
         << "                            float v1 = w1_row[kw];\n"
         << "                            float v2 = w2_row[kw];\n"
         << "                            float v3 = w3_row[kw];\n"
-        << "                            const float* in_ptr = in_row + kw * dw;\n\n"
+        << "                            const float* FORGETUNE_RESTRICT in_ptr = in_row + kw * dw;\n\n"
         << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
         << "                                float in_val = in_ptr[wo * sw];\n"
-        << "                                r0[wo] += in_val * v0;\n"
-        << "                                r1[wo] += in_val * v1;\n"
-        << "                                r2[wo] += in_val * v2;\n"
-        << "                                r3[wo] += in_val * v3;\n"
+        << "                                acc0[wo] += in_val * v0;\n"
+        << "                                acc1[wo] += in_val * v1;\n"
+        << "                                acc2[wo] += in_val * v2;\n"
+        << "                                acc3[wo] += in_val * v3;\n"
         << "                            }\n"
         << "                        }\n"
         << "                    }\n"
-        << "                }\n";
+        << "                }\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+        << "                    float a0 = acc0[wo];\n"
+        << "                    float a1 = acc1[wo];\n"
+        << "                    float a2 = acc2[wo];\n"
+        << "                    float a3 = acc3[wo];\n";
     if (fused_relu) {
-        oss << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-            << "                    r0[wo] = (std::isnan(r0[wo]) || r0[wo] > 0.0f) ? r0[wo] : 0.0f;\n"
-            << "                    r1[wo] = (std::isnan(r1[wo]) || r1[wo] > 0.0f) ? r1[wo] : 0.0f;\n"
-            << "                    r2[wo] = (std::isnan(r2[wo]) || r2[wo] > 0.0f) ? r2[wo] : 0.0f;\n"
-            << "                    r3[wo] = (std::isnan(r3[wo]) || r3[wo] > 0.0f) ? r3[wo] : 0.0f;\n"
-            << "                }\n";
+        oss << "                    a0 = (std::isnan(a0) || a0 > 0.0f) ? a0 : 0.0f;\n"
+            << "                    a1 = (std::isnan(a1) || a1 > 0.0f) ? a1 : 0.0f;\n"
+            << "                    a2 = (std::isnan(a2) || a2 > 0.0f) ? a2 : 0.0f;\n"
+            << "                    a3 = (std::isnan(a3) || a3 > 0.0f) ? a3 : 0.0f;\n";
     }
-    oss << "            }\n"
+    oss << "                    r0[wo] = a0;\n"
+        << "                    r1[wo] = a1;\n"
+        << "                    r2[wo] = a2;\n"
+        << "                    r3[wo] = a3;\n"
+        << "                }\n"
+        << "            }\n"
         << "        }\n\n"
         << "        for (int64_t co = (C_out / 4) * 4; co < C_out; ++co) {\n"
         << "            float b_val = (bias != nullptr) ? bias[co] : 0.0f;\n"
-        << "            const float* w_co = W + co * w_co_stride;\n"
-        << "            float* out_co = out_b + co * out_co_stride;\n"
+        << "            const float* FORGETUNE_RESTRICT w_co = W + co * w_co_stride;\n"
+        << "            float* FORGETUNE_RESTRICT out_co = out_b + co * out_co_stride;\n"
         << "            for (int64_t ho = 0; ho < H_out; ++ho) {\n"
-        << "                float* out_row = out_co + ho * W_out;\n"
-        << "                for (int64_t wo = 0; wo < W_out; ++wo) out_row[wo] = b_val;\n"
+        << "                float* FORGETUNE_RESTRICT out_row = out_co + ho * W_out;\n"
+        << "                float acc[W_out];\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) acc[wo] = b_val;\n"
         << "                int64_t h_base = ho * sh;\n\n"
         << "                for (int64_t ci = 0; ci < C_in; ++ci) {\n";
 
     if (ph > 0 || pw > 0) {
-        oss << "                    const float* in_ci = pad_buf + ci * H_pad * W_pad;\n";
+        oss << "                    const float* FORGETUNE_RESTRICT in_ci = pad_buf + ci * H_pad * W_pad;\n";
     } else {
-        oss << "                    const float* in_ci = x_b + ci * x_c_stride;\n";
+        oss << "                    const float* FORGETUNE_RESTRICT in_ci = x_b + ci * x_c_stride;\n";
     }
 
-    oss << "                    const float* w_ci = w_co + ci * w_ci_stride;\n"
+    oss << "                    const float* FORGETUNE_RESTRICT w_ci = w_co + ci * w_ci_stride;\n"
         << "                    for (int64_t kh = 0; kh < Kh; ++kh) {\n"
-        << "                        const float* in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
-        << "                        const float* w_row = w_ci + kh * Kw;\n"
+        << "                        const float* FORGETUNE_RESTRICT in_row = in_ci + (h_base + kh * dh) * in_row_stride;\n"
+        << "                        const float* FORGETUNE_RESTRICT w_row = w_ci + kh * Kw;\n"
         << "                        for (int64_t kw = 0; kw < Kw; ++kw) {\n"
         << "                            float w_val = w_row[kw];\n"
-        << "                            const float* in_ptr = in_row + kw * dw;\n"
+        << "                            const float* FORGETUNE_RESTRICT in_ptr = in_row + kw * dw;\n"
         << "                            for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-        << "                                out_row[wo] += in_ptr[wo * sw] * w_val;\n"
+        << "                                acc[wo] += in_ptr[wo * sw] * w_val;\n"
         << "                            }\n"
         << "                        }\n"
         << "                    }\n"
-        << "                }\n";
+        << "                }\n"
+        << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
+        << "                    float a = acc[wo];\n";
     if (fused_relu) {
-        oss << "                for (int64_t wo = 0; wo < W_out; ++wo) {\n"
-            << "                    out_row[wo] = (std::isnan(out_row[wo]) || out_row[wo] > 0.0f) ? out_row[wo] : 0.0f;\n"
-            << "                }\n";
+        oss << "                    a = (std::isnan(a) || a > 0.0f) ? a : 0.0f;\n";
     }
-    oss << "            }\n"
+    oss << "                    out_row[wo] = a;\n"
+        << "                }\n"
+        << "            }\n"
         << "        }\n"
         << "    }\n"
         << "}\n\n";

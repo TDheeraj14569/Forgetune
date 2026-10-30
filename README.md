@@ -113,15 +113,16 @@ All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). 
 ### Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
 To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
-- **PyTorch 1-Thread E2E Median:** $361.98\ \mu\text{s}$
-- **ForgeTune E2E Median:** $343.03\ \mu\text{s}$
-- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+23.773\ \mu\text{s}$ (ForgeTune is faster)
-- **Standard Error ($SE$):** $4.289\ \mu\text{s}$ ($df = 99$)
-- **One-Sided Non-Inferiority ($H_0: \mu_d \le -18.10\ \mu\text{s}$):** $t = 9.762$, exact Student's t $p = 1.81 \times 10^{-16} \ll 0.0001$. Non-inferiority is certified.
-- **Two-Sided TOST Equivalence ($\pm 5\%$ margin):** Inconclusive strictly because ForgeTune outperforms PyTorch 1T ($90\%\ \text{CI} = [+16.65, +30.89]\ \mu\text{s}$), placing the upper confidence bound above $+18.10\ \mu\text{s}$ (TOST lower-bound p-value $< 10^{-15}$, upper-bound p-value $\approx 0.9055$, proving non-inferiority while exceeding the upper equivalence limit due to genuine performance superiority).
+- **PyTorch 1-Thread E2E Median:** $347.40\ \mu\text{s}$
+- **ForgeTune E2E Median:** $287.90\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+63.131\ \mu\text{s}$ (ForgeTune is faster)
+- **Median Difference:** $+59.00\ \mu\text{s}$
+- **Standard Error ($SE$):** $2.79\ \mu\text{s}$ ($df = 99$)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.37\ \mu\text{s}$):** $t = 28.84$, exact Student's t $p = 2.87 \times 10^{-50} \ll 0.0001$. Non-inferiority is decisively certified.
+- **Two-Sided TOST Equivalence ($\pm 5\%$ margin, $\pm 17.37\ \mu\text{s}$):** Inconclusive strictly because ForgeTune outperforms PyTorch 1T ($90\%\ \text{CI} = [+58.50, +67.77]\ \mu\text{s}$), placing the entire confidence interval well above $+17.37\ \mu\text{s}$ (TOST lower-bound p-value $< 10^{-49}$, upper-bound p-value $> 0.999$, proving non-inferiority while exceeding the upper equivalence limit due to genuine performance superiority).
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[+17.03\ \mu\text{s},\; +30.91\ \mu\text{s}]$
-  - Median Difference: $[+14.15\ \mu\text{s},\; +21.70\ \mu\text{s}]$
+  - Mean Difference: $[+59.00\ \mu\text{s},\; +68.02\ \mu\text{s}]$
+  - Median Difference: $[+57.72\ \mu\text{s},\; +60.50\ \mu\text{s}]$
 
 ---
 

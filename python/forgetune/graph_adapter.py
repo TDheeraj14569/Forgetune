@@ -26,7 +26,7 @@ class Node:
         self.name = name
         self.inputs = inputs or []
         self.shape = shape or []
-        self.dtype = dtype
+        self.dtype = dtype.lower() if isinstance(dtype, str) else "f32"
         self.const_data = const_data or []
         self.deleted = deleted
         self.conv_attrs = conv_attrs or {}
@@ -176,11 +176,11 @@ class Graph:
             raise InvalidGraphError("Graph has empty inputs list")
         if len(inputs) > 1:
             raise InvalidGraphError(f"ForgeTune ABI strictly supports single-input graphs, got {len(inputs)}")
+        for in_id in inputs:
+            if type(in_id) is bool or type(in_id) is not int or in_id < 0:
+                raise InvalidGraphError(f"Input node ID must be a non-negative int, got {in_id} ({type(in_id).__name__})")
         if len(set(inputs)) != len(inputs):
             raise InvalidGraphError(f"inputs list contains duplicate IDs: {inputs}")
-        for in_id in inputs:
-            if type(in_id) is not int or in_id < 0:
-                raise InvalidGraphError(f"Input node ID must be a non-negative int, got {in_id} ({type(in_id).__name__})")
         g.set_inputs(inputs)
 
         outputs = d.get("outputs", [])
@@ -190,11 +190,11 @@ class Graph:
             raise InvalidGraphError("Graph has empty outputs list")
         if len(outputs) > 1:
             raise InvalidGraphError(f"ForgeTune currently supports only single-output graphs, got {len(outputs)}")
+        for out_id in outputs:
+            if type(out_id) is bool or type(out_id) is not int or out_id < 0:
+                raise InvalidGraphError(f"Output node ID must be a non-negative int, got {out_id} ({type(out_id).__name__})")
         if len(set(outputs)) != len(outputs):
             raise InvalidGraphError(f"outputs list contains duplicate IDs: {outputs}")
-        for out_id in outputs:
-            if type(out_id) is not int or out_id < 0:
-                raise InvalidGraphError(f"Output node ID must be a non-negative int, got {out_id} ({type(out_id).__name__})")
         g.set_outputs(outputs)
 
         CANONICAL_OPS = {
@@ -267,7 +267,7 @@ class Graph:
             if not isinstance(node_inputs, list):
                 raise InvalidGraphError(f"Node inputs must be a list, got {type(node_inputs).__name__}")
             for op_id in node_inputs:
-                if type(op_id) is not int or op_id < 0:
+                if type(op_id) is bool or type(op_id) is not int or op_id < 0:
                     raise InvalidGraphError(f"Node input operand ID must be a non-negative int, got {op_id} ({type(op_id).__name__})")
 
             # Validate operator input arity
@@ -319,6 +319,7 @@ class Graph:
 
             nd_copy = dict(nd)
             nd_copy["op"] = op
+            nd_copy["dtype"] = dtype.lower()
             node = Node.from_dict(nd_copy)
             g.add_node(node)
 

@@ -324,7 +324,6 @@ class Autotuner:
 
         # Create validation test inputs across representative memory-bounded batch sizes
         from .compiler import get_bounded_test_batches
-        rng = np.random.default_rng(42)
         is_dyn = graph.has_dynamic_batch()
         max_b = getattr(graph, "max_batch_size", 128)
         if max_b <= 0:
@@ -336,33 +335,18 @@ class Autotuner:
         else:
             test_batches = [input_shape[0] if input_shape[0] > 0 else 1]
 
-        test_inputs = []
-        for b in test_batches:
-            shape_b = (b, *input_shape[1:])
-            test_inputs.append(rng.standard_normal(shape_b).astype(np.float32))
-            test_inputs.append(np.zeros(shape_b, dtype=np.float32))
-            test_inputs.append(-np.abs(rng.standard_normal(shape_b).astype(np.float32)))
-            test_inputs.append(rng.uniform(-5.0, 5.0, size=shape_b).astype(np.float32))
-
-        test_inputs.insert(0, example_input)
-
-        # Ground truth outputs from reference interpreter for all test inputs
-        test_ground_truths = []
-        for tin in test_inputs:
-            ref_dict = graph.evaluate({graph.inputs[0]: tin})
-            test_ground_truths.append(ref_dict[graph.outputs[0]])
-
         # Strict differential check: Verify interpreter ground truth matches PyTorch reference output on example_input
-        if not np.allclose(test_ground_truths[0], reference_output, atol=self.atol, rtol=self.rtol):
-            diff = float(np.max(np.abs(test_ground_truths[0] - reference_output)))
+        ref_dict = graph.evaluate({graph.inputs[0]: example_input})
+        interp_example_out = ref_dict[graph.outputs[0]]
+        if not np.allclose(interp_example_out, reference_output, atol=self.atol, rtol=self.rtol):
+            diff = float(np.max(np.abs(interp_example_out - reference_output)))
             raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch reference output: max_abs={diff}")
 
         if oracle is not None:
-            for tin, exp in zip(test_inputs, test_ground_truths):
-                pt_out = oracle(tin)
-                if not np.allclose(exp, pt_out, atol=self.atol, rtol=self.rtol):
-                    diff = float(np.max(np.abs(exp - pt_out)))
-                    raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch oracle at batch {tin.shape[0]}: max_abs={diff}")
+            pt_out = oracle(example_input)
+            if not np.allclose(interp_example_out, pt_out, atol=self.atol, rtol=self.rtol):
+                diff = float(np.max(np.abs(interp_example_out - pt_out)))
+                raise CorrectnessError(f"Interpreter ground truth diverged from PyTorch oracle at example input: max_abs={diff}")
 
         from .compiler import get_engine_executable
         engine_exe = get_engine_executable()
@@ -476,29 +460,51 @@ class Autotuner:
                 out_dyn = (len(out_node.shape) > 0 and out_node.shape[0] == -1)
                 rt_out_shape = tuple(-1 if (out_dyn and i == 0) else s for i, s in enumerate(output_shape))
                 runtime = NativeRuntime(cand_dll, rt_in_shape, rt_out_shape)
-                for idx, (tin, expected) in enumerate(zip(test_inputs, test_ground_truths)):
-                    actual = runtime.run(tin)
-                    if actual.shape != expected.shape:
-                        raise CorrectnessError(
-                            f"Output shape mismatch for candidate {cand.candidate_id} at batch {tin.shape[0]}: "
-                            f"expected {expected.shape}, got {actual.shape}"
-                        )
-                    max_abs = float(np.max(np.abs(actual - expected)))
-                    max_rel = float(np.max(np.abs((actual - expected) / (np.abs(expected) + 1e-7))))
-                    if not np.allclose(actual, expected, atol=self.atol, rtol=self.rtol):
-                        raise CorrectnessError(
-                            f"Numerical mismatch vs IR interpreter at batch {tin.shape[0]}: max_abs={max_abs}, max_rel={max_rel}",
-                            max_abs_diff=max_abs,
-                            max_rel_diff=max_rel
-                        )
-                    if oracle is not None:
-                        pt_exp = oracle(tin)
-                        if actual.shape != pt_exp.shape or not np.allclose(actual, pt_exp, atol=self.atol, rtol=self.rtol):
-                            diff_pt = float(np.max(np.abs(actual - pt_exp)))
-                            raise CorrectnessError(f"Numerical mismatch vs PyTorch oracle at batch {tin.shape[0]}: max_abs={diff_pt}")
-                    elif idx == 0 and not np.allclose(actual, reference_output, atol=self.atol, rtol=self.rtol):
-                        diff_pt = float(np.max(np.abs(actual - reference_output)))
-                        raise CorrectnessError(f"Numerical mismatch vs PyTorch reference: max_abs={diff_pt}")
+                # 1. Verify example_input directly against reference output and interpreter
+                actual_example = runtime.run(example_input)
+                if actual_example.shape != interp_example_out.shape or not np.allclose(actual_example, interp_example_out, atol=self.atol, rtol=self.rtol):
+                    diff = float(np.max(np.abs(actual_example - interp_example_out)))
+                    raise CorrectnessError(f"Numerical mismatch vs IR interpreter on example input: max_abs={diff}")
+                if not np.allclose(actual_example, reference_output, atol=self.atol, rtol=self.rtol):
+                    diff_pt = float(np.max(np.abs(actual_example - reference_output)))
+                    raise CorrectnessError(f"Numerical mismatch vs PyTorch reference: max_abs={diff_pt}")
+                if oracle is not None:
+                    pt_exp = oracle(example_input)
+                    if not np.allclose(actual_example, pt_exp, atol=self.atol, rtol=self.rtol):
+                        diff_pt = float(np.max(np.abs(actual_example - pt_exp)))
+                        raise CorrectnessError(f"Numerical mismatch vs PyTorch oracle on example input: max_abs={diff_pt}")
+
+                # 2. Incrementally generate and evaluate bounded test batches one by one (low peak memory)
+                cand_rng = np.random.default_rng(42)
+                for b in test_batches:
+                    shape_b = (b, *input_shape[1:])
+                    batch_cases = [
+                        cand_rng.standard_normal(shape_b).astype(np.float32),
+                        np.zeros(shape_b, dtype=np.float32),
+                        -np.abs(cand_rng.standard_normal(shape_b).astype(np.float32)),
+                        cand_rng.uniform(-5.0, 5.0, size=shape_b).astype(np.float32)
+                    ]
+                    for tin in batch_cases:
+                        expected = graph.evaluate({graph.inputs[0]: tin})[graph.outputs[0]]
+                        actual = runtime.run(tin)
+                        if actual.shape != expected.shape:
+                            raise CorrectnessError(
+                                f"Output shape mismatch for candidate {cand.candidate_id} at batch {tin.shape[0]}: "
+                                f"expected {expected.shape}, got {actual.shape}"
+                            )
+                        max_abs = float(np.max(np.abs(actual - expected)))
+                        max_rel = float(np.max(np.abs((actual - expected) / (np.abs(expected) + 1e-7))))
+                        if not np.allclose(actual, expected, atol=self.atol, rtol=self.rtol):
+                            raise CorrectnessError(
+                                f"Numerical mismatch vs IR interpreter at batch {tin.shape[0]}: max_abs={max_abs}, max_rel={max_rel}",
+                                max_abs_diff=max_abs,
+                                max_rel_diff=max_rel
+                            )
+                        if oracle is not None:
+                            pt_exp = oracle(tin)
+                            if actual.shape != pt_exp.shape or not np.allclose(actual, pt_exp, atol=self.atol, rtol=self.rtol):
+                                diff_pt = float(np.max(np.abs(actual - pt_exp)))
+                                raise CorrectnessError(f"Numerical mismatch vs PyTorch oracle at batch {tin.shape[0]}: max_abs={diff_pt}")
                 res_entry["status"] = "passed"
                 candidate_results.append(res_entry)
                 verified_candidates.append((cand, runtime, res_entry))

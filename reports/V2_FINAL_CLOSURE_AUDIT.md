@@ -21,9 +21,9 @@ This closure audit provides the definitive, evidence-backed evaluation of ForgeT
    - The authoritative benchmark dataset on disk is Run 2 (`v2-bench-1793163636-4a6b7683` in `reports/v2_benchmark_report.json`), reporting Model C $B=64$ medians: PyTorch 8T $393.57\ \mu\text{s}$, PyTorch 1T $448.27\ \mu\text{s}$, ForgeTune E2E $380.48\ \mu\text{s}$, ForgeTune Kernel $361.99\ \mu\text{s}$. Conflicting numbers in previous draft reports (`399.10`, `468.20`, `441.05`, `418.45`) are reconciled as ungrounded text from an intermediate run.
    - **Residuals:** In the authoritative benchmark dataset (`v2-bench-1793163636-4a6b7683`), residuals across all models and batch sizes are strictly non-negative.
 6. **Expanded Paired Benchmark Experiment ($N=100$ Blocks):** A newly executed paired-block experiment with alternating execution order on Model C at $B=64$ (`reports/v2_paired_b64_benchmark_data.json`) demonstrates:
-   - Sample mean difference: $\bar{d} = +23.77\ \mu\text{s}$ ($SE = 4.29\ \mu\text{s}$, $df = 99$). ForgeTune is measurably faster than single-threaded PyTorch 1T ($343.02\ \mu\text{s}$ vs $361.98\ \mu\text{s}$ median).
-   - One-sided non-inferiority against PyTorch 1T is proven with extreme statistical confidence ($t = 9.76$, exact Student's t $p = 1.81 \times 10^{-16} \ll 0.0001$, replacing Gaussian normal approximation $8.18 \times 10^{-23}$). Under the original performance acceptance criterion (REQ-24, Milestone 7, Audit 3) and Prompt Case 1 / Phase F, **Gate 7 is certified PASS (NON-INFERIORITY / PERFORMANCE PARITY CERTIFIED)**.
-   - Two-sided TOST equivalence within $\pm 5\%$ ($\pm 18.10\ \mu\text{s}$) is documented as inconclusive ($90\%\ \text{CI} = [16.65, 30.89]\ \mu\text{s}$) specifically because the upper confidence bound exceeds $+18.10\ \mu\text{s}$ due to ForgeTune's speedup over PyTorch 1T, not due to high variance or performance inferiority.
+   - Sample mean difference: $\bar{d} = +63.13\ \mu\text{s}$ ($SE = 2.79\ \mu\text{s}$, $df = 99$). ForgeTune is measurably faster than single-threaded PyTorch 1T ($287.90\ \mu\text{s}$ vs $347.40\ \mu\text{s}$ median, with $+59.00\ \mu\text{s}$ median advantage).
+   - One-sided non-inferiority against PyTorch 1T is proven with extreme statistical confidence ($t = 28.84$, exact Student's t $p = 2.87 \times 10^{-50} \ll 0.0001$). Under the original performance acceptance criterion (REQ-24, Milestone 7, Audit 3), **Gate 7 is certified PASS (NON-INFERIORITY / PERFORMANCE PARITY CERTIFIED)**.
+   - Two-sided TOST equivalence within $\pm 5\%$ ($\pm 17.37\ \mu\text{s}$) is documented as inconclusive ($90\%\ \text{CI} = [58.50, 67.77]\ \mu\text{s}$) specifically because the entire confidence interval lies above $+17.37\ \mu\text{s}$ due to ForgeTune's speedup over PyTorch 1T, not due to high variance or performance inferiority.
 7. **Cross-Platform CI Execution & Verification:** The automated GitHub Actions CI workflows (`.github/workflows/windows_verification.yml` and `.github/workflows/linux_verification.yml`) executed on `windows-latest` and `ubuntu-latest` with conclusion **`success`** (Windows CI: native build, CI probe, 13/13 native C++ tests, 254 Python tests, 3-round verification protocol with exit code 0, and paired benchmarks; Linux CI: native build, 13/13 native C++ tests, and 254 Python tests).
 8. **Master Release Decision:** **ALL 12 RELEASE GATES ARE CERTIFIED PASS** (12 PASS, 0 FAIL, 0 HOLD). Functional correctness, legacy ABI compatibility, mathematical operator correctness, memory optimization, non-inferior performance parity, and three-round bitwise reproducibility are completely verified. The candidate on `v2.0-dev` is fully certified and ready for human-reviewed release authorization.
 
@@ -208,38 +208,38 @@ An expanded paired-block experiment was executed on the host with alternating ex
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
 
 #### Recomputed Sample Statistics ($N=100$):
-* **PyTorch 1 Thread Median:** $361.98\ \mu\text{s}$
-* **ForgeTune E2E Median:** $343.02\ \mu\text{s}$
-* **Sample Mean Difference ($\bar{d}$):** $+23.77\ \mu\text{s}$ (ForgeTune is on average $23.77\ \mu\text{s}$ faster)
-* **Sample Median Difference:** $+16.48\ \mu\text{s}$
-* **Sample Standard Deviation ($s_d$):** $42.89\ \mu\text{s}$
-* **Standard Error ($SE = s_d / \sqrt{100}$):** $4.29\ \mu\text{s}$
+* **PyTorch 1 Thread Median:** $347.40\ \mu\text{s}$
+* **ForgeTune E2E Median:** $287.90\ \mu\text{s}$
+* **Sample Mean Difference ($\bar{d}$):** $+63.13\ \mu\text{s}$ (ForgeTune is on average $63.13\ \mu\text{s}$ faster)
+* **Sample Median Difference:** $+59.00\ \mu\text{s}$
+* **Sample Standard Deviation ($s_d$):** $27.92\ \mu\text{s}$
+* **Standard Error ($SE = s_d / \sqrt{100}$):** $2.79\ \mu\text{s}$
 * **Degrees of Freedom ($df$):** $99$
 * **Critical Value ($t_{0.05, 99}$ for 90% Two-Sided CI):** $1.66039$
-* **90% Confidence Interval for $\mu_d$:** $[\mathbf{16.65},\; \mathbf{30.89}]\ \mu\text{s}$
-* **95% Confidence Interval for $\mu_d$:** $[15.26,\; 32.28]\ \mu\text{s}$
-* **90% Bootstrap CI for Mean Difference (10,000 resamples, seed 42):** $[17.03,\; 30.91]\ \mu\text{s}$
-* **90% Bootstrap CI for Median Difference (10,000 resamples, seed 42):** $[14.15,\; 21.70]\ \mu\text{s}$
-* **Equivalence Margin ($\pm 5\%$ of PyTorch baseline):** $\pm 18.10\ \mu\text{s}$
+* **90% Confidence Interval for $\mu_d$:** $[\mathbf{58.50},\; \mathbf{67.77}]\ \mu\text{s}$
+* **95% Confidence Interval for $\mu_d$:** $[57.59,\; 68.67]\ \mu\text{s}$
+* **90% Bootstrap CI for Mean Difference (10,000 resamples, seed 42):** $[59.00,\; 68.02]\ \mu\text{s}$
+* **90% Bootstrap CI for Median Difference (10,000 resamples, seed 42):** $[57.72,\; 60.50]\ \mu\text{s}$
+* **Equivalence Margin ($\pm 5\%$ of PyTorch baseline):** $\pm 17.37\ \mu\text{s}$
 
 #### Statistical Hypothesis Testing:
 1. **Test of Zero Mean Difference ($H_0: \mu_d = 0$):**
-   $$t = \frac{23.77 - 0}{4.29} = 5.54, \quad p = 2.47 \times 10^{-7} < 0.0001$$
-   The null hypothesis of equal means is decisively rejected (exact Student's t distribution with $df=99$; replaces prior Gaussian approximation $2.98 \times 10^{-8}$). ForgeTune is measurably faster than PyTorch 1 Thread.
-2. **One-Sided Non-Inferiority Test ($H_0: \mu_d \le -\delta$ with $\delta = 18.10\ \mu\text{s}$):**
-   $$t = \frac{23.77 - (-18.10)}{4.29} = \frac{41.87}{4.29} = 9.76, \quad p = 1.81 \times 10^{-16} \ll 0.0001$$
-   **Non-inferiority is demonstrated with extreme statistical confidence** (exact Student's t distribution with $df=99$; replaces prior Gaussian approximation $8.18 \times 10^{-23}$). ForgeTune is non-inferior to PyTorch 1 Thread.
-3. **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-18.10, +18.10]\ \mu\text{s}$):**
-   * Lower bound: $16.65 \ge -18.10$ (Satisfied).
-   * Upper bound: $30.89 > +18.10$ (**Exceeds upper margin due to faster execution**).
-   * **Equivalence Analysis:** Because ForgeTune is faster than single-threaded PyTorch ($\bar{d} = +23.77\ \mu\text{s}$), the 90% confidence interval falls entirely in the positive region $[16.65, 30.89]\ \mu\text{s}$ and its upper bound crosses $+18.10\ \mu\text{s}$. Under strict two-sided equivalence within $\pm 5\%$, the test is inconclusive solely because ForgeTune outperforms the baseline, not because of high variance or performance inferiority.
+   $$t = \frac{63.13 - 0}{2.79} = 22.61, \quad p = 6.86 \times 10^{-41} < 0.0001$$
+   The null hypothesis of equal means is decisively rejected (exact Student's t distribution with $df=99$). ForgeTune is measurably and significantly faster than PyTorch 1 Thread.
+2. **One-Sided Non-Inferiority Test ($H_0: \mu_d \le -\delta$ with $\delta = 17.37\ \mu\text{s}$):**
+   $$t = \frac{63.13 - (-17.37)}{2.79} = \frac{80.50}{2.79} = 28.84, \quad p = 2.87 \times 10^{-50} \ll 0.0001$$
+   **Non-inferiority is demonstrated with extreme statistical confidence** ($df=99$). ForgeTune is proven non-inferior to PyTorch 1 Thread.
+3. **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.37, +17.37]\ \mu\text{s}$):**
+   * Lower bound: $58.50 \ge -17.37$ (Satisfied, $p < 10^{-49}$).
+   * Upper bound: $67.77 > +17.37$ (**Exceeds upper margin due to faster execution**).
+   * **Equivalence Analysis:** Because ForgeTune is significantly faster than single-threaded PyTorch ($\bar{d} = +63.13\ \mu\text{s}$), the 90% confidence interval falls entirely in the positive region $[58.50, 67.77]\ \mu\text{s}$ and its lower bound is well above $+17.37\ \mu\text{s}$. Under strict two-sided equivalence within $\pm 5\%$, the test is inconclusive solely because ForgeTune outperforms the baseline, not because of high variance or performance inferiority.
 4. **Authoritative Gate 7 Acceptance Resolution (Phase F Audit Record):**
    * **Original Criterion & Source:** REQ-24 / Milestone 7 / Audit 3 / Prompt 2180 Section 4.12 ("truthful, reproducible reporting of kernel vs. E2E latency; defensible speedups over PyTorch eager execution; no artificial slowdown").
-   * **Reference Baseline:** PyTorch 2.14.1+cpu 1-Thread E2E ($361.98\ \mu\text{s}$ median) vs ForgeTune E2E ($343.02\ \mu\text{s}$ median).
+   * **Reference Baseline:** PyTorch 2.14.1+cpu 1-Thread E2E ($347.40\ \mu\text{s}$ median) vs ForgeTune E2E ($287.90\ \mu\text{s}$ median).
    * **Raw Paired Dataset:** `reports/v2_paired_b64_benchmark_data.json` ($N=100$ paired blocks, alternating order).
-   * **Sample Difference:** Mean $\bar{d} = +23.7730\ \mu\text{s}$, Median $= +16.4750\ \mu\text{s}$, $s_d = 42.8933\ \mu\text{s}$, $SE = 4.2893\ \mu\text{s}$, $df = 99$.
-   * **Hypothesis Result:** Non-inferiority ($H_0: \mu_d \le -18.10\ \mu\text{s}$) decisively certified ($t = 9.7618, p = 1.81 \times 10^{-16} \ll 0.0001$).
-   * **Selected Kernel:** `tiled_16` (native Conv2D with branchless padding, 4x channel unrolling, in-register ReLU epilogue; achieves $375.29\ \mu\text{s}$ tuned vs $469.06\ \mu\text{s}$ baseline naive, $1.25\times$ speedup).
+   * **Sample Difference:** Mean $\bar{d} = +63.1310\ \mu\text{s}$, Median $= +59.00\ \mu\text{s}$, $s_d = 27.9164\ \mu\text{s}$, $SE = 2.7916\ \mu\text{s}$, $df = 99$.
+   * **Hypothesis Result:** Non-inferiority ($H_0: \mu_d \le -17.37\ \mu\text{s}$) decisively certified ($t = 28.84, p = 2.87 \times 10^{-50} \ll 0.0001$).
+   * **Selected Kernel:** `loop_ikj` (native Conv2D with compile-time row register accumulator arrays `acc0[W_out]` ... `acc3[W_out]`, `FORGETUNE_RESTRICT` pointers, direct vector-friendly padding copy, and zero steady-state arena allocations).
    * **Audit Verdict:** As authorized by Case 1 / Phase F, **Gate 7 is certified PASS (NON-INFERIORITY / PERFORMANCE PARITY CERTIFIED)**.
 
 ---

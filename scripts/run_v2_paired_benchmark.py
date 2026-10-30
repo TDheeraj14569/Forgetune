@@ -15,6 +15,9 @@ import sys
 import json
 import time
 import math
+import argparse
+import subprocess
+import hashlib
 import numpy as np
 import torch
 
@@ -23,7 +26,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from examples.v2_small_cnn import SmallCNN
 from forgetune.runtime import NativeRuntime
 
+def _compute_file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
 def main():
+    parser = argparse.ArgumentParser(description="ForgeTune v2.0 Model C B=64 Paired Benchmark Protocol")
+    parser.add_argument("--enforce-non-inferiority", action="store_true", help="Fail with non-zero exit code if non-inferiority is not demonstrated")
+    args = parser.parse_args()
+
     print("=================================================================")
     print(" ForgeTune v2.0: Model C B=64 Paired Benchmark Protocol (N=100)")
     print("=================================================================")
@@ -33,11 +47,31 @@ def main():
     np.random.seed(42)
     model = SmallCNN().eval()
 
-    dll_path = os.path.abspath("build/artifacts/v2_small_cnn/loop_ikj/kernel.dll")
-    if not os.path.isfile(dll_path):
-        dll_path = os.path.abspath("build/artifacts/v2_small_cnn/baseline_naive/kernel.dll")
-    if not os.path.isfile(dll_path):
-        print(f"Artifact not found at {dll_path}; compiling Model C on the fly...")
+    manifest_path = os.path.abspath("build/artifacts/v2_small_cnn/manifest.json")
+    dll_path = None
+    manifest_data = None
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest_data = json.load(f)
+            cand_dll = manifest_data.get("artifacts", {}).get("shared_library")
+            if cand_dll and os.path.isfile(cand_dll):
+                dll_path = os.path.abspath(cand_dll)
+        except Exception:
+            pass
+
+    if not dll_path or not os.path.isfile(dll_path):
+        for fallback in [
+            "build/artifacts/v2_small_cnn/loop_ikj/kernel.dll",
+            "build/artifacts/v2_small_cnn/baseline_naive/kernel.dll"
+        ]:
+            cand_f = os.path.abspath(fallback)
+            if os.path.isfile(cand_f):
+                dll_path = cand_f
+                break
+
+    if not dll_path or not os.path.isfile(dll_path):
+        print(f"Artifact not found; compiling Model C with autotune=True...")
         import forgetune
         ex_inp = torch.randn(2, 1, 8, 8)
         art_dir = os.path.abspath("build/artifacts/v2_small_cnn")
@@ -45,7 +79,8 @@ def main():
             model=model, example_inputs=(ex_inp,), output_dir=art_dir,
             autotune=True, dynamic_batch=True, enable_fusion=True
         )
-        dll_path = compiled.manifest()["artifacts"]["shared_library"]
+        manifest_data = compiled.manifest()
+        dll_path = os.path.abspath(manifest_data["artifacts"]["shared_library"])
 
     print(f"Loaded Native Kernel: {dll_path}")
     rt = NativeRuntime(dll_path, (-1, 1, 8, 8), (-1, 10))
@@ -204,6 +239,14 @@ def main():
     print(f"  Two-Sided TOST Eq (+/-5%):{'DEMONSTRATED (PASS)' if tost_equivalent else 'INCONCLUSIVE (HOLD - CI exceeds margin)'}")
     print("=================================================================")
 
+    git_sha = "unknown"
+    try:
+        git_res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+        if git_res.returncode == 0:
+            git_sha = git_res.stdout.strip()
+    except Exception:
+        pass
+
     # Write output JSON
     res_data = {
         "metadata": {
@@ -220,7 +263,12 @@ def main():
             "equivalence_margin_percent": 5.0,
             "equivalence_margin_us": equiv_margin,
             "pytorch_threads": 1,
-            "native_kernel_path": dll_path
+            "native_kernel_path": dll_path,
+            "candidate_id": manifest_data.get("kernel_config", {}).get("candidate_id") if manifest_data else "unknown",
+            "opt_level": manifest_data.get("kernel_config", {}).get("opt_level") if manifest_data else "unknown",
+            "kernel_sha256": _compute_file_sha256(dll_path) if os.path.isfile(dll_path) else "unknown",
+            "git_commit": git_sha,
+            "platform": sys.platform
         },
         "summary_statistics": {
             "pytorch_1thread_median_us": pt_median,
@@ -252,6 +300,10 @@ def main():
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(res_data, f, indent=2)
     print(f"\nWrote full paired benchmark data to: {out_json}")
+
+    if args.enforce_non_inferiority and not non_inferior:
+        print("\nERROR: Non-inferiority gate FAILED (--enforce-non-inferiority specified).")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

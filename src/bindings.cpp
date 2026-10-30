@@ -104,6 +104,8 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
         .def("topological_order", &IRGraph::topological_order)
         .def("live_node_count", &IRGraph::live_node_count)
         .def("allocate_id", &IRGraph::allocate_id)
+        .def("max_batch_size", &IRGraph::max_batch_size)
+        .def("set_max_batch_size", &IRGraph::set_max_batch_size)
         .def("to_string", &IRGraph::to_string)
         .def("__repr__", &IRGraph::to_string);
 
