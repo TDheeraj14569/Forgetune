@@ -153,6 +153,24 @@ def main():
     res1 = subprocess.run(cmd_pyd, capture_output=True, text=True)
     check_compilation_result(pyd_path, res1)
 
+    # Save build metadata for SmartBuildExt freshness validation
+    meta_path = os.path.join(os.path.dirname(pyd_path), "_forgetune_cpp.build_meta.json")
+    try:
+        import json, platform
+        meta_data = {
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "python_abi": sysconfig.get_config_var("SOABI") or f"{sys.version_info.major}.{sys.version_info.minor}",
+            "platform": sys.platform,
+            "machine": platform.machine(),
+            "compiler_path": zig_exe,
+            "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra"],
+            "pybind11_version": getattr(pybind11, "__version__", "unknown")
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, indent=2)
+    except Exception as e:
+        print(f"   Notice: could not write build metadata ({e})")
+
     # 2. forgetune_engine executable
     engine_path = f"bin/forgetune_engine{exe_ext}"
     print(f"2. Compiling {engine_path}...")

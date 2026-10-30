@@ -86,19 +86,21 @@ class Autotuner:
         """
         if type(max_budget) is not int or isinstance(max_budget, bool) or not (1 <= max_budget <= 8):
             raise ValueError(f"max_budget must be an integer between 1 and 8, got {max_budget} ({type(max_budget).__name__})")
+        if enable_fusion is False and force_fusion:
+            raise ValueError("Contradictory autotuner options: enable_fusion cannot be False when force_fusion is True")
         candidates = [
-            # 1. Baseline Naive
+            # 1. Baseline Naive (unfused)
             KernelCandidate("baseline_naive", "naive_ijk", enable_fusion=False, opt_level="-O2"),
-            # 2. Alternate loop ordering (IKJ)
+            # 2. Alternate loop ordering (unfused IKJ)
             KernelCandidate("loop_ikj", "loop_ikj", enable_fusion=False, opt_level="-O2"),
-            # 3. Tiled execution (tile 8)
-            KernelCandidate("tiled_8", "tiled", enable_fusion=False, tile_m=8, tile_n=8, tile_k=8, opt_level="-O2"),
-            # 4. Tiled execution (tile 16)
-            KernelCandidate("tiled_16", "tiled", enable_fusion=False, tile_m=16, tile_n=16, tile_k=16, opt_level="-O2"),
-            # 5. Fused kernel (IKJ)
+            # 3. Fused kernel (IKJ) - covers fusion at budget >= 3
             KernelCandidate("fused_ikj", "fused_ikj", enable_fusion=True, opt_level="-O2"),
-            # 6. Fused kernel (Tiled 8)
+            # 4. Tiled execution (tile 8) - covers tiling at budget >= 4
+            KernelCandidate("tiled_8", "tiled", enable_fusion=False, tile_m=8, tile_n=8, tile_k=8, opt_level="-O2"),
+            # 5. Fused kernel (Tiled 8) - covers fused tiling at budget >= 5
             KernelCandidate("fused_tiled_8", "fused_tiled", enable_fusion=True, tile_m=8, tile_n=8, tile_k=8, opt_level="-O2"),
+            # 6. Tiled execution (tile 16)
+            KernelCandidate("tiled_16", "tiled", enable_fusion=False, tile_m=16, tile_n=16, tile_k=16, opt_level="-O2"),
             # 7. Fused kernel (Tiled 16)
             KernelCandidate("fused_tiled_16", "fused_tiled", enable_fusion=True, tile_m=16, tile_n=16, tile_k=16, opt_level="-O2"),
             # 8. Fused kernel with -O3
@@ -111,24 +113,8 @@ class Autotuner:
         return candidates[:max_budget]
 
     def _get_compiler_sources_fingerprint(self) -> str:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        import glob
-        tracked_files = []
-        for pattern in [
-            "src/*.cpp",
-            "include/forgetune/*.hpp",
-            "python/forgetune/*.py"
-        ]:
-            tracked_files.extend(glob.glob(os.path.join(root, pattern)))
-        tracked_files = sorted(set(tracked_files))
-        h = hashlib.sha256()
-        for p in tracked_files:
-            if os.path.isfile(p):
-                rel_path = os.path.relpath(p, root).replace("\\", "/")
-                h.update(rel_path.encode("utf-8"))
-                with open(p, "rb") as f:
-                    h.update(f.read())
-        return h.hexdigest()
+        from .compiler import get_compiler_sources_fingerprint
+        return get_compiler_sources_fingerprint()
 
     def _compute_cache_key(
         self,
@@ -336,7 +322,8 @@ class Autotuner:
         best_candidate = None
         best_latency = float("inf")
 
-        # Create validation test inputs across representative batch sizes
+        # Create validation test inputs across representative memory-bounded batch sizes
+        from .compiler import get_bounded_test_batches
         rng = np.random.default_rng(42)
         is_dyn = graph.has_dynamic_batch()
         max_b = getattr(graph, "max_batch_size", 128)
@@ -345,7 +332,7 @@ class Autotuner:
 
         if is_dyn:
             b_example = input_shape[0] if input_shape[0] > 0 else 1
-            test_batches = sorted(list({1, b_example, min(16, max_b), max_b}))
+            test_batches = get_bounded_test_batches(input_shape, max_b, example_batch=b_example)
         else:
             test_batches = [input_shape[0] if input_shape[0] > 0 else 1]
 
@@ -433,8 +420,8 @@ class Autotuner:
                     res_entry["rejection_reason"] = res.error_message
                     candidate_results.append(res_entry)
                     continue
-            except Exception:
-                pass
+            except Exception as e:
+                res_entry["fallback_diagnostic"] = f"In-process bridge error ({type(e).__name__}): {e}"
 
             if not codegen_done:
                 engine_cmd = [
@@ -458,7 +445,10 @@ class Autotuner:
                     p = subprocess.run(engine_cmd, capture_output=True, text=True, timeout=15)
                     if p.returncode != 0:
                         res_entry["status"] = "codegen_failed"
-                        res_entry["rejection_reason"] = p.stderr
+                        reason = p.stderr.strip()
+                        if "fallback_diagnostic" in res_entry:
+                            reason = f"{reason} | {res_entry['fallback_diagnostic']}"
+                        res_entry["rejection_reason"] = reason
                         candidate_results.append(res_entry)
                         continue
                 except Exception as e:

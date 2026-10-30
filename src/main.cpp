@@ -21,6 +21,10 @@ static void write_file(const std::string& path, const std::string& content) {
         throw std::runtime_error("Failed to open file for writing: " + path);
     }
     ofs << content;
+    ofs.flush();
+    if (!ofs) {
+        throw std::runtime_error("Failed to complete write operation to file: " + path);
+    }
 }
 
 static bool parse_strict_positive_int(const std::string& str, int* out) {
@@ -108,8 +112,8 @@ int main(int argc, char** argv) {
                     config.candidate_id = argv[++i];
                 } else if (arg == "--max-batch-size" && i + 1 < argc) {
                     std::string val_str = argv[++i];
-                    if (!parse_strict_positive_int(val_str, &config.max_batch_size)) {
-                        std::cerr << "Error: invalid value for --max-batch-size: '" << val_str << "' (expected positive integer)\n";
+                    if (!parse_strict_positive_int(val_str, &config.max_batch_size) || config.max_batch_size > KernelConfig::MAX_BATCH_SIZE_LIMIT) {
+                        std::cerr << "Error: invalid value for --max-batch-size: '" << val_str << "' (expected positive integer <= 1000000)\n";
                         return 1;
                     }
                     max_batch_size_explicit = true;

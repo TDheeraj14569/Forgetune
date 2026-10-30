@@ -20,11 +20,28 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
 
 def compute_working_tree_fingerprint(root_dir: str) -> str:
-    """Computes SHA-256 fingerprint of the complete working copy files."""
+    """Computes SHA-256 fingerprint of all working copy files (tracked + untracked source files)."""
     h = hashlib.sha256()
     res = subprocess.run(["git", "ls-files"], cwd=root_dir, capture_output=True, text=True)
-    files = sorted([f.strip() for f in res.stdout.splitlines() if f.strip()])
-    for rel_f in files:
+    tracked_files = [f.strip() for f in res.stdout.splitlines() if f.strip()]
+    
+    # Also find untracked files
+    res_untracked = subprocess.run(["git", "status", "--porcelain"], cwd=root_dir, capture_output=True, text=True)
+    untracked_files = []
+    for line in res_untracked.stdout.splitlines():
+        if line.startswith("?? "):
+            f = line[3:].strip()
+            if not (f.startswith(".venv") or f.startswith("build") or f.startswith(".git") or f.startswith("__pycache__")):
+                if os.path.isfile(os.path.join(root_dir, f)):
+                    untracked_files.append(f)
+                elif os.path.isdir(os.path.join(root_dir, f)):
+                    for root, _, files in os.walk(os.path.join(root_dir, f)):
+                        for fn in files:
+                            rel_p = os.path.relpath(os.path.join(root, fn), root_dir)
+                            untracked_files.append(rel_p)
+
+    all_files = sorted(set(tracked_files + untracked_files))
+    for rel_f in all_files:
         full_p = os.path.join(root_dir, rel_f)
         if os.path.isfile(full_p):
             h.update(rel_f.replace("\\", "/").encode("utf-8"))
@@ -32,39 +49,77 @@ def compute_working_tree_fingerprint(root_dir: str) -> str:
                 h.update(fp.read())
     return h.hexdigest()
 
-def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
+def check_non_report_dirty(root_dir: str):
+    subprocess.run(["git", "update-index", "-q", "--refresh"], cwd=root_dir, capture_output=True)
+    res = subprocess.run(["git", "status", "--porcelain"], cwd=root_dir, capture_output=True, text=True)
+    non_report_dirty = []
+    ignored_prefixes = ("build/", ".pytest_cache/", ".venv/", "reports/", "bin/")
+    ignored_suffixes = (".pyc", ".build_meta.json")
+    for line in res.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) == 2:
+            fn = parts[1].replace("\\", "/")
+            if any(fn.startswith(p) for p in ignored_prefixes) or any(fn.endswith(s) for s in ignored_suffixes):
+                continue
+        non_report_dirty.append(line)
+    return non_report_dirty
+
+def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
     print(f"\n========================================================")
     print(f" [V2-VERIFY] {step_name}")
     print(f" Command: {' '.join(cmd)}")
     print(f"========================================================")
     t0 = time.perf_counter()
-    p = subprocess.run(cmd, env=env)
+    p = subprocess.run(cmd, env=env, capture_output=True, text=True)
     dur = time.perf_counter() - t0
+    if p.stdout:
+        print(p.stdout, end="")
+    if p.stderr:
+        print(p.stderr, end="", file=sys.stderr)
     if p.returncode != 0:
-        print(f"[-] FAILED: {step_name} exited with code {p.returncode} in {dur:.2f}s")
-        return False
+        combined = (p.stdout or "") + "\n" + (p.stderr or "")
+        if "4551" in combined or "Smart App Control" in combined or "Application Control" in combined:
+            cat = "sac_policy_blocked"
+        elif "AssertionError" in combined:
+            cat = "assertion_failure"
+        elif "CorrectnessError" in combined or "mismatch" in combined.lower():
+            cat = "numerical_mismatch"
+        elif "error:" in combined.lower() or "failed to compile" in combined.lower():
+            cat = "compilation_error"
+        else:
+            cat = "execution_failure"
+        print(f"[-] FAILED ({cat}): {step_name} exited with code {p.returncode} in {dur:.2f}s")
+        reason = combined.splitlines()[-1] if combined.strip() else f"exit code {p.returncode}"
+        return False, cat, reason
     print(f"[+] PASSED: {step_name} in {dur:.2f}s")
-    return True
+    return True, "passed", ""
 
-def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> bool:
+def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> tuple:
     test_exe = os.path.abspath("bin/forgetune_test_suite.exe")
     try:
         t0 = time.perf_counter()
-        p = subprocess.run([test_exe], env=env)
+        p = subprocess.run([test_exe], env=env, capture_output=True, text=True)
         dur = time.perf_counter() - t0
+        if p.stdout:
+            print(p.stdout, end="")
+        if p.stderr:
+            print(p.stderr, end="", file=sys.stderr)
         if p.returncode == 0:
             print(f"[+] PASSED: {step_name} in {dur:.2f}s")
-            return True
+            return True, "passed", ""
         else:
             print(f"[-] FAILED: {step_name} exited with code {p.returncode} in {dur:.2f}s")
-            return False
+            return False, "cpp_test_failure", f"exit code {p.returncode}"
     except (FileNotFoundError, PermissionError, OSError) as e:
         print(f"Direct executable execution blocked/unavailable ({e}). Running in-process via _forgetune_cpp...")
 
     cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]
     return run_step(f"{step_name} (in-process)", cmd, env=env)
 
-def clean_disposable_artifacts():
+def clean_disposable_artifacts() -> bool:
     print("\nCleaning disposable build and test artifacts...")
     dirs_to_clean = [
         os.path.join("build", "artifacts"),
@@ -73,13 +128,19 @@ def clean_disposable_artifacts():
         os.path.join("build", "differential_test"),
         os.path.join("build", "test_opt")
     ]
+    all_cleaned = True
     for d in dirs_to_clean:
         if os.path.exists(d):
             try:
                 shutil.rmtree(d)
                 print(f"  Removed {d}")
             except Exception as e:
-                print(f"  Warning: could not remove {d}: {e}")
+                print(f"[-] ERROR: could not remove {d}: {e}")
+                all_cleaned = False
+        if os.path.exists(d):
+            print(f"[-] ERROR: directory still exists after cleanup attempt: {d}")
+            all_cleaned = False
+    return all_cleaned
 
 import argparse
 
@@ -110,6 +171,30 @@ def main():
     all_steps_passed = True
     failed_steps = []
 
+    def exec_step(step_name: str, cmd: list, fatal: bool = False) -> bool:
+        nonlocal all_steps_passed
+        success, cat, reason = run_step(step_name, cmd, env=env)
+        if not success:
+            all_steps_passed = False
+            failed_steps.append((step_name, cat, reason))
+            if fatal:
+                print(f"[-] Fatal step failed: {step_name} ({cat}). Aborting verification.")
+                sys.exit(1)
+            return False
+        return True
+
+    def exec_cpp_test_suite(step_name: str, fatal: bool = True) -> bool:
+        nonlocal all_steps_passed
+        success, cat, reason = run_cpp_test_suite_step(step_name, python_exe, env=env)
+        if not success:
+            all_steps_passed = False
+            failed_steps.append((step_name, cat, reason))
+            if fatal:
+                print(f"[-] Fatal step failed: {step_name} ({cat}). Aborting verification.")
+                sys.exit(1)
+            return False
+        return True
+
     cpp_srcs = [
         "src/ir.cpp",
         "src/graph_verifier.cpp",
@@ -132,16 +217,16 @@ def main():
     # ROUND 1: Clean Build & Full Functional Verification
     # =========================================================================
     print("\n>>> STARTING ROUND 1: CLEAN BUILD & FUNCTIONAL VERIFICATION <<<")
-    clean_disposable_artifacts()
+    if not clean_disposable_artifacts():
+        print("[-] Fatal: failed to clean disposable artifacts in Round 1. Aborting.")
+        sys.exit(1)
     os.makedirs("bin", exist_ok=True)
 
     # 1. Compile C++ Test Suite
-    if not run_step("R1: Compile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp")):
-        sys.exit(1)
+    exec_step("R1: Compile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp"), fatal=True)
 
     # 2. Compile C++ Engine CLI
-    if not run_step("R1: Compile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp")):
-        sys.exit(1)
+    exec_step("R1: Compile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp"), fatal=True)
     shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
 
     # 3. Compile pybind11 Extension
@@ -163,28 +248,18 @@ def main():
         py_lib,
         "-std=c++17", "-O2", "-Wall", "-Wextra"
     ]
-    if not run_step("R1: Compile pybind11 Extension", compile_pyd_cmd):
-        sys.exit(1)
+    exec_step("R1: Compile pybind11 Extension", compile_pyd_cmd, fatal=True)
 
     # 4. Run C++ Test Suite
-    if not run_cpp_test_suite_step("R1: Run C++ Test Suite (13 tests)", python_exe, env):
-        sys.exit(1)
+    exec_cpp_test_suite("R1: Run C++ Test Suite (13 tests)", fatal=True)
 
-    # 4. Run PyTest Full Suite
-    if not run_step("R1: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R1: Run Full PyTest Suite (SAC Policy Blocked)")
+    # 5. Run PyTest Full Suite
+    exec_step("R1: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"])
 
-    # 5. Run All Model Examples
-    if not run_step("R1: Run Model A (Dynamic TinyMLP)", [python_exe, "examples/v2_dynamic_tinymlp.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R1: Run Model A (Dynamic TinyMLP)")
-    if not run_step("R1: Run Model B (Residual MLP)", [python_exe, "examples/v2_residual_mlp.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R1: Run Model B (Residual MLP)")
-    if not run_step("R1: Run Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R1: Run Model C (Small CNN)")
+    # 6. Run All Model Examples
+    exec_step("R1: Run Model A (Dynamic TinyMLP)", [python_exe, "examples/v2_dynamic_tinymlp.py"])
+    exec_step("R1: Run Model B (Residual MLP)", [python_exe, "examples/v2_residual_mlp.py"])
+    exec_step("R1: Run Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"])
 
     print("\n[+] ROUND 1 COMPLETE.")
 
@@ -193,19 +268,11 @@ def main():
     # =========================================================================
     print("\n>>> STARTING ROUND 2: ADVERSARIAL & BOUNDARY VERIFICATION <<<")
     
-    if not run_step("R2: Adversarial & Boundary Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R2: Adversarial & Boundary Test Suite")
-    if not run_step("R2: Models Acceptance Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R2: Models Acceptance Test Suite")
+    exec_step("R2: Adversarial & Boundary Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"])
+    exec_step("R2: Models Acceptance Test Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"])
     if not args.skip_benchmarks:
-        if not run_step("R2: Run Rigorous V2 Benchmark Suite", [python_exe, "scripts/run_v2_benchmarks.py"], env=env):
-            all_steps_passed = False
-            failed_steps.append("R2: Run Rigorous V2 Benchmark Suite")
-    if not run_step("R2: Generate V2 Memory Report", [python_exe, "scripts/generate_v2_memory_report.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R2: Generate V2 Memory Report")
+        exec_step("R2: Run Rigorous V2 Benchmark Suite", [python_exe, "scripts/run_v2_benchmarks.py"])
+    exec_step("R2: Generate V2 Memory Report", [python_exe, "scripts/generate_v2_memory_report.py"])
 
     print("\n[+] ROUND 2 COMPLETE.")
 
@@ -231,86 +298,91 @@ def main():
     print(f"  Complete Working-Copy SHA-256: {working_tree_sha}")
 
     # 2. Purge disposable artifacts
-    clean_disposable_artifacts()
+    if not clean_disposable_artifacts():
+        print("[-] Fatal: failed to clean disposable artifacts in Round 3. Aborting.")
+        sys.exit(1)
 
     # 3. Rebuild all native components from scratch
-    if not run_step("R3: Recompile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp")):
-        sys.exit(1)
-    if not run_step("R3: Recompile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp")):
-        sys.exit(1)
+    exec_step("R3: Recompile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp"), fatal=True)
+    exec_step("R3: Recompile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp"), fatal=True)
     shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
-    if not run_step("R3: Recompile pybind11 Extension", compile_pyd_cmd):
-        sys.exit(1)
+    exec_step("R3: Recompile pybind11 Extension", compile_pyd_cmd, fatal=True)
 
     # 4. Run Full Native C++ Test Suite
-    if not run_cpp_test_suite_step("R3: Run C++ Test Suite (13 tests)", python_exe, env):
-        sys.exit(1)
+    exec_cpp_test_suite("R3: Run C++ Test Suite (13 tests)", fatal=True)
 
     # 5. Run Full Python PyTest Suite
-    if not run_step("R3: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Run Full PyTest Suite (SAC Policy Blocked)")
+    exec_step("R3: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"])
 
     # 6. Run Complete Acceptance Suite
-    if not run_step("R3: Run Models Acceptance Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Run Models Acceptance Suite")
-    if not run_step("R3: Run Adversarial & Boundary Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Run Adversarial & Boundary Suite")
+    exec_step("R3: Run Models Acceptance Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_models_acceptance.py"])
+    exec_step("R3: Run Adversarial & Boundary Suite", [python_exe, "-m", "pytest", "-v", "tests/acceptance/test_v2_adversarial_boundary.py"])
 
     # 7. Execute All Workload Models
-    if not run_step("R3: Execute Model A (Dynamic TinyMLP)", [python_exe, "examples/v2_dynamic_tinymlp.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Execute Model A (Dynamic TinyMLP)")
-    if not run_step("R3: Execute Model B (Residual MLP)", [python_exe, "examples/v2_residual_mlp.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Execute Model B (Residual MLP)")
-    if not run_step("R3: Execute Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"], env=env):
-        all_steps_passed = False
-        failed_steps.append("R3: Execute Model C (Small CNN)")
+    exec_step("R3: Execute Model A (Dynamic TinyMLP)", [python_exe, "examples/v2_dynamic_tinymlp.py"])
+    exec_step("R3: Execute Model B (Residual MLP)", [python_exe, "examples/v2_residual_mlp.py"])
+    exec_step("R3: Execute Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"])
 
     # 8. Rigorous Bitwise Reproducibility Verification (65,536 compared floats)
     print("\n[R3: Bitwise Reproducibility Verification across Independent Compilations]")
-    from examples.v2_dynamic_tinymlp import DynamicTinyMLP
-    from forgetune import compile_model
+    try:
+        from examples.v2_dynamic_tinymlp import DynamicTinyMLP
+        from forgetune import compile_model
 
-    torch.manual_seed(999)
-    m1 = DynamicTinyMLP().eval()
-    ex1 = torch.randn(2, 16)
+        torch.manual_seed(999)
+        m1 = DynamicTinyMLP().eval()
+        ex1 = torch.randn(2, 16)
 
-    c1 = compile_model(m1, (ex1,), output_dir="build/artifacts/repro_1", autotune=False, dynamic_batch=True)
-    c2 = compile_model(m1, (ex1,), output_dir="build/artifacts/repro_2", autotune=False, dynamic_batch=True)
+        c1 = compile_model(m1, (ex1,), output_dir="build/artifacts/repro_1", autotune=False, dynamic_batch=True)
+        c2 = compile_model(m1, (ex1,), output_dir="build/artifacts/repro_2", autotune=False, dynamic_batch=True)
 
-    # Compare 128 dynamic batch-64 invocations: 128 * 64 * 8 = 65,536 float32 values (2,097,152 bits)
-    total_floats = 0
-    mismatched_words = 0
-    total_diff_bits = 0
-    np.random.seed(12345)
-    for _ in range(128):
-        test_x = np.random.randn(64, 16).astype(np.float32)
-        out1 = c1.run(test_x)
-        out2 = c2.run(test_x)
-        total_floats += out1.size
-        u1 = out1.view(np.uint32)
-        u2 = out2.view(np.uint32)
-        diff_bits = np.bitwise_xor(u1, u2)
-        nz = diff_bits[diff_bits != 0]
-        mismatched_words += int(nz.size)
-        for val in nz:
-            total_diff_bits += bin(int(val)).count('1')
+        # Compare 128 dynamic batch-64 invocations: 128 * 64 * 8 = 65,536 float32 values (2,097,152 bits)
+        total_floats = 0
+        mismatched_words = 0
+        total_diff_bits = 0
+        np.random.seed(12345)
+        for _ in range(128):
+            test_x = np.random.randn(64, 16).astype(np.float32)
+            out1 = c1.run(test_x)
+            out2 = c2.run(test_x)
+            total_floats += out1.size
+            u1 = out1.view(np.uint32)
+            u2 = out2.view(np.uint32)
+            diff_bits = np.bitwise_xor(u1, u2)
+            nz = diff_bits[diff_bits != 0]
+            mismatched_words += int(nz.size)
+            for val in nz:
+                total_diff_bits += bin(int(val)).count('1')
 
-    total_bits = total_floats * 32
-    print(f"  Total float32 values compared: {total_floats} (Target: 65,536)")
-    print(f"  Mismatched float32 words:      {mismatched_words} / {total_floats}")
-    print(f"  Mismatched bits:               {total_diff_bits} / {total_bits}")
-    assert total_floats == 65536, f"Expected 65,536 floats, got {total_floats}"
-    assert mismatched_words == 0, f"Bitwise word mismatch detected: {mismatched_words} differences!"
-    assert total_diff_bits == 0, f"Bitwise bit mismatch detected: {total_diff_bits} differences!"
-    print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched float32 words, 0/2,097,152 mismatched bits across independent compilations).")
+        total_bits = total_floats * 32
+        print(f"  Total float32 values compared: {total_floats} (Target: 65,536)")
+        print(f"  Mismatched float32 words:      {mismatched_words} / {total_floats}")
+        print(f"  Mismatched bits:               {total_diff_bits} / {total_bits}")
+        assert total_floats == 65536, f"Expected 65,536 floats, got {total_floats}"
+        assert mismatched_words == 0, f"Bitwise word mismatch detected: {mismatched_words} differences!"
+        assert total_diff_bits == 0, f"Bitwise bit mismatch detected: {total_diff_bits} differences!"
+        print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched float32 words, 0/2,097,152 mismatched bits across independent compilations).")
+    except Exception as e:
+        all_steps_passed = False
+        failed_steps.append(("R3: Bitwise Reproducibility Verification", "numerical_mismatch", str(e)))
+        print(f"[-] Bitwise reproducibility failed: {e}")
 
-    # Generate Final Verification Document
-    final_status = "**FULLY VERIFIED**" if all_steps_passed else "**PARTIAL VALIDATION (ENVIRONMENT-BLOCKED BY PLATFORM APPLICATION-CONTROL OBSERVATIONS)**"
+    # Check for dirty tree (excluding reports and generated artifacts)
+    non_report_dirty = check_non_report_dirty(root_dir)
+    hard_failures = [f for f in failed_steps if f[1] != "sac_policy_blocked"]
+
+    if non_report_dirty:
+        final_status = "**FAILED CERTIFICATION (DIRTY WORKING TREE DETECTED)**"
+        all_steps_passed = False
+    elif not failed_steps:
+        final_status = "**FULLY VERIFIED**"
+        all_steps_passed = True
+    elif not hard_failures:
+        final_status = "**PARTIAL VALIDATION (ENVIRONMENT-BLOCKED BY PLATFORM APPLICATION-CONTROL OBSERVATIONS)**"
+        all_steps_passed = False
+    else:
+        final_status = "**FAILED CERTIFICATION (TEST FAILURES OR REGRESSIONS DETECTED)**"
+        all_steps_passed = False
 
     # Dynamic Round 2 scope & evidence based on --skip-benchmarks flag
     r2_checks = (
@@ -369,6 +441,16 @@ def main():
         f.write("\n".join(ver_md))
     print("\n[+] Successfully generated reports/V2_FINAL_VERIFICATION.md")
 
+    if non_report_dirty:
+        print("\n#################################################################")
+        print(" CERTIFICATION FAILED: UNCOMMITTED / DIRTY SOURCE TREE DETECTED")
+        print(f" Dirty files ({len(non_report_dirty)}):")
+        for f in non_report_dirty:
+            print(f"   - {f}")
+        print(" EXIT CODE 1.")
+        print("#################################################################")
+        sys.exit(1)
+
     if all_steps_passed:
         print("\n#################################################################")
         print(" ALL THREE FINAL VERIFICATION ROUNDS COMPLETED SUCCESSFULLY!")
@@ -377,17 +459,21 @@ def main():
         sys.exit(0)
     else:
         print("\n#################################################################")
-        print(" THREE VERIFICATION ROUNDS COMPLETED WITH ENVIRONMENT-BLOCKED STEPS")
-        print(f" Failed / Blocked Steps ({len(failed_steps)}):")
-        for s in failed_steps:
-            print(f"   - {s}")
-        if args.mode == "partial":
-            print(f" Mode: PARTIAL (--mode=partial explicitly permitted).")
+        print(f" THREE VERIFICATION ROUNDS FINISHED WITH {len(failed_steps)} FAILED STEP(S)")
+        for s, cat, reason in failed_steps:
+            print(f"   - [{cat}] {s}: {reason}")
+        if args.mode == "partial" and len(hard_failures) == 0:
+            print(" Mode: PARTIAL (--mode=partial permitted and all failures are environment-blocked sac_policy_blocked).")
             print(" EXIT CODE 0.")
             print("#################################################################")
             sys.exit(0)
         else:
-            print(f" Mode: FULL (default). Required test steps were blocked by host policy.")
+            if hard_failures:
+                print(f" Hard failures detected ({len(hard_failures)} step(s)):")
+                for s, cat, reason in hard_failures:
+                    print(f"   - [{cat}] {s}: {reason}")
+            else:
+                print(" Mode: FULL (default). Required test steps were blocked by host policy.")
             print(" EXIT CODE 1.")
             print("#################################################################")
             sys.exit(1)

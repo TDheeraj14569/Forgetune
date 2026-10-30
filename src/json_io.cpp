@@ -628,6 +628,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                             throw InvalidGraphError("json_to_graph: expected '{' for conv_attrs");
                         }
                         bool first_ca = true;
+                        std::unordered_set<std::string> seen_ca_keys;
                         while (true) {
                             Token c_f = lexer.next();
                             if (c_f.type == TokType::RBRACE) break;
@@ -645,19 +646,31 @@ IRGraph json_to_graph(const std::string& json_str) {
                                 throw InvalidGraphError("json_to_graph: expected string key in conv_attrs");
                             }
                             std::string ck = c_f.str_val;
+                            if (!seen_ca_keys.insert(ck).second) {
+                                throw InvalidGraphError("json_to_graph: duplicate key in conv_attrs: '" + ck + "'");
+                            }
                             Token cc = lexer.next();
                             if (cc.type != TokType::COLON) {
                                 throw InvalidGraphError("json_to_graph: expected ':' after conv_attrs key '" + ck + "'");
                             }
                             Token cv = lexer.next();
-                            int64_t ival = parse_json_integer(cv, ck, 0, 4096);
-                            if (ck == "stride_h") node.conv_attrs.stride_h = ival;
-                            else if (ck == "stride_w") node.conv_attrs.stride_w = ival;
-                            else if (ck == "pad_h") node.conv_attrs.pad_h = ival;
-                            else if (ck == "pad_w") node.conv_attrs.pad_w = ival;
-                            else if (ck == "dilation_h") node.conv_attrs.dilation_h = ival;
-                            else if (ck == "dilation_w") node.conv_attrs.dilation_w = ival;
-                            else if (ck == "groups") node.conv_attrs.groups = ival;
+                            if (ck == "stride_h") {
+                                node.conv_attrs.stride_h = parse_json_integer(cv, ck, 1, 4096);
+                            } else if (ck == "stride_w") {
+                                node.conv_attrs.stride_w = parse_json_integer(cv, ck, 1, 4096);
+                            } else if (ck == "pad_h") {
+                                node.conv_attrs.pad_h = parse_json_integer(cv, ck, 0, 4096);
+                            } else if (ck == "pad_w") {
+                                node.conv_attrs.pad_w = parse_json_integer(cv, ck, 0, 4096);
+                            } else if (ck == "dilation_h") {
+                                node.conv_attrs.dilation_h = parse_json_integer(cv, ck, 1, 4096);
+                            } else if (ck == "dilation_w") {
+                                node.conv_attrs.dilation_w = parse_json_integer(cv, ck, 1, 4096);
+                            } else if (ck == "groups") {
+                                node.conv_attrs.groups = parse_json_integer(cv, ck, 1, 1);
+                            } else {
+                                throw InvalidGraphError("json_to_graph: unknown key in conv_attrs: '" + ck + "'");
+                            }
                         }
                     } else if (f_key == "inputs") {
                         Token in_arr = lexer.next();

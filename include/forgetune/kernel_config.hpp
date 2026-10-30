@@ -47,6 +47,7 @@ struct KernelConfig {
     bool enable_fusion = false;
     std::string compiler_opt_level = "-O2"; // e.g. -O2, -O3
     int64_t max_batch_size = 128;
+    static constexpr int64_t MAX_BATCH_SIZE_LIMIT = 1000000;
 
     bool validate(std::string* error_msg = nullptr) const {
         if (matmul_variant == MatMulVariant::UNKNOWN) {
@@ -61,8 +62,8 @@ struct KernelConfig {
             if (error_msg) *error_msg = "Tile dimensions cannot exceed 4096";
             return false;
         }
-        if (max_batch_size <= 0) {
-            if (error_msg) *error_msg = "max_batch_size must be strictly positive (> 0)";
+        if (max_batch_size <= 0 || max_batch_size > MAX_BATCH_SIZE_LIMIT) {
+            if (error_msg) *error_msg = "max_batch_size must be in range [1, 1000000]";
             return false;
         }
         return true;

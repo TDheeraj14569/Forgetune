@@ -207,6 +207,10 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
         .def_readwrite("enable_fusion", &KernelConfig::enable_fusion)
         .def_readwrite("compiler_opt_level", &KernelConfig::compiler_opt_level)
         .def_readwrite("max_batch_size", &KernelConfig::max_batch_size)
+        .def("validate", [](const KernelConfig& self) {
+            std::string err;
+            return self.validate(&err);
+        })
         .def("__repr__", &KernelConfig::to_string);
 
     // CompilationResult

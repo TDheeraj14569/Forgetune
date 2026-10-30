@@ -11,6 +11,7 @@ bin/
 *.exp
 *.lib
 *.pdb
+*.build_meta.json
 
 # Python
 __pycache__/

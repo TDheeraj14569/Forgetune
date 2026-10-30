@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
 [![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
-[![Tests](https://img.shields.io/badge/Tests-257%2F257%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-267%2F267%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
 **ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state native arena allocations after warm-up.
@@ -19,7 +19,7 @@ In edge, embedded, and latency-critical CPU inference, executing small-to-medium
 - **Fragmented Memory Lifetimes:** Naive per-layer allocation results in recurring heap allocations, cache pollution, and memory fragmentation.
 - **Heavyweight Runtimes:** Full runtime dependencies (such as large LLVM-based JIT compilers or extensive C++ framework runtimes) add binary bloat and deployment complexity in constrained environments.
 
-ForgeTune solves this by extracting PyTorch computational graphs into an independent, strongly typed C++17 intermediate representation (IR), applying domain-specific compiler optimizations (graph rewriting, multi-operator loop fusion, and interval-coloring memory planning), and compiling self-contained native shared libraries (`.dll`) that execute with zero framework dependencies.
+ForgeTune solves this by extracting PyTorch computational graphs into an independent, strongly typed C++17 intermediate representation (IR), applying domain-specific compiler optimizations (graph rewriting, multi-operator loop fusion, and interval-coloring memory planning), and compiling self-contained native shared libraries (`.dll` on Windows, `.so` on Linux) that execute with zero framework dependencies.
 
 ---
 
@@ -51,8 +51,8 @@ flowchart TD
     subgraph Native["4. Native Codegen & Runtime"]
         G --> H["C++17 Standalone Codegen<br/>(Dynamic Batch Indexing)"]
         H --> I["Zig C++ / Native Toolchain"]
-        I --> J["Native Shared Library (.dll)<br/>(Dual Versioned C ABI)"]
-        J --> K["NativeRuntime (ctypes / pybind11)<br/>(Zero Steady-State Heap Allocation)"]
+        I --> J["Native Shared Library (.dll on Windows, .so on Linux)<br/>(Dual Versioned C ABI)"]
+        J --> K["NativeRuntime (ctypes dispatch)<br/>(Zero Steady-State Native Arena Allocations)"]
     end
 ```
 
@@ -82,7 +82,7 @@ flowchart TD
 ### Dual Versioned C ABI
 - Defined in `include/forgetune/forgetune_abi.h`:
   - Dynamic Batch V2 Entry Point: `int forgetune_run_v2(const float* inp, size_t inp_len, float* out, size_t out_len, int64_t batch_size)`
-  - Legacy Static V1 Entry Point: `int forgetune_run_v1(const float* inp, size_t inp_len, float* out, size_t out_len)`
+  - Legacy Static V1 Entry Point: `int forgetune_run_v1(const float* inp, size_t inp_len, float* out, size_t out_len)` (compatibility/static or inferred-batch execution)
   - Query Exports: `int forgetune_is_dynamic(void)`, `int64_t forgetune_max_batch(void)`
 
 ---
@@ -108,7 +108,7 @@ All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). 
 | *(Selected: `loop_ikj`)* | $B=16$ | 336.40 | 321.25 | 77.30 | **4.35x** | **4.16x** | 76.269 | **1.62x** | 1.03 |
 | | $B=64$ | 393.57 | 448.27 | 380.48 | **1.03x** | **1.18x** | 361.990 | **1.28x** | 18.49 |
 
-*\*Residual Note: For Model C at $B=16$, the negative residual (-3.21 μs) is a known sequential timing artifact resulting from CPU frequency scaling across non-interleaved benchmark loops. To resolve this, interleaved paired testing was conducted at $B=64$.*
+*\*Residual Note: In the authoritative benchmark dataset (`v2-bench-1793163636-4a6b7683`), residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) across all models and batch sizes are strictly non-negative, and the paired 100-block hypothesis test at $B=64$ provides the definitive statistical verification.*
 
 ### Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
@@ -191,7 +191,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite across Windows and Linux:
 
 ```bash
-# 1. Run full Python test suite (244 tests)
+# 1. Run full Python test suite (254 tests)
 python -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -203,8 +203,8 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **257 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **244 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 52 audit defect regressions.
+- **Total Enumerated Tests:** **267 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **254 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 62 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-std=c++17 -O2 -Wall -Wextra` on both Linux and Windows.

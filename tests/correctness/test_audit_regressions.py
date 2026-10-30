@@ -1737,9 +1737,348 @@ def test_regression_runtime_batch_size_and_iters_strict_types():
         rt.benchmark_kernel(inp, iters=True)
     with pytest.raises(ValueError):
         rt.benchmark_kernel(inp, iters=0)
-        def __init__(self):
-            from forgetune.runtime import NativeRuntime
-            # Test direct NativeRuntime validation logic via dummy
+
+
+def test_regression_conv_attrs_full_schema_and_typos():
+    """
+    P1 Regression: conv_attrs must validate all 7 schema fields, reject unknown keys/typos,
+    and enforce positive strides/dilations, non-negative pads, groups==1.
+    """
+    from forgetune.graph_adapter import from_dict
+    from forgetune import _forgetune_cpp as cpp
+
+    base_graph = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 3, 8, 8], "dtype": "f32"},
+            {"id": 1, "op": "CONST", "name": "w", "inputs": [], "shape": [4, 3, 3, 3], "dtype": "f32", "const_data": [0.1] * 108},
+            {
+                "id": 2, "op": "CONV2D", "name": "conv", "inputs": [0, 1],
+                "shape": [1, 4, 6, 6], "dtype": "f32",
+                "conv_attrs": {
+                    "stride_h": 1, "stride_w": 1, "pad_h": 0, "pad_w": 0,
+                    "dilation_h": 1, "dilation_w": 1, "groups": 1
+                }
+            }
+        ],
+        "inputs": [0],
+        "outputs": [2]
+    }
+
+    # 1. Valid conv_attrs succeeds
+    g = from_dict(base_graph)
+    assert g is not None
+
+    # 2. Typo in conv_attrs key (e.g. "strid_h") must raise InvalidGraphError
+    typo_graph = json.loads(json.dumps(base_graph))
+    del typo_graph["nodes"][2]["conv_attrs"]["stride_h"]
+    typo_graph["nodes"][2]["conv_attrs"]["strid_h"] = 1
+    with pytest.raises(InvalidGraphError, match="Unknown conv_attrs key: 'strid_h'"):
+        from_dict(typo_graph)
+
+    # 3. Non-dict conv_attrs
+    nondict_graph = json.loads(json.dumps(base_graph))
+    nondict_graph["nodes"][2]["conv_attrs"] = "not_a_dict"
+    with pytest.raises(InvalidGraphError, match="must be a dict"):
+        from_dict(nondict_graph)
+
+    # 4. Non-integer conv_attrs value
+    nonint_graph = json.loads(json.dumps(base_graph))
+    nonint_graph["nodes"][2]["conv_attrs"]["stride_h"] = "1"
+    with pytest.raises(InvalidGraphError, match="must be an integer"):
+        from_dict(nonint_graph)
+
+    # 5. Non-positive stride
+    zero_stride_graph = json.loads(json.dumps(base_graph))
+    zero_stride_graph["nodes"][2]["conv_attrs"]["stride_h"] = 0
+    with pytest.raises(InvalidGraphError, match="must be a positive integer"):
+        from_dict(zero_stride_graph)
+
+    # 6. Negative pad
+    neg_pad_graph = json.loads(json.dumps(base_graph))
+    neg_pad_graph["nodes"][2]["conv_attrs"]["pad_h"] = -1
+    with pytest.raises(InvalidGraphError, match="must be a non-negative integer"):
+        from_dict(neg_pad_graph)
+
+    # 7. C++ json_io rejection of unknown key
+    json_typo_str = json.dumps(typo_graph)
+    with pytest.raises(RuntimeError):
+        cpp.json_to_graph(json_typo_str)
+
+
+def test_regression_conv_attrs_groups_greater_than_one_rejected():
+    """
+    P1 Regression: conv_attrs with groups != 1 must be rejected in both Python and C++.
+    """
+    from forgetune.graph_adapter import from_dict
+    from forgetune import _forgetune_cpp as cpp
+
+    graph_dict = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [1, 4, 8, 8], "dtype": "f32"},
+            {"id": 1, "op": "CONST", "name": "w", "inputs": [], "shape": [4, 2, 3, 3], "dtype": "f32", "const_data": [0.1] * 72},
+            {
+                "id": 2, "op": "CONV2D", "name": "conv", "inputs": [0, 1],
+                "shape": [1, 4, 6, 6], "dtype": "f32",
+                "conv_attrs": {
+                    "stride_h": 1, "stride_w": 1, "pad_h": 0, "pad_w": 0,
+                    "dilation_h": 1, "dilation_w": 1, "groups": 2
+                }
+            }
+        ],
+        "inputs": [0],
+        "outputs": [2]
+    }
+
+    with pytest.raises(InvalidGraphError, match="must be 1"):
+        from_dict(graph_dict)
+
+    with pytest.raises(RuntimeError):
+        cpp.json_to_graph(json.dumps(graph_dict))
+
+
+def test_regression_dtype_float_rejected():
+    """
+    P1 Regression: dtype 'float' must be rejected; only 'f32' and 'float32' are accepted.
+    """
+    from forgetune.graph_adapter import from_dict
+    from forgetune import _forgetune_cpp as cpp
+
+    graph_dict = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "float"}
+        ],
+        "inputs": [0],
+        "outputs": [0]
+    }
+
+    with pytest.raises(InvalidGraphError, match="Unsupported node dtype: 'float'"):
+        from_dict(graph_dict)
+
+    with pytest.raises(RuntimeError):
+        cpp.json_to_graph(json.dumps(graph_dict))
+
+
+def test_regression_duplicate_and_multiple_inputs_outputs():
+    """
+    P1 Regression: Duplicate inputs/outputs and multiple inputs/outputs must be strictly rejected.
+    """
+    from forgetune.graph_adapter import from_dict
+
+    base = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "f32"},
+            {"id": 1, "op": "INPUT", "name": "y", "inputs": [], "shape": [2, 4], "dtype": "f32"}
+        ],
+        "inputs": [0],
+        "outputs": [0]
+    }
+
+    # Duplicate input
+    dup_in = json.loads(json.dumps(base))
+    dup_in["inputs"] = [0, 0]
+    with pytest.raises(InvalidGraphError):
+        from_dict(dup_in)
+
+    # Multiple inputs
+    multi_in = json.loads(json.dumps(base))
+    multi_in["inputs"] = [0, 1]
+    with pytest.raises(InvalidGraphError):
+        from_dict(multi_in)
+
+    # Empty inputs
+    empty_in = json.loads(json.dumps(base))
+    empty_in["inputs"] = []
+    with pytest.raises(InvalidGraphError):
+        from_dict(empty_in)
+
+    # Duplicate output
+    dup_out = json.loads(json.dumps(base))
+    dup_out["outputs"] = [0, 0]
+    with pytest.raises(InvalidGraphError):
+        from_dict(dup_out)
+
+    # Multiple outputs
+    multi_out = json.loads(json.dumps(base))
+    multi_out["outputs"] = [0, 1]
+    with pytest.raises(InvalidGraphError):
+        from_dict(multi_out)
+
+
+def test_regression_const_data_null_rejected():
+    """
+    P1 Regression: CONST node with const_data: null must raise InvalidGraphError, not TypeError.
+    """
+    from forgetune.graph_adapter import from_dict
+
+    graph_dict = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "f32"},
+            {"id": 1, "op": "CONST", "name": "w", "inputs": [], "shape": [4, 4], "dtype": "f32", "const_data": None},
+            {"id": 2, "op": "MATMUL", "name": "mm", "inputs": [0, 1], "shape": [2, 4], "dtype": "f32"}
+        ],
+        "inputs": [0],
+        "outputs": [2]
+    }
+
+    with pytest.raises(InvalidGraphError, match="'const_data' cannot be null for CONST op"):
+        from_dict(graph_dict)
+
+
+def test_regression_fused_matmul_add_relu_invalid_broadcast():
+    """
+    P1 Regression: FUSED_MATMUL_ADD_RELU interpreter must validate bias shape against C++ contract.
+    Valid shapes: 1D [N], 2D [1, N] or [M, N]. Other shapes must be rejected.
+    """
+    from forgetune.graph_adapter import from_dict, evaluate
+    from forgetune.errors import InvalidShapeError
+
+    # M=2, K=4, N=3
+    # Illegal bias: shape [2, 2] instead of [3] or [1, 3] or [2, 3]
+    bad_dict = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "f32"},
+            {"id": 1, "op": "CONST", "name": "w", "inputs": [], "shape": [4, 3], "dtype": "f32", "const_data": [1.0] * 12},
+            {"id": 2, "op": "CONST", "name": "b", "inputs": [], "shape": [2, 2], "dtype": "f32", "const_data": [1.0] * 4},
+            {"id": 3, "op": "FUSED_MATMUL_ADD_RELU", "name": "fused", "inputs": [0, 1, 2], "shape": [2, 3], "dtype": "f32"}
+        ],
+        "inputs": [0],
+        "outputs": [3]
+    }
+    g_bad = from_dict(bad_dict)
+    x_val = np.ones((2, 4), dtype=np.float32)
+
+    with pytest.raises(InvalidShapeError, match="bias shape"):
+        evaluate(g_bad, {0: x_val})
+
+    # Legal bias shape [3] succeeds
+    good_dict = {
+        "nodes": [
+            {"id": 0, "op": "INPUT", "name": "x", "inputs": [], "shape": [2, 4], "dtype": "f32"},
+            {"id": 1, "op": "CONST", "name": "w", "inputs": [], "shape": [4, 3], "dtype": "f32", "const_data": [1.0] * 12},
+            {"id": 2, "op": "CONST", "name": "b", "inputs": [], "shape": [3], "dtype": "f32", "const_data": [1.0] * 3},
+            {"id": 3, "op": "FUSED_MATMUL_ADD_RELU", "name": "fused", "inputs": [0, 1, 2], "shape": [2, 3], "dtype": "f32"}
+        ],
+        "inputs": [0],
+        "outputs": [3]
+    }
+    g_good = from_dict(good_dict)
+    res = evaluate(g_good, {0: x_val})
+    assert res[3].shape == (2, 3)
+    np.testing.assert_allclose(res[3], np.full((2, 3), 5.0, dtype=np.float32))
+
+
+def test_regression_autotuner_bounded_memory_for_large_batch():
+    """
+    P1 Regression: get_bounded_test_batches must cap dynamic test batches to <= 256
+    even if max_batch_size is 1,000,000, preventing multi-gigabyte memory allocations.
+    """
+    from forgetune.compiler import get_bounded_test_batches
+
+    # Dynamic shape with huge max_batch_size
+    batches = get_bounded_test_batches((-1, 16), max_batch_size=1_000_000)
+    assert max(batches) <= 256
+    assert 1 in batches
+    assert 16 in batches
+    assert 1_000_000 not in batches
+
+    # With example_batch=2
+    batches_ex2 = get_bounded_test_batches((-1, 16), max_batch_size=1_000_000, example_batch=2)
+    assert 2 in batches_ex2
+
+    # Static shape returns [batch_size]
+    assert get_bounded_test_batches((64, 16), max_batch_size=128, example_batch=64) == [64]
+
+    # Dynamic shape with small max_batch_size
+    small_batches = get_bounded_test_batches((-1, 16), max_batch_size=10, example_batch=7)
+    assert small_batches == [1, 7, 10]
+
+
+def test_regression_autotuner_fusion_budgets_and_contradictory_args():
+    """
+    P1 Regression: Autotuner candidate space interleaving and contradictory argument rejection.
+    """
+    from forgetune.autotuner import Autotuner
+
+    tuner = Autotuner()
+
+    # Contradictory arguments must be rejected
+    with pytest.raises(ValueError, match="Contradictory autotuner options"):
+        tuner.get_candidate_space(enable_fusion=False, force_fusion=True)
+
+    # Budget 4 must explore naive, loop_ikj, fused, and tiled
+    cands_b4 = tuner.get_candidate_space(max_budget=4, enable_fusion=True)
+    assert len(cands_b4) == 4
+    c_names = [c.candidate_id for c in cands_b4]
+    assert "baseline_naive" in c_names
+    assert "loop_ikj" in c_names
+    assert any("fused" in name for name in c_names), "Budget 4 must include fused candidate"
+    assert any("tiled" in name for name in c_names), "Budget 4 must include tiled candidate"
+
+    # Budget 8 must have 8 candidates
+    cands_b8 = tuner.get_candidate_space(max_budget=8, enable_fusion=True)
+    assert len(cands_b8) == 8
+
+
+def test_regression_cli_max_batch_size_upper_bound():
+    """
+    P1 Regression: KernelConfig and CLI must reject max_batch_size > 1,000,000.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    import subprocess
+
+    cfg = cpp.KernelConfig()
+    cfg.max_batch_size = 1_000_000
+    assert cfg.validate(), "max_batch_size = 1,000,000 should be valid"
+
+    cfg.max_batch_size = 1_000_001
+    assert not cfg.validate(), "max_batch_size = 1,000,001 should be invalid"
+
+    cfg.max_batch_size = 0
+    assert not cfg.validate(), "max_batch_size = 0 should be invalid"
+
+    # Test CLI --max-batch-size upper bound
+    engine_bin = "bin/forgetune_engine.exe" if os.name == "nt" else "bin/forgetune_engine"
+    if os.path.exists(engine_bin):
+        res = subprocess.run([engine_bin, "--compile", "dummy.json", "-o", "dummy.cpp", "--max-batch-size", "1000001"], capture_output=True, text=True)
+        assert res.returncode != 0
+        assert "1000000" in (res.stderr + res.stdout)
+
+
+def test_regression_build_metadata_freshness_rebuild(tmp_path):
+    """
+    P1 Regression: Native build metadata tracks Python ABI, platform, machine, compiler, and flags.
+    Mismatched metadata must invalidate cached native extensions.
+    """
+    from setup import is_build_metadata_valid
+    import sysconfig
+
+    meta_file = tmp_path / "_forgetune_cpp.build_meta.json"
+    dummy_meta = {
+        "python_version": "2.7.0",
+        "python_abi": "cpython-27m",
+        "platform": "unknown_os",
+        "machine": "unknown_arch",
+        "compiler_path": "fake_compiler",
+        "compiler_version": "0.0.1",
+        "build_flags": []
+    }
+    meta_file.write_text(json.dumps(dummy_meta), encoding="utf-8")
+
+    # Mismatched metadata must be invalid
+    assert not is_build_metadata_valid(str(meta_file))
+
+    # Valid metadata must be valid
+    valid_meta = {
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "python_abi": sysconfig.get_config_var("SOABI") or f"{sys.version_info.major}.{sys.version_info.minor}",
+        "platform": sys.platform,
+        "machine": platform.machine(),
+        "compiler_path": "zig",
+        "build_flags": []
+    }
+    meta_file.write_text(json.dumps(valid_meta), encoding="utf-8")
+    assert is_build_metadata_valid(str(meta_file))
+
     
 
 

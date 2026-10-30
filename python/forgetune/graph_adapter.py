@@ -172,6 +172,12 @@ class Graph:
         inputs = d.get("inputs", [])
         if not isinstance(inputs, list):
             raise InvalidGraphError(f"inputs must be a list, got {type(inputs).__name__}")
+        if not inputs:
+            raise InvalidGraphError("Graph has empty inputs list")
+        if len(inputs) > 1:
+            raise InvalidGraphError(f"ForgeTune ABI strictly supports single-input graphs, got {len(inputs)}")
+        if len(set(inputs)) != len(inputs):
+            raise InvalidGraphError(f"inputs list contains duplicate IDs: {inputs}")
         for in_id in inputs:
             if type(in_id) is not int or in_id < 0:
                 raise InvalidGraphError(f"Input node ID must be a non-negative int, got {in_id} ({type(in_id).__name__})")
@@ -180,6 +186,12 @@ class Graph:
         outputs = d.get("outputs", [])
         if not isinstance(outputs, list):
             raise InvalidGraphError(f"outputs must be a list, got {type(outputs).__name__}")
+        if not outputs:
+            raise InvalidGraphError("Graph has empty outputs list")
+        if len(outputs) > 1:
+            raise InvalidGraphError(f"ForgeTune currently supports only single-output graphs, got {len(outputs)}")
+        if len(set(outputs)) != len(outputs):
+            raise InvalidGraphError(f"outputs list contains duplicate IDs: {outputs}")
         for out_id in outputs:
             if type(out_id) is not int or out_id < 0:
                 raise InvalidGraphError(f"Output node ID must be a non-negative int, got {out_id} ({type(out_id).__name__})")
@@ -209,18 +221,25 @@ class Graph:
                 raise InvalidGraphError(f"Node 'deleted' must be a boolean, got {type(nd['deleted']).__name__}")
 
             dtype = nd.get("dtype", "f32")
-            if not isinstance(dtype, str) or dtype.lower() not in ("f32", "float32", "float"):
-                raise InvalidGraphError(f"Unsupported node dtype: '{dtype}' (ForgeTune only supports float32)")
+            if not isinstance(dtype, str) or dtype.lower() not in ("f32", "float32"):
+                raise InvalidGraphError(f"Unsupported node dtype: '{dtype}' (ForgeTune only supports float32: 'f32' or 'float32')")
 
             conv_attrs = nd.get("conv_attrs")
             if conv_attrs is not None:
                 if not isinstance(conv_attrs, dict):
                     raise InvalidGraphError(f"conv_attrs must be a dict, got {type(conv_attrs).__name__}")
-                for attr_k in ("stride", "padding", "dilation", "groups"):
-                    if attr_k in conv_attrs:
-                        val = conv_attrs[attr_k]
-                        if type(val) is not int or val < 0:
-                            raise InvalidGraphError(f"conv_attrs '{attr_k}' must be a non-negative integer, got {val}")
+                allowed_conv_keys = {"stride_h", "stride_w", "pad_h", "pad_w", "dilation_h", "dilation_w", "groups"}
+                for ck, val in conv_attrs.items():
+                    if ck not in allowed_conv_keys:
+                        raise InvalidGraphError(f"Unknown conv_attrs key: '{ck}'")
+                    if type(val) is not int or isinstance(val, bool):
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be an integer, got {val} ({type(val).__name__})")
+                    if ck in ("stride_h", "stride_w", "dilation_h", "dilation_w") and val <= 0:
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be a positive integer (> 0), got {val}")
+                    if ck in ("pad_h", "pad_w") and val < 0:
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be a non-negative integer (>= 0), got {val}")
+                    if ck == "groups" and val != 1:
+                        raise InvalidGraphError(f"conv_attrs 'groups' must be 1, got {val}")
 
             raw_op = str(nd.get("op", "")).upper()
             if raw_op == "CONSTANT":
@@ -272,7 +291,13 @@ class Graph:
                 if not (min_a <= len(node_inputs) <= max_a):
                     raise InvalidGraphError(f"Node op '{op}' requires {min_a} to {max_a} inputs, got {len(node_inputs)}")
 
-            const_data = nd.get("const_data", [])
+            if "const_data" in nd and nd["const_data"] is None:
+                if op == "CONST":
+                    raise InvalidGraphError(f"Node {nid}: 'const_data' cannot be null for CONST op")
+                const_data = []
+            else:
+                const_data = nd.get("const_data", [])
+
             if const_data is not None:
                 if not isinstance(const_data, list):
                     raise InvalidGraphError(f"const_data must be a list, got {type(const_data).__name__}")
@@ -491,6 +516,19 @@ class Graph:
                 x = env[node.inputs[0]]
                 w = env[node.inputs[1]]
                 b = env[node.inputs[2]]
+                if x.ndim != 2 or w.ndim != 2:
+                    raise InvalidShapeError(f"FUSED_MATMUL_ADD_RELU requires rank-2 input and weight, got {x.ndim} and {w.ndim}")
+                if x.shape[1] != w.shape[0]:
+                    raise InvalidShapeError(f"FUSED_MATMUL_ADD_RELU K-dimension mismatch: X is {x.shape[1]}, W is {w.shape[0]}")
+                M, K = x.shape
+                Kw, N = w.shape
+                bias_ok = False
+                if b.ndim == 1 and b.shape[0] == N:
+                    bias_ok = True
+                elif b.ndim == 2 and ((b.shape[0] == 1 and b.shape[1] == N) or (b.shape[0] == M and b.shape[1] == N)):
+                    bias_ok = True
+                if not bias_ok:
+                    raise InvalidShapeError(f"FUSED_MATMUL_ADD_RELU invalid bias shape {b.shape} for matmul output ({M}, {N})")
                 mm = np.matmul(x, w)
                 added = mm + b
                 env[nid] = np.maximum(added, 0.0, dtype=np.float32)
@@ -500,3 +538,13 @@ class Graph:
                 raise UnsupportedOpError(node.op)
 
         return {out_id: env[out_id] for out_id in self.outputs}
+
+
+# Module-level convenience functions
+from_dict = Graph.from_dict
+
+def evaluate(graph: Graph, feed_dict: Dict[int, Any]) -> Dict[int, np.ndarray]:
+    if isinstance(graph, Graph):
+        return graph.evaluate(feed_dict)
+    raise TypeError(f"Expected Graph instance, got {type(graph).__name__}")
+

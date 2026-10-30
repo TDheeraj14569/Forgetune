@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_python_tests_collected": 244,
-    "python_passed": 244,
+    "total_python_tests_collected": 254,
+    "python_passed": 254,
     "python_failed_blocked": 0,
     "python_error_blocked": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 257,
-    "total_passing": 257,
+    "total_tests_available": 267,
+    "total_passing": 267,
     "total_blocked_by_sac": 0
   },
   "native_cpp_test_cases": [
@@ -525,6 +525,36 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_regression_runtime_batch_size_and_iters_strict_types": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_conv_attrs_full_schema_and_typos": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_conv_attrs_groups_greater_than_one_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_dtype_float_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_duplicate_and_multiple_inputs_outputs": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_const_data_null_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_fused_matmul_add_relu_invalid_broadcast": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotuner_bounded_memory_for_large_batch": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotuner_fusion_budgets_and_contradictory_args": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cli_max_batch_size_upper_bound": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_build_metadata_freshness_rebuild": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

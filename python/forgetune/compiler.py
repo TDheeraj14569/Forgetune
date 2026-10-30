@@ -11,7 +11,7 @@ import json
 import platform
 import numpy as np
 import torch
-from typing import Tuple, Optional, Dict, Any, Union, Callable
+from typing import Tuple, Optional, Dict, Any, Union, Callable, List
 
 from .export_frontend import export_to_forgetune_ir
 from .native_compiler import NativeCompiler
@@ -33,17 +33,21 @@ def _compute_graph_sha256(graph_json: str) -> str:
     """Computes SHA-256 hash of serialized IR graph JSON."""
     return hashlib.sha256(graph_json.encode("utf-8")).hexdigest()
 
-def _get_compiler_sources_fingerprint() -> str:
-    """Computes SHA-256 fingerprint of compiler sources, headers, and code generator implementation."""
+def get_compiler_sources_fingerprint() -> str:
+    """Computes SHA-256 fingerprint across all compiler source code, C/C++ headers, and build configuration."""
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     import glob
     tracked_files = []
     for pattern in [
         "src/*.cpp",
-        "include/forgetune/*.hpp",
-        "python/forgetune/*.py"
+        "include/*.h",
+        "include/**/*.h",
+        "include/**/*.hpp",
+        "python/forgetune/*.py",
+        "setup.py",
+        "pyproject.toml"
     ]:
-        tracked_files.extend(glob.glob(os.path.join(root, pattern)))
+        tracked_files.extend(glob.glob(os.path.join(root, pattern), recursive=True))
     tracked_files = sorted(set(tracked_files))
     h = hashlib.sha256()
     for p in tracked_files:
@@ -53,6 +57,30 @@ def _get_compiler_sources_fingerprint() -> str:
             with open(p, "rb") as f:
                 h.update(f.read())
     return h.hexdigest()[:16]
+
+_get_compiler_sources_fingerprint = get_compiler_sources_fingerprint
+
+def get_bounded_test_batches(
+    input_shape: tuple,
+    max_batch_size: int,
+    example_batch: int = 1,
+    max_single_batch_bytes: int = 32 * 1024 * 1024
+) -> List[int]:
+    """
+    Computes a representative, memory-budget-aware list of batch sizes for correctness verification.
+    Guarantees that test allocations will not exceed the memory budget.
+    """
+    if len(input_shape) > 0 and input_shape[0] != -1:
+        return [int(input_shape[0])]
+
+    elem_per_sample = int(np.prod(input_shape[1:])) if len(input_shape) > 1 else 1
+    bytes_per_sample = max(1, elem_per_sample * 4)  # float32 = 4 bytes
+    max_safe_b_by_mem = max(1, max_single_batch_bytes // bytes_per_sample)
+    safe_cap = min(max_batch_size, 256, max_safe_b_by_mem)
+    batches = {1, example_batch, min(16, max_batch_size), safe_cap}
+    if max_batch_size * bytes_per_sample <= max_single_batch_bytes and max_batch_size <= 256:
+        batches.add(max_batch_size)
+    return sorted([int(b) for b in batches if 1 <= b <= max_batch_size])
 
 def _get_candidate_provenance_hash(
     graph_hash: str,
@@ -192,15 +220,9 @@ def _verify_rebuilt_artifact(
                 f"Rebuilt artifact {dll_path} failed differential correctness verification on example input (max abs diff: {max_diff:.3e})"
             )
 
-        # Test 2: If dynamic batch, test multiple representative batches including configured maximum
+        # Test 2: If dynamic batch, test representative memory-bounded batches including configured maximum
         if dynamic_batch or ir_graph.has_dynamic_batch():
-            test_batches = [1, min(4, max_batch_size)]
-            if max_batch_size >= 16:
-                test_batches.append(min(16, max_batch_size))
-            # Test configured maximum batch size (bounded to safe limit 256 for test latency/memory)
-            safe_max = min(max_batch_size, 256)
-            if safe_max not in test_batches:
-                test_batches.append(safe_max)
+            test_batches = get_bounded_test_batches(example_input.shape, max_batch_size, example_batch=example_input.shape[0])
             for b in test_batches:
                 shape = (b, *example_input.shape[1:])
                 test_in = np.ones(shape, dtype=np.float32) * 0.5
