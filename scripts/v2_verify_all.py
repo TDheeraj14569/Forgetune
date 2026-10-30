@@ -343,8 +343,8 @@ def main():
     
     # 1. Inspect final source revision and fingerprint
     subprocess.run(["git", "update-index", "-q", "--refresh"], capture_output=True)
-    status_p = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-    is_dirty = bool(status_p.stdout.strip())
+    non_report_dirty_pre = check_non_report_dirty(".")
+    is_dirty = bool(non_report_dirty_pre)
 
     rev_p = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
     tree_p = subprocess.run(["git", "write-tree"], capture_output=True, text=True)
