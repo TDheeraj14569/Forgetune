@@ -169,6 +169,8 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
     py::class_<MemoryPlan>(m, "MemoryPlan")
         .def_readonly("arena_size_bytes", &MemoryPlan::arena_size_bytes)
         .def_readonly("naive_size_bytes", &MemoryPlan::naive_size_bytes)
+        .def_readonly("peak_live_bytes", &MemoryPlan::peak_live_bytes)
+        .def_readonly("conv2d_scratch_bytes", &MemoryPlan::conv2d_scratch_bytes)
         .def_readonly("savings_percent", &MemoryPlan::savings_percent)
         .def_readonly("allocations", &MemoryPlan::allocations)
         .def("__repr__", &MemoryPlan::to_string);

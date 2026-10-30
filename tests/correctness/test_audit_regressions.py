@@ -2083,3 +2083,256 @@ def test_regression_build_metadata_freshness_rebuild(tmp_path):
 
 
 
+
+
+def test_regression_rank4_channel_broadcasting_order(tmp_path):
+    """
+    P1 Regression: export_frontend must handle rank-4 channel broadcasting in both operand orders
+    (x + bias, bias + x, x * bias, bias * x) across dynamic batch B=1 and B>1 without dimension mismatches.
+    """
+    class ConvAddBiasRight(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bias = nn.Parameter(torch.randn(1, 4, 1, 1))
+        def forward(self, x):
+            return x + self.bias
+
+    class ConvAddBiasLeft(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bias = nn.Parameter(torch.randn(1, 4, 1, 1))
+        def forward(self, x):
+            return self.bias + x
+
+    class ConvMulBiasRight(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.scale = nn.Parameter(torch.randn(1, 4, 1, 1))
+        def forward(self, x):
+            return x * self.scale
+
+    class ConvMulBiasLeft(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.scale = nn.Parameter(torch.randn(1, 4, 1, 1))
+        def forward(self, x):
+            return self.scale * x
+
+    models = [
+        ("add_r", ConvAddBiasRight()),
+        ("add_l", ConvAddBiasLeft()),
+        ("mul_r", ConvMulBiasRight()),
+        ("mul_l", ConvMulBiasLeft()),
+    ]
+
+    for name, m in models:
+        m.eval()
+        ex = torch.randn(2, 4, 8, 8)
+        out_dir = str(tmp_path / f"bcast_{name}")
+        comp = compile_model(m, (ex,), output_dir=out_dir, dynamic_batch=True, autotune=False)
+        for b in [1, 3]:
+            test_x = torch.randn(b, 4, 8, 8)
+            ref_y = m(test_x).detach().numpy()
+            out_y = comp.run(test_x.numpy())
+            np.testing.assert_allclose(out_y, ref_y, atol=1e-4, rtol=1e-4)
+        comp.close()
+
+
+def test_regression_model_state_restoration():
+    """
+    P1 Regression: export_to_forgetune_ir must preserve or restore the training state
+    of the PyTorch model even if export succeeds or fails.
+    """
+    from forgetune.export_frontend import export_to_forgetune_ir
+    m = nn.Linear(8, 4)
+    m.train()
+    assert m.training is True
+
+    ex = torch.randn(2, 8)
+    g = export_to_forgetune_ir(m, (ex,), dynamic_batch=True)
+    assert g is not None
+    assert m.training is True, "model.training must remain True after successful export"
+
+    # Test restoration after failure
+    class FailingModule(nn.Module):
+        def forward(self, x):
+            raise RuntimeError("Synthetic export trigger")
+
+    m_fail = FailingModule()
+    m_fail.train()
+    with pytest.raises(Exception):
+        export_to_forgetune_ir(m_fail, (ex,))
+    assert m_fail.training is True, "model.training must remain True after failed export"
+
+
+def test_regression_shared_linear_weights(tmp_path):
+    """
+    P1 Regression: Shared linear weight nodes must not be marked deleted prematurely
+    when referenced by multiple consumers.
+    """
+    import torch.nn.functional as F
+
+    class SharedWeightModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = nn.Parameter(torch.randn(8, 8))
+        def forward(self, x):
+            y1 = F.linear(x, self.w)
+            y2 = F.linear(y1, self.w)
+            return y2
+
+    m = SharedWeightModel().eval()
+    ex = torch.randn(2, 8)
+    out_dir = str(tmp_path / "shared_weights")
+    comp = compile_model(m, (ex,), output_dir=out_dir, dynamic_batch=False, autotune=False)
+
+    test_x = torch.randn(2, 8)
+    ref_y = m(test_x).detach().numpy()
+    out_y = comp.run(test_x.numpy())
+    np.testing.assert_allclose(out_y, ref_y, atol=1e-4, rtol=1e-4)
+    comp.close()
+
+
+def test_regression_linear_rank_greater_than_two_rejected():
+    """
+    P1 Regression: Linear operations with rank > 2 (e.g. 3D [B, S, D]) must raise UnsupportedOpError or InvalidShapeError.
+    """
+    class Linear3D(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    m = Linear3D().eval()
+    x = torch.randn(2, 4, 4)
+    with pytest.raises(Exception) as exc_info:
+        compile_model(m, (x,), autotune=False)
+    assert "rank" in str(exc_info.value).lower()
+
+
+def test_regression_memory_budget_exceeded_rejected():
+    """
+    P1 Regression: compile_model must validate estimated workspace against max_workspace_bytes
+    and reject excessive requirements with ValueError.
+    """
+    class WideModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(1024, 1024)
+        def forward(self, x):
+            return self.fc(x)
+
+    m = WideModel().eval()
+    x = torch.randn(2, 1024)
+    # Set a tiny budget of 100 bytes
+    with pytest.raises(ValueError) as exc_info:
+        compile_model(m, (x,), max_workspace_bytes=100, autotune=False)
+    assert "exceeding workspace budget" in str(exc_info.value)
+
+
+def test_regression_deep_graph_topological_sort_kahn():
+    """
+    P1 Regression: Deep graphs (> 1000 nodes) must be sorted via iterative Kahn's algorithm
+    without triggering Python RecursionError.
+    """
+    from forgetune.graph_adapter import Graph, Node
+
+    g = Graph()
+    prev = g.add_node(Node(0, "INPUT", shape=[2, 4]))
+    g.set_inputs([prev])
+    for i in range(1, 1500):
+        prev = g.add_node(Node(i, "RELU", inputs=[prev], shape=[2, 4]))
+    g.set_outputs([prev])
+
+    order = g.topological_order()
+    assert len(order) == 1500
+    assert order[0] == 0
+    assert order[-1] == 1499
+
+
+def test_regression_autotuner_cache_corruption_detection(tmp_path):
+    """
+    P1 Regression: Autotuner cache with tampered or mismatched candidate configuration
+    must be rejected and retuned rather than blindly trusted.
+    """
+    from forgetune.autotuner import Autotuner
+    from forgetune.graph_adapter import Graph, Node
+
+    tuner = Autotuner(cache_dir=str(tmp_path / "tuning_cache"))
+
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[2, 4]))
+    c = g.add_node(Node(1, "CONST", shape=[4, 8], const_data=[0.1] * 32))
+    mm = g.add_node(Node(2, "MATMUL", inputs=[x, c], shape=[2, 8]))
+    g.set_inputs([x])
+    g.set_outputs([mm])
+
+    x_val = np.ones((2, 4), dtype=np.float32)
+    ref_out = np.full((2, 8), 0.4, dtype=np.float32)
+
+    # Run initial tuning
+    cand1, report1 = tuner.tune(
+        graph=g,
+        example_input=x_val,
+        reference_output=ref_out,
+        artifacts_dir=str(tmp_path / "artifacts"),
+        max_budget=2,
+        use_cache=True
+    )
+    assert cand1 is not None
+
+    # Tamper with the saved cache JSON file by changing the opt_level to something unexpected
+    import glob
+    cache_files = glob.glob(os.path.join(str(tmp_path / "tuning_cache"), "*.json"))
+    assert len(cache_files) >= 1
+    cache_file = cache_files[0]
+    with open(cache_file, "r") as f:
+        data = json.load(f)
+    data["selected_candidate"]["opt_level"] = "-O3"
+    with open(cache_file, "w") as f:
+        json.dump(data, f)
+
+    # Calling tune again should detect cache mismatch and re-tune cleanly to expected -O2
+    cand2, report2 = tuner.tune(
+        graph=g,
+        example_input=x_val,
+        reference_output=ref_out,
+        artifacts_dir=str(tmp_path / "artifacts_retune"),
+        max_budget=2,
+        use_cache=True
+    )
+    assert cand2.opt_level == "-O2"
+
+
+def test_regression_runtime_input_dtype_validation(tmp_path):
+    """
+    P1 Regression: NativeRuntime must reject non-numeric or complex dtypes with TypeError.
+    """
+    class SimpleMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    m = SimpleMLP().eval()
+    ex = torch.randn(2, 8)
+    out_dir = str(tmp_path / "dtype_test")
+    comp = compile_model(m, (ex,), output_dir=out_dir, dynamic_batch=False, autotune=False)
+
+    # Complex dtype input to compiled model
+    c_arr = np.ones((2, 8), dtype=np.complex64)
+    with pytest.raises(TypeError, match="Unsupported input tensor dtype"):
+        comp.run(c_arr)
+
+    # Complex dtype directly to runtime
+    with pytest.raises(TypeError, match="Unsupported input tensor dtype"):
+        comp._runtime.run(c_arr)
+
+    # String / object dtype input
+    s_arr = np.array([["str"] * 8, ["str"] * 8], dtype=object)
+    with pytest.raises(TypeError, match="Unsupported input tensor dtype"):
+        comp.run(s_arr)
+
+    comp.close()

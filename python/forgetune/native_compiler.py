@@ -9,6 +9,8 @@ import sys
 import shutil
 import subprocess
 import time
+import uuid
+import platform
 from typing import Dict, Any, List, Optional
 from .errors import CompilationError
 
@@ -50,7 +52,7 @@ class NativeCompiler:
             return "clang"
         elif "g++" in base or "gcc" in base:
             return "gcc"
-        elif "cl" in base:
+        elif base in ("cl", "cl.exe"):
             return "msvc"
         return "unknown"
 
@@ -106,10 +108,21 @@ class NativeCompiler:
         dest_dir = os.path.dirname(os.path.abspath(output_dll_path))
         os.makedirs(dest_dir, exist_ok=True)
 
-        # Stage to a unique temporary file to allow atomic replacement and detect file locks
+        # Detect and validate machine architecture
+        raw_arch = platform.machine().lower()
+        if raw_arch in ("x86_64", "amd64"):
+            target_arch = "x86_64"
+        elif raw_arch in ("aarch64", "arm64"):
+            target_arch = "aarch64"
+        else:
+            raise CompilationError(
+                f"Unsupported system architecture '{platform.machine()}': ForgeTune native compiler requires x86_64 or aarch64."
+            )
+
+        # Stage to a unique collision-resistant temporary file
         temp_dll_path = os.path.join(
             dest_dir,
-            f".tmp_{os.getpid()}_{int(time.time() * 1000)}_{os.path.basename(output_dll_path)}"
+            f".tmp_{os.getpid()}_{uuid.uuid4().hex}_{os.path.basename(output_dll_path)}"
         )
         if os.path.isfile(temp_dll_path):
             try:
@@ -118,7 +131,10 @@ class NativeCompiler:
                 pass
 
         if self.compiler_type == "zig":
-            target_flag = ["-target", "x86_64-windows-gnu"] if sys.platform == "win32" else ["-target", "x86_64-linux-gnu", "-fPIC"]
+            target_triple = f"{target_arch}-windows-gnu" if sys.platform == "win32" else f"{target_arch}-linux-gnu"
+            target_flag = ["-target", target_triple]
+            if sys.platform != "win32":
+                target_flag.append("-fPIC")
             cmd = [
                 self.compiler_path,
                 "c++",

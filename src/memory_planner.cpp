@@ -9,9 +9,11 @@ namespace forgetune {
 std::string MemoryPlan::to_string() const {
     std::ostringstream oss;
     oss << "MemoryPlan:\n"
-        << "  Arena Size: " << arena_size_bytes << " bytes\n"
-        << "  Naive Peak: " << naive_size_bytes << " bytes\n"
-        << "  Savings:    " << std::fixed << std::setprecision(2) << savings_percent << "%\n"
+        << "  Arena Size:                     " << arena_size_bytes << " bytes\n"
+        << "  Total Intermediate (Without):   " << naive_size_bytes << " bytes\n"
+        << "  Peak Concurrent Live Storage:   " << peak_live_bytes << " bytes\n"
+        << "  Conv2D Scratch Workspace:       " << conv2d_scratch_bytes << " bytes\n"
+        << "  Savings (Arena vs No-Reuse):    " << std::fixed << std::setprecision(2) << savings_percent << "%\n"
         << "  Allocations:\n";
     for (const auto& kv : allocations) {
         const auto& alloc = kv.second;
@@ -158,6 +160,43 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
         plan.allocations[alloc.node_id] = alloc;
         plan.arena_size_bytes = std::max(plan.arena_size_bytes, alloc.offset + alloc.size_bytes);
     }
+
+    // 4. Calculate maximum concurrent live intermediate storage across execution steps
+    size_t peak_live = 0;
+    for (int step = 0; step < total_steps; ++step) {
+        size_t step_live = 0;
+        for (const auto& alloc : candidates) {
+            if (alloc.birth_step <= step && step <= alloc.death_step) {
+                step_live += alloc.size_bytes;
+            }
+        }
+        peak_live = std::max(peak_live, step_live);
+    }
+    plan.peak_live_bytes = peak_live;
+
+    // 5. Calculate Conv2D padding scratch workspace requirements (if any padded convolutions exist)
+    size_t max_conv2d_scratch = 0;
+    for (NodeId nid : order) {
+        const auto& node = graph.get_node(nid);
+        if (node.deleted) continue;
+        if (node.op == OpKind::CONV2D || node.op == OpKind::FUSED_CONV2D_RELU) {
+            int64_t ph = node.conv_attrs.pad_h;
+            int64_t pw = node.conv_attrs.pad_w;
+            if (ph > 0 || pw > 0) {
+                if (node.inputs.size() >= 2 && graph.has_node(node.inputs[0])) {
+                    const auto& in_node = graph.get_node(node.inputs[0]);
+                    if (in_node.output_meta.shape.rank() == 4) {
+                        int64_t C_in = in_node.output_meta.shape.dims[1];
+                        int64_t H_pad = in_node.output_meta.shape.dims[2] + 2 * ph;
+                        int64_t W_pad = in_node.output_meta.shape.dims[3] + 2 * pw;
+                        size_t scratch_bytes = static_cast<size_t>(C_in * H_pad * W_pad) * sizeof(float);
+                        max_conv2d_scratch = std::max(max_conv2d_scratch, align_up(scratch_bytes));
+                    }
+                }
+            }
+        }
+    }
+    plan.conv2d_scratch_bytes = max_conv2d_scratch;
 
     if (plan.naive_size_bytes > 0) {
         plan.savings_percent = 100.0 * (1.0 - static_cast<double>(plan.arena_size_bytes) /

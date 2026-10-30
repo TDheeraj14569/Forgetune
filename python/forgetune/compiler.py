@@ -46,7 +46,8 @@ def get_compiler_sources_fingerprint() -> str:
         "python/forgetune/*.py",
         "scripts/build_native.py",
         "setup.py",
-        "pyproject.toml"
+        "pyproject.toml",
+        "CMakeLists.txt"
     ]:
         tracked_files.extend(glob.glob(os.path.join(root, pattern), recursive=True))
     tracked_files = sorted(set(tracked_files))
@@ -84,6 +85,12 @@ def get_bounded_test_batches(
 
     elem_per_sample = int(np.prod(input_shape[1:])) if len(input_shape) > 1 else 1
     bytes_per_sample = max(1, elem_per_sample * 4)  # float32 = 4 bytes
+    if bytes_per_sample > max_single_batch_bytes:
+        from .errors import InvalidShapeError
+        raise InvalidShapeError(
+            f"Dynamic input sample slice shape {input_shape[1:]} ({bytes_per_sample / (1024*1024):.1f} MB) "
+            f"exceeds maximum single batch memory limit ({max_single_batch_bytes / (1024*1024):.1f} MB)"
+        )
     max_safe_b_by_mem = max(1, max_single_batch_bytes // bytes_per_sample)
     safe_cap = min(max_batch_size, 256, max_safe_b_by_mem)
     clamped_example = min(max(1, example_batch), safe_cap)
@@ -279,8 +286,10 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
             with open(output_cpp_path, "w", encoding="utf-8") as f:
                 f.write(res.generated_cpp_source)
             return
-    except Exception:
-        pass
+        else:
+            raise RuntimeError(f"C++ compiler bridge compilation failed: {'; '.join(res.diagnostics)}")
+    except (ImportError, ModuleNotFoundError):
+        pass  # In-process bridge unavailable -> fallback to standalone CLI engine
 
     # Fallback to CLI engine
     if cand_json_path is None:
@@ -356,9 +365,14 @@ class CompiledModel:
         Does NOT invoke PyTorch for arithmetic evaluation.
         """
         if isinstance(input_tensor, torch.Tensor):
+            if input_tensor.is_complex() or not input_tensor.is_floating_point():
+                raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
             arr = input_tensor.detach().cpu().to(torch.float32).numpy()
         else:
-            arr = np.asarray(input_tensor, dtype=np.float32)
+            raw_arr = np.asarray(input_tensor)
+            if np.iscomplexobj(raw_arr) or raw_arr.dtype.kind not in ('f', 'i', 'u'):
+                raise TypeError(f"Unsupported input tensor dtype '{raw_arr.dtype}': ForgeTune requires real numeric float32 input.")
+            arr = raw_arr.astype(np.float32)
 
         return self._runtime.run(arr, batch_size=batch_size)
 
@@ -445,7 +459,8 @@ def compile_model(
     enable_fusion: bool = False,
     tile_sizes: Optional[Tuple[int, int, int]] = None,
     dynamic_batch: bool = False,
-    max_batch_size: int = 128
+    max_batch_size: int = 128,
+    max_workspace_bytes: int = 512 * 1024 * 1024
 ) -> CompiledModel:
     """
     Compiles a PyTorch model into a standalone, correctness-verified native C++ shared library.
@@ -524,6 +539,22 @@ def compile_model(
 
         # 1. Export frontend
         ir_graph = export_to_forgetune_ir(model, example_inputs, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
+
+        # Pre-compilation memory estimate validation against configured workspace budget
+        est_bytes = 0
+        for node in ir_graph.nodes.values():
+            if node.deleted or node.op in ("INPUT", "CONST"):
+                continue
+            count = 1
+            for d in node.shape:
+                count *= (max_batch_size if d == -1 else d)
+            est_bytes += count * 4
+        if est_bytes > max_workspace_bytes:
+            raise ValueError(
+                f"Configured max_batch_size={max_batch_size} requires estimated workspace "
+                f"{est_bytes / (1024*1024):.1f} MB, exceeding workspace budget {max_workspace_bytes / (1024*1024):.1f} MB"
+            )
+
         graph_json_str = ir_graph.to_json()
         graph_hash = _compute_graph_sha256(graph_json_str)
 

@@ -21,6 +21,8 @@ struct BufferAllocation {
 struct MemoryPlan {
     size_t arena_size_bytes = 0;
     size_t naive_size_bytes = 0;
+    size_t peak_live_bytes = 0;
+    size_t conv2d_scratch_bytes = 0;
     double savings_percent = 0.0;
     std::unordered_map<NodeId, BufferAllocation> allocations;
 

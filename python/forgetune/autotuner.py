@@ -34,13 +34,18 @@ class KernelCandidate:
     ):
         self.candidate_id = candidate_id
         self.variant = variant
-        self.enable_fusion = enable_fusion
-        self.tile_m = tile_m
-        self.tile_n = tile_n
-        self.tile_k = tile_k
+        self.enable_fusion = bool(enable_fusion)
         self.opt_level = opt_level
-        if tile_sizes is not None and self.tile_m is None and isinstance(tile_sizes, (list, tuple)):
-            self.tile_m, self.tile_n, self.tile_k = tile_sizes
+        if variant in ("tiled", "fused_tiled"):
+            if tile_sizes is not None and tile_m is None and isinstance(tile_sizes, (list, tuple)) and len(tile_sizes) == 3:
+                tile_m, tile_n, tile_k = tile_sizes
+            self.tile_m = tile_m
+            self.tile_n = tile_n
+            self.tile_k = tile_k
+        else:
+            self.tile_m = None
+            self.tile_n = None
+            self.tile_k = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -55,6 +60,9 @@ class KernelCandidate:
             d["tile_k"] = self.tile_k
             d["tile_sizes"] = (self.tile_m, self.tile_n, self.tile_k)
         else:
+            d["tile_m"] = None
+            d["tile_n"] = None
+            d["tile_k"] = None
             d["tile_sizes"] = None
         return d
 
@@ -152,14 +160,13 @@ class Autotuner:
         verified_candidates: List[Tuple[KernelCandidate, Any, Dict[str, Any]]]
     ) -> Tuple[KernelCandidate, float, str]:
         """
-        Applies statistically defensible, deterministic candidate selection and tie-breaking:
-        1. If macro end-to-end improvement is statistically significant (> max(2.0, base_iqr))
-           and not a micro-workload (< 1.0 us kernel), select fastest e2e candidate.
-        2. Otherwise (differences are noise-dominated), select by reliable in-kernel latency:
-           - Filter candidates improving over baseline kernel by >= 5%.
-           - Group candidates within 5% of fastest in-kernel candidate (tie band).
-           - Break ties in tie band by simplicity: prefer -O2 over -O3, prefer untiled over tiled.
-           - If no candidate improves by >= 5%, retain baseline_naive.
+        Applies deterministic candidate selection and tie-breaking:
+        1. Filters candidates that demonstrate at least a 5% in-kernel speed improvement over baseline.
+        2. Applies an end-to-end degradation safeguard: rejects candidates whose end-to-end latency regresses
+           by > 15% and > max(2.0, base_iqr).
+        3. Identifies the fastest surviving in-kernel candidate and groups candidates within 5% (tie band).
+        4. Breaks ties within the tie band by structural simplicity: prefers -O2 over -O3, and untiled over tiled.
+        5. If no candidate achieves >= 5% in-kernel improvement, retains the baseline candidate.
         """
         if not verified_candidates:
             raise AutotuningError("Cannot select candidate from empty verified candidate list.")
@@ -308,11 +315,17 @@ class Autotuner:
                     cached_report = json.load(f)
                 cand_data = cached_report["selected_candidate"]
                 selected = KernelCandidate(**cand_data)
-                valid_ids = {c.candidate_id for c in self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)}
-                if selected.candidate_id in valid_ids:
-                    report_path = os.path.join(artifacts_dir, "autotuning_report.json")
-                    write_atomic_json(report_path, cached_report)
-                    return selected, cached_report
+                valid_candidates = {c.candidate_id: c for c in self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)}
+                if selected.candidate_id in valid_candidates:
+                    expected_cand = valid_candidates[selected.candidate_id]
+                    # Verify complete configuration matches expected candidate definition
+                    if selected.to_dict() == expected_cand.to_dict():
+                        if (isinstance(cached_report.get("selected_candidate"), dict) and
+                            isinstance(cached_report.get("candidate_evaluations"), list) and
+                            "best_median_latency_us" in cached_report):
+                            report_path = os.path.join(artifacts_dir, "autotuning_report.json")
+                            write_atomic_json(report_path, cached_report)
+                            return selected, cached_report
             except Exception:
                 pass # Cache invalid/corrupted -> re-tune
 
@@ -329,11 +342,11 @@ class Autotuner:
         if max_b <= 0:
             max_b = 128
 
+        b_example = input_shape[0] if len(input_shape) > 0 and input_shape[0] > 0 else 1
         if is_dyn:
-            b_example = input_shape[0] if input_shape[0] > 0 else 1
             test_batches = get_bounded_test_batches(input_shape, max_b, example_batch=b_example)
         else:
-            test_batches = [input_shape[0] if input_shape[0] > 0 else 1]
+            test_batches = [b_example]
 
         # Strict differential check: Verify interpreter ground truth matches PyTorch reference output on example_input
         ref_dict = graph.evaluate({graph.inputs[0]: example_input})
@@ -478,13 +491,13 @@ class Autotuner:
                 cand_rng = np.random.default_rng(42)
                 for b in test_batches:
                     shape_b = (b, *input_shape[1:])
-                    batch_cases = [
-                        cand_rng.standard_normal(shape_b).astype(np.float32),
-                        np.zeros(shape_b, dtype=np.float32),
-                        -np.abs(cand_rng.standard_normal(shape_b).astype(np.float32)),
-                        cand_rng.uniform(-5.0, 5.0, size=shape_b).astype(np.float32)
-                    ]
-                    for tin in batch_cases:
+                    def _gen_test_cases(rng, shape):
+                        yield rng.standard_normal(shape).astype(np.float32)
+                        yield np.zeros(shape, dtype=np.float32)
+                        yield -np.abs(rng.standard_normal(shape).astype(np.float32))
+                        yield rng.uniform(-5.0, 5.0, size=shape).astype(np.float32)
+
+                    for tin in _gen_test_cases(cand_rng, shape_b):
                         expected = graph.evaluate({graph.inputs[0]: tin})[graph.outputs[0]]
                         actual = runtime.run(tin)
                         if actual.shape != expected.shape:
@@ -505,6 +518,7 @@ class Autotuner:
                             if actual.shape != pt_exp.shape or not np.allclose(actual, pt_exp, atol=self.atol, rtol=self.rtol):
                                 diff_pt = float(np.max(np.abs(actual - pt_exp)))
                                 raise CorrectnessError(f"Numerical mismatch vs PyTorch oracle at batch {tin.shape[0]}: max_abs={diff_pt}")
+                        del tin
                 res_entry["status"] = "passed"
                 candidate_results.append(res_entry)
                 verified_candidates.append((cand, runtime, res_entry))
@@ -526,30 +540,39 @@ class Autotuner:
         # 2. Pure in-kernel isolated execution timing (3 interleaved rounds inside C++ via steady_clock)
         is_dyn = graph.has_dynamic_batch()
         if is_dyn:
-            eval_batches = sorted(list({1, min(4, max_b), min(16, max_b), max_b}))
-            eval_inputs = [
-                np.ascontiguousarray(np.tile(example_input[:1], (b, *([1] * (example_input.ndim - 1)))))
-                for b in eval_batches
-            ]
+            eval_batches = get_bounded_test_batches(input_shape, max_b, example_batch=b_example)
             k_iters = 2000
         else:
-            eval_inputs = [example_input]
+            eval_batches = [b_example]
             k_iters = 10000
 
         k_samples = {cand.candidate_id: [] for cand, _, _ in verified_candidates}
-        for _ in range(3):
-            for cand, rt, res_entry in verified_candidates:
+        per_batch_latencies = {cand.candidate_id: {b: [] for b in eval_batches} for cand, _, _ in verified_candidates}
+        round_exec_orders = []
+
+        for round_idx in range(3):
+            # Eliminate sequence bias by pseudo-randomizing candidate execution order per round
+            round_rng = np.random.default_rng(2000 + round_idx)
+            round_order = list(verified_candidates)
+            round_rng.shuffle(round_order)
+            round_exec_orders.append([c[0].candidate_id for c in round_order])
+
+            for cand, rt, res_entry in round_order:
                 try:
                     total_k_lat = 0.0
                     valid_round = True
-                    for inp in eval_inputs:
-                        lat = rt.benchmark_kernel(inp, iters=k_iters)
+                    for b in eval_batches:
+                        eval_inp = np.ascontiguousarray(np.tile(example_input[:1], (b, *([1] * (example_input.ndim - 1)))))
+                        lat = rt.benchmark_kernel(eval_inp, iters=k_iters)
+                        del eval_inp
                         if lat <= 0:
                             valid_round = False
                             break
+                        per_batch_latencies[cand.candidate_id][b].append(lat)
                         total_k_lat += lat
                     if valid_round and total_k_lat > 0:
-                        k_samples[cand.candidate_id].append(total_k_lat)
+                        # Workload profile: average kernel latency across tested batch sizes
+                        k_samples[cand.candidate_id].append(total_k_lat / len(eval_batches))
                     else:
                         if not res_entry.get("benchmark_warning"):
                             res_entry["benchmark_warning"] = "Non-positive kernel latency measured"
@@ -558,6 +581,10 @@ class Autotuner:
 
         for cand, rt, res_entry in verified_candidates:
             samples = k_samples.get(cand.candidate_id, [])
+            res_entry["per_batch_kernel_latencies_us"] = {
+                str(b): float(np.median(per_batch_latencies[cand.candidate_id][b]))
+                for b in eval_batches if per_batch_latencies[cand.candidate_id][b]
+            }
             if len(samples) == 3:
                 res_entry["in_kernel_latency_us"] = float(np.median(samples))
             else:
@@ -570,7 +597,11 @@ class Autotuner:
         ITERS_PER_ROUND = 20
         e2e_samples = {cand.candidate_id: [] for cand, _, _ in verified_candidates}
         for round_idx in range(NUM_ROUNDS):
-            for cand, rt, _ in verified_candidates:
+            round_rng = np.random.default_rng(3000 + round_idx)
+            round_order = list(verified_candidates)
+            round_rng.shuffle(round_order)
+            round_exec_orders.append([c[0].candidate_id for c in round_order])
+            for cand, rt, _ in round_order:
                 bm = benchmark_function(lambda: rt.run(example_input), warmup_iters=5, measure_iters=ITERS_PER_ROUND)
                 e2e_samples[cand.candidate_id].extend(bm["raw_samples_us"])
 
@@ -606,6 +637,8 @@ class Autotuner:
             "measured_speedup": speedup,
             "selection_rationale": selection_rationale,
             "machine_metadata": get_machine_metadata(),
+            "round_execution_orders": round_exec_orders,
+            "fusion_candidates_enabled": bool(enable_fusion),
             "candidate_evaluations": candidate_results
         }
 

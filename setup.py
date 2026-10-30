@@ -60,7 +60,7 @@ class SmartBuildExt(build_ext):
         # Check source freshness: if any C++ header, source, or build script is newer than target_path, must rebuild
         if not needs_rebuild:
             target_mtime = os.path.getmtime(target_path)
-            for pattern in ["src/*.cpp", "include/**/*.hpp", "include/**/*.h", "tests/cpp/*.cpp", "scripts/build_native.py"]:
+            for pattern in ["src/*.cpp", "include/**/*.hpp", "include/**/*.h", "tests/cpp/*.cpp", "scripts/build_native.py", "CMakeLists.txt"]:
                 for src_file in glob.glob(pattern, recursive=True):
                     if os.path.isfile(src_file) and os.path.getmtime(src_file) > target_mtime:
                         needs_rebuild = True

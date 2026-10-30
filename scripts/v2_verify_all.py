@@ -127,6 +127,9 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
 
 def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> tuple:
     test_exe = os.path.abspath("bin/forgetune_test_suite.exe")
+    if not os.path.isfile(test_exe):
+        print(f"[-] ERROR: Native test binary not found at '{test_exe}'. Rebuild required.")
+        return False, "binary_missing", f"File not found: {test_exe}", ""
     try:
         t0 = time.perf_counter()
         p = subprocess.run([test_exe], env=env, capture_output=True, text=True)
@@ -136,16 +139,18 @@ def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -
         if p.stderr:
             print(p.stderr, end="", file=sys.stderr)
         if p.returncode == 0:
-            print(f"[+] PASSED: {step_name} in {dur:.2f}s")
+            print(f"[+] PASSED (standalone binary): {step_name} in {dur:.2f}s")
             return True, "passed", "", p.stdout or ""
         else:
             print(f"[-] FAILED: {step_name} exited with code {p.returncode} in {dur:.2f}s")
             return False, "cpp_test_failure", f"exit code {p.returncode}", p.stdout or ""
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        print(f"Direct executable execution blocked/unavailable ({e}). Running in-process via _forgetune_cpp...")
-
-    cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]
-    return run_step(f"{step_name} (in-process)", cmd, env=env)
+    except (PermissionError, OSError) as e:
+        err_str = str(e)
+        if sys.platform == "win32" and ("4551" in err_str or isinstance(e, PermissionError)):
+            print(f"Standalone executable execution blocked by Windows SAC / App Control ({e}). Running in-process fallback via _forgetune_cpp...")
+            cmd = [python_exe, "-c", "import sys, forgetune._forgetune_cpp as cpp; sys.exit(cpp.run_cpp_test_suite())"]
+            return run_step(f"{step_name} (in-process fallback, SAC blocked)", cmd, env=env)
+        raise
 
 def clean_disposable_artifacts() -> bool:
     print("\nCleaning disposable build and test artifacts...")
@@ -198,8 +203,15 @@ def main():
 
     # Dynamically query pytest collection count
     collect_res = subprocess.run([python_exe, "-m", "pytest", "--collect-only", "-q"], capture_output=True, text=True)
+    if collect_res.returncode != 0:
+        print(f"[-] FATAL: PyTest test collection failed with exit code {collect_res.returncode}")
+        print(collect_res.stderr or collect_res.stdout)
+        sys.exit(1)
     m_coll = re.search(r"(\d+)\s+tests? collected", collect_res.stdout)
-    total_collected_tests = int(m_coll.group(1)) if m_coll else 254
+    if not m_coll:
+        print(f"[-] FATAL: Could not parse test collection count from pytest output:\n{collect_res.stdout}")
+        sys.exit(1)
+    total_collected_tests = int(m_coll.group(1))
     print(f"  PyTest Discovery: {total_collected_tests} tests collected")
 
     all_steps_passed = True
@@ -520,8 +532,8 @@ def main():
 
     r3_checks = f"Disposable purge, {cpp_r3_str}, full rebuild, {models_r3_str}, {repro_str}"
 
-    verified_py_count = c1["passed"] if (r1_pytest and r1_pytest.get("stdout") and c1["passed"]) else total_collected_tests
-    total_verified_all = verified_py_count + 13
+    verified_py_count = c1["passed"] if (r1_pytest and r1_pytest.get("stdout")) else 0
+    total_verified_all = verified_py_count + (13 if (r1_cpp and r1_cpp["success"]) else 0)
 
     ver_md = [
         "# FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT",

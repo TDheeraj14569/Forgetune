@@ -1,8 +1,8 @@
 """
 Generates the authoritative ForgeTune v2.0 Test Manifest (reports/v2_test_manifest.json).
-Executes all 244 Python tests + 13 native C++ tests (257 total) and captures:
+Executes all collected Python tests + 13 native C++ tests and captures:
 - Exact test nodeid
-- Execution outcome (PASSED, BLOCKED/FAILED, ERROR)
+- Execution outcome (PASSED, BLOCKED/FAILED, ERROR, COLLECTION_ERROR)
 - Error exception class and diagnostic message
 - Grouping by directory and module
 """
@@ -18,6 +18,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 class TestResultCollector:
     def __init__(self):
         self.results = {}
+
+    def pytest_collectreport(self, report):
+        if report.failed:
+            exc_repr = str(report.longrepr)
+            self.results[report.nodeid or f"collection_error_{len(self.results)}"] = {
+                "outcome": "collection_error",
+                "exception_type": "CollectionError",
+                "details": exc_repr.splitlines()[-1] if exc_repr else "Failed to collect test file"
+            }
 
     def pytest_runtest_logreport(self, report):
         if report.skipped:
@@ -117,6 +126,10 @@ def main():
     print(f" Total Blocked by SAC:     {manifest['summary']['total_blocked_by_sac']}")
     print(f" Pytest Return Code:       {manifest['summary']['pytest_return_code']}")
     print(f" Saved to:                 {manifest_path}")
+
+    if pytest_rc != 0 or cpp_res != 0:
+        print(f"[-] Test manifest generation completed with test failures (pytest_rc={pytest_rc}, cpp_res={cpp_res})")
+        sys.exit(int(pytest_rc) if pytest_rc != 0 else 1)
 
 if __name__ == "__main__":
     main()

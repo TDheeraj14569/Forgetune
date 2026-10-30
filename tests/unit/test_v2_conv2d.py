@@ -129,3 +129,61 @@ def test_fused_conv2d_relu():
     interp = cpp.Interpreter()
     cpp_res = interp.evaluate(cpp_graph, {0: t_x.numpy()})[3]
     np.testing.assert_allclose(cpp_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
+
+
+def test_compiled_conv2d_remainder_channels_and_tiling(tmp_path):
+    """
+    Tests native code generation and execution for Conv2D with remainder channel counts
+    (C_out not a multiple of 4, e.g. 1, 3, 5, 7) and large output width to verify stack-bounded tiling.
+    """
+    import torch.nn as nn
+    from forgetune import compile_model
+
+    for cout in [1, 3, 5, 7]:
+        class ConvRemainder(nn.Module):
+            def __init__(self, c_out):
+                super().__init__()
+                self.conv = nn.Conv2d(2, c_out, kernel_size=3, padding=1, bias=True)
+            def forward(self, x):
+                return self.conv(x)
+
+        model = ConvRemainder(cout).eval()
+        ex = torch.randn(2, 2, 8, 8)
+        out_dir = str(tmp_path / f"conv_cout_{cout}")
+        comp = compile_model(model, (ex,), output_dir=out_dir, dynamic_batch=True, autotune=False)
+
+        # Test B=1 and B=3
+        for b in [1, 3]:
+            test_x = torch.randn(b, 2, 8, 8)
+            ref_y = model(test_x).detach().numpy()
+            out_y = comp.run(test_x.numpy())
+            np.testing.assert_allclose(out_y, ref_y, atol=1e-4, rtol=1e-4)
+
+        comp.close()
+
+
+def test_compiled_conv2d_large_width_stack_bounded(tmp_path):
+    """
+    Tests native code generation for Conv2D with very large output width (W_out = 512)
+    to confirm stack safety (width tiling with TILE_W = 32 prevents stack overflow).
+    """
+    import torch.nn as nn
+    from forgetune import compile_model
+
+    class ConvWide(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(1, 2, kernel_size=3, padding=1, bias=False)
+        def forward(self, x):
+            return self.conv(x)
+
+    model = ConvWide().eval()
+    ex = torch.randn(1, 1, 4, 512)
+    out_dir = str(tmp_path / "conv_wide")
+    comp = compile_model(model, (ex,), output_dir=out_dir, dynamic_batch=False, autotune=False)
+
+    test_x = torch.randn(1, 1, 4, 512)
+    ref_y = model(test_x).detach().numpy()
+    out_y = comp.run(test_x.numpy())
+    np.testing.assert_allclose(out_y, ref_y, atol=1e-4, rtol=1e-4)
+    comp.close()

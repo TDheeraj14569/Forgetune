@@ -1,6 +1,6 @@
 # FORGETUNE V2.0 — CALCULATED INTERMEDIATE-BUFFER STORAGE REDUCTION REPORT
 
-**Date:** 2026-10-30 14:55:52
+**Date:** 2026-10-30 17:39:11
 **Optimization Technique:** Interval-coloring liveness analysis with 64-byte aligned arena reuse
 **Configured Maximum Dynamic Batch Size ($B_{max}$):** 128
 
@@ -17,11 +17,11 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 5
 
 ## 2. Memory Reduction Overview Table
 
-| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Calculated Intermediate-Buffer Storage Reduction (%) |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Model A (Dynamic TinyMLP)** | 4 tensors | 2 physical slots | 53,248 B (52.0 KB) | 32,768 B (32.0 KB) | **38.5%** |
-| **Model B (Residual MLP)** | 8 tensors | 3 physical slots | 59,392 B (58.0 KB) | 24,576 B (24.0 KB) | **58.6%** |
-| **Model C (Small CNN)** | 6 tensors | 3 physical slots | 922,624 B (901.0 KB) | 524,288 B (512.0 KB) | **43.2%** |
+| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Peak Live Intermediate Storage | Conv2D Scratch Storage | Total Reused Arena Memory | Storage Reduction vs Naive (%) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Model A (Dynamic TinyMLP)** | 4 tensors | 2 physical slots | 53,248 B (52.0 KB) | 32,768 B (32.0 KB) | 0 B | 32,768 B (32.0 KB) | **38.5%** |
+| **Model B (Residual MLP)** | 8 tensors | 3 physical slots | 59,392 B (58.0 KB) | 24,576 B (24.0 KB) | 0 B | 24,576 B (24.0 KB) | **58.6%** |
+| **Model C (Small CNN)** | 6 tensors | 3 physical slots | 922,624 B (901.0 KB) | 524,288 B (512.0 KB) | 3,200 B (3.1 KB) | 524,288 B (512.0 KB) | **43.2%** |
 
 ---
 
@@ -30,8 +30,10 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 5
 ### Model A (Dynamic TinyMLP)
 - **Logical Intermediate Tensors:** 4
 - **Physical Reusable Arena Slots:** 2
-- **Unoptimized Static Allocation Total:** 53,248 bytes
-- **Optimized Reused Arena Size:** 32,768 bytes
+- **Unoptimized Intermediate Storage:** 53,248 bytes
+- **Peak Live Intermediate Storage:** 32,768 bytes
+- **Conv2D Padding Scratch Storage:** 0 bytes
+- **Total Reused Arena Size:** 32,768 bytes
 - **Net Savings:** 20,480 bytes (38.5%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
@@ -44,8 +46,10 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 5
 ### Model B (Residual MLP)
 - **Logical Intermediate Tensors:** 8
 - **Physical Reusable Arena Slots:** 3
-- **Unoptimized Static Allocation Total:** 59,392 bytes
-- **Optimized Reused Arena Size:** 24,576 bytes
+- **Unoptimized Intermediate Storage:** 59,392 bytes
+- **Peak Live Intermediate Storage:** 24,576 bytes
+- **Conv2D Padding Scratch Storage:** 0 bytes
+- **Total Reused Arena Size:** 24,576 bytes
 - **Net Savings:** 34,816 bytes (58.6%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |
@@ -62,8 +66,10 @@ Across all three benchmark models, ForgeTune v2.0 achieves between **38.5% and 5
 ### Model C (Small CNN)
 - **Logical Intermediate Tensors:** 6
 - **Physical Reusable Arena Slots:** 3
-- **Unoptimized Static Allocation Total:** 922,624 bytes
-- **Optimized Reused Arena Size:** 524,288 bytes
+- **Unoptimized Intermediate Storage:** 922,624 bytes
+- **Peak Live Intermediate Storage:** 524,288 bytes
+- **Conv2D Padding Scratch Storage:** 3,200 bytes
+- **Total Reused Arena Size:** 524,288 bytes
 - **Net Savings:** 398,336 bytes (43.2%)
 
 | Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |

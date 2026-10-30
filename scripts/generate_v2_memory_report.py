@@ -52,8 +52,8 @@ def generate_memory_report():
         "",
         "## 2. Memory Reduction Overview Table",
         "",
-        "| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Optimized Arena Memory | Calculated Intermediate-Buffer Storage Reduction (%) |",
-        "|---|:---:|:---:|:---:|:---:|:---:|"
+        "| Model Name | Logical Tensors Reused | Physical Offset Slots | Unoptimized Naive Memory | Peak Live Intermediate Storage | Conv2D Scratch Storage | Total Reused Arena Memory | Storage Reduction vs Naive (%) |",
+        "|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"
     ]
 
     for name, m, ex, max_b in models:
@@ -62,15 +62,18 @@ def generate_memory_report():
         plan = planner.plan(g_cpp, max_b)
 
         naive_kb = plan.naive_size_bytes / 1024.0
+        peak_kb = plan.peak_live_bytes / 1024.0
+        scratch_kb = plan.conv2d_scratch_bytes / 1024.0
         arena_kb = plan.arena_size_bytes / 1024.0
         savings = plan.savings_percent
         num_logical = len(plan.allocations)
         unique_slots = len(set(a.offset for a in plan.allocations.values()))
 
+        scratch_str = f"{plan.conv2d_scratch_bytes:,} B ({scratch_kb:.1f} KB)" if plan.conv2d_scratch_bytes > 0 else "0 B"
         md_lines.append(
-            f"| **{name}** | {num_logical} tensors | {unique_slots} physical slots | {plan.naive_size_bytes:,} B ({naive_kb:.1f} KB) | {plan.arena_size_bytes:,} B ({arena_kb:.1f} KB) | **{savings:.1f}%** |"
+            f"| **{name}** | {num_logical} tensors | {unique_slots} physical slots | {plan.naive_size_bytes:,} B ({naive_kb:.1f} KB) | {plan.peak_live_bytes:,} B ({peak_kb:.1f} KB) | {scratch_str} | {plan.arena_size_bytes:,} B ({arena_kb:.1f} KB) | **{savings:.1f}%** |"
         )
-        print(f"[+] {name}: {plan.naive_size_bytes:,} B -> {plan.arena_size_bytes:,} B ({savings:.1f}% savings)")
+        print(f"[+] {name}: naive={plan.naive_size_bytes:,} B, peak_live={plan.peak_live_bytes:,} B, arena={plan.arena_size_bytes:,} B ({savings:.1f}% savings)")
 
     md_lines.extend([
         "",
@@ -90,8 +93,10 @@ def generate_memory_report():
             f"### {name}",
             f"- **Logical Intermediate Tensors:** {len(plan.allocations)}",
             f"- **Physical Reusable Arena Slots:** {unique_slots}",
-            f"- **Unoptimized Static Allocation Total:** {plan.naive_size_bytes:,} bytes",
-            f"- **Optimized Reused Arena Size:** {plan.arena_size_bytes:,} bytes",
+            f"- **Unoptimized Intermediate Storage:** {plan.naive_size_bytes:,} bytes",
+            f"- **Peak Live Intermediate Storage:** {plan.peak_live_bytes:,} bytes",
+            f"- **Conv2D Padding Scratch Storage:** {plan.conv2d_scratch_bytes:,} bytes",
+            f"- **Total Reused Arena Size:** {plan.arena_size_bytes:,} bytes",
             f"- **Net Savings:** {plan.naive_size_bytes - plan.arena_size_bytes:,} bytes ({plan.savings_percent:.1f}%)",
             "",
             "| Node ID | Liveness Interval [Birth, Death] | Buffer Size (Bytes) | Arena Offset (64B Aligned) | Reused Spatial Slot |",

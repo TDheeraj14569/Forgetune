@@ -11,7 +11,7 @@ from .errors import InvalidGraphError, InvalidShapeError, UnsupportedOpError
 class Node:
     def __init__(
         self,
-        node_id: int,
+        node_id: Optional[int],
         op: str,
         name: str = "",
         inputs: Optional[List[int]] = None,
@@ -21,15 +21,37 @@ class Node:
         deleted: bool = False,
         conv_attrs: Optional[Dict[str, int]] = None
     ):
+        if type(node_id) is bool or (node_id is not None and (type(node_id) is not int or node_id < 0)):
+            raise InvalidGraphError(f"Invalid node_id: {node_id} (must be a non-negative integer or None)")
+        if not isinstance(op, str) or not op.strip():
+            raise InvalidGraphError(f"Invalid op: {op} (must be a non-empty string)")
+        if inputs is not None:
+            if not isinstance(inputs, list):
+                raise InvalidGraphError(f"inputs must be a list of ints, got {type(inputs).__name__}")
+            for inp in inputs:
+                if type(inp) is bool or type(inp) is not int or inp < 0:
+                    raise InvalidGraphError(f"Invalid input node ID: {inp}")
+        if shape is not None:
+            if not isinstance(shape, list):
+                raise InvalidGraphError(f"shape must be a list of ints, got {type(shape).__name__}")
+            for dim in shape:
+                if type(dim) is bool or type(dim) is not int:
+                    raise InvalidGraphError(f"Invalid shape dimension: {dim}")
+
+        valid_dtypes = {"f32", "float32"}
+        norm_dtype = dtype.lower() if isinstance(dtype, str) else ""
+        if norm_dtype not in valid_dtypes:
+            raise InvalidGraphError(f"Unsupported node dtype: '{dtype}' (only f32/float32 supported)")
+
         self.id = node_id
         self.op = op.upper()
-        self.name = name
-        self.inputs = inputs or []
-        self.shape = shape or []
-        self.dtype = dtype.lower() if isinstance(dtype, str) else "f32"
-        self.const_data = const_data or []
-        self.deleted = deleted
-        self.conv_attrs = conv_attrs or {}
+        self.name = str(name) if name else ""
+        self.inputs = list(inputs) if inputs else []
+        self.shape = list(shape) if shape else []
+        self.dtype = "f32"
+        self.const_data = list(const_data) if const_data else []
+        self.deleted = bool(deleted)
+        self.conv_attrs = dict(conv_attrs) if conv_attrs else {}
 
     def to_dict(self) -> Dict[str, Any]:
         if self.const_data:
@@ -104,29 +126,32 @@ class Graph:
         return False
 
     def topological_order(self) -> List[int]:
+        active_nodes = {nid: node for nid, node in self.nodes.items() if not node.deleted}
+        in_degrees = {nid: 0 for nid in active_nodes}
+        adj = {nid: [] for nid in active_nodes}
+
+        for nid, node in active_nodes.items():
+            for inp_id in node.inputs:
+                if inp_id in active_nodes:
+                    adj[inp_id].append(nid)
+                    in_degrees[nid] += 1
+
+        import collections
+        queue = collections.deque([nid for nid in sorted(active_nodes.keys()) if in_degrees[nid] == 0])
         order = []
-        visited = set()
-        in_stack = set()
 
-        def visit(nid: int):
-            if nid in visited:
-                return
-            if nid in in_stack:
-                raise InvalidGraphError(f"Cycle detected at node {nid}")
-            node = self.nodes.get(nid)
-            if not node or node.deleted:
-                return
+        while queue:
+            curr = queue.popleft()
+            order.append(curr)
+            for consumer in adj[curr]:
+                in_degrees[consumer] -= 1
+                if in_degrees[consumer] == 0:
+                    queue.append(consumer)
 
-            in_stack.add(nid)
-            for inp in node.inputs:
-                visit(inp)
-            in_stack.remove(nid)
-            visited.add(nid)
-            order.append(nid)
+        if len(order) != len(active_nodes):
+            cycle_nodes = [nid for nid, deg in in_degrees.items() if deg > 0]
+            raise InvalidGraphError(f"Cycle detected at node {cycle_nodes[0] if cycle_nodes else 'unknown'}")
 
-        for nid, node in list(self.nodes.items()):
-            if not node.deleted:
-                visit(nid)
         return order
 
     def to_dict(self) -> Dict[str, Any]:

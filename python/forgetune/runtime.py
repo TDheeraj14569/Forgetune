@@ -221,6 +221,11 @@ class NativeRuntime:
         if getattr(self, "is_closed", False):
             raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
 
+        if type(input_tensor) is not np.ndarray:
+            input_tensor = np.asarray(input_tensor)
+        if np.iscomplexobj(input_tensor) or input_tensor.dtype.kind not in ('f', 'i', 'u'):
+            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
+
         if self.is_dynamic:
             # Validate rank
             if input_tensor.ndim != len(self.expected_input_shape):
@@ -334,6 +339,11 @@ class NativeRuntime:
         if getattr(self, "is_closed", False):
             raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
 
+        if type(input_tensor) is not np.ndarray:
+            input_tensor = np.asarray(input_tensor)
+        if np.iscomplexobj(input_tensor) or input_tensor.dtype.kind not in ('f', 'i', 'u'):
+            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
+
         if self.benchmark_fn is None:
             raise RuntimeError("DLL does not export forgetune_benchmark_kernel")
 
@@ -412,6 +422,17 @@ class NativeRuntime:
         fn.argtypes = []
         return int(fn())
 
+    def get_process_arena_total_allocations(self) -> int:
+        """Returns total native heap allocations performed across all threads in the process."""
+        if getattr(self, "is_closed", False):
+            raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
+        if not hasattr(self.lib, "forgetune_get_process_arena_total_allocations"):
+            raise RuntimeError(f"Shared library {self.original_dll_path} does not export 'forgetune_get_process_arena_total_allocations'")
+        fn = getattr(self.lib, "forgetune_get_process_arena_total_allocations")
+        fn.restype = ctypes.c_size_t
+        fn.argtypes = []
+        return int(fn())
+
     def reset_arena_alloc_count(self) -> None:
         """Resets the thread-local arena allocation counters to zero."""
         if getattr(self, "is_closed", False):
@@ -444,18 +465,21 @@ class NativeRuntime:
         self.run_v1_fn = None
         self.run_v2_fn = None
         self.benchmark_fn = None
+        self.unload_error = None
         if hasattr(self, "lib") and self.lib is not None:
             if sys.platform == "win32" and hasattr(self.lib, "_handle") and self.lib._handle:
                 try:
-                    ctypes.windll.kernel32.FreeLibrary(ctypes.c_void_p(self.lib._handle))
-                except Exception:
-                    pass
+                    res = ctypes.windll.kernel32.FreeLibrary(ctypes.c_void_p(self.lib._handle))
+                    if res == 0:
+                        self.unload_error = ctypes.GetLastError()
+                except Exception as ex:
+                    self.unload_error = str(ex)
             elif sys.platform != "win32" and hasattr(self.lib, "_handle") and self.lib._handle:
                 try:
                     import _ctypes
                     _ctypes.dlclose(self.lib._handle)
-                except Exception:
-                    pass
+                except Exception as ex:
+                    self.unload_error = str(ex)
             self.lib = None
 
     def __enter__(self):

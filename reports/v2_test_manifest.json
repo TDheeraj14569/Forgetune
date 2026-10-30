@@ -1,14 +1,14 @@
 {
   "summary": {
-    "total_python_tests_collected": 254,
-    "python_passed": 254,
+    "total_python_tests_collected": 264,
+    "python_passed": 264,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 267,
-    "total_passing": 267,
+    "total_tests_available": 277,
+    "total_passing": 277,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -559,6 +559,30 @@
     "tests/correctness/test_audit_regressions.py::test_regression_build_metadata_freshness_rebuild": {
       "outcome": "passed"
     },
+    "tests/correctness/test_audit_regressions.py::test_regression_rank4_channel_broadcasting_order": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_model_state_restoration": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_shared_linear_weights": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_linear_rank_greater_than_two_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_memory_budget_exceeded_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_deep_graph_topological_sort_kahn": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotuner_cache_corruption_detection": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_runtime_input_dtype_validation": {
+      "outcome": "passed"
+    },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {
       "outcome": "passed"
     },
@@ -731,6 +755,12 @@
       "outcome": "passed"
     },
     "tests/unit/test_v2_conv2d.py::test_fused_conv2d_relu": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_compiled_conv2d_remainder_channels_and_tiling": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_v2_conv2d.py::test_compiled_conv2d_large_width_stack_bounded": {
       "outcome": "passed"
     },
     "tests/unit/test_v2_export_frontend.py::test_export_tinymlp_dynamic_batch": {
