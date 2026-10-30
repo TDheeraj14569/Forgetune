@@ -26,8 +26,8 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements-ci.txt
-          pip install -e . --no-build-isolation
+          pip install -r requirements.txt
+          pip install -e .
 
       - name: 4. Build Native Components from Source (-Wall -Wextra)
         run: |
