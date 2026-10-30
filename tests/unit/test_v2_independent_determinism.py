@@ -12,8 +12,6 @@ import hashlib
 import os
 import subprocess
 import sys
-import tempfile
-import pytest
 
 from forgetune.graph_adapter import Graph, Node
 from forgetune.compiler import get_engine_executable

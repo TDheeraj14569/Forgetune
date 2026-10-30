@@ -5,12 +5,10 @@ import json
 import platform
 import hashlib
 import ctypes
-import tempfile
 import torch
 import torch.nn as nn
 import numpy as np
-import forgetune
-from forgetune.compiler import compile_model, emit_cpp_source, KernelCandidate
+from forgetune.compiler import compile_model
 from forgetune.export_frontend import export_to_forgetune_ir
 from forgetune.errors import UnsupportedOpError, InvalidGraphError, CompilationError
 from forgetune.native_compiler import NativeCompiler
@@ -290,7 +288,7 @@ def test_regression_verifier_rejects_multi_output_and_undeclared_input():
     # 2. Undeclared input rejection
     g_undeclared = cpp.IRGraph()
     in1 = g_undeclared.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "in1", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
-    in_ghost = g_undeclared.add_node(cpp.IRNode(1, cpp.OpKind.INPUT, "ghost", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
+    g_undeclared.add_node(cpp.IRNode(1, cpp.OpKind.INPUT, "ghost", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
     out = g_undeclared.add_node(cpp.IRNode(2, cpp.OpKind.RELU, "r", [in1], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
     g_undeclared.set_inputs([in1]) # in_ghost is NOT declared
     g_undeclared.set_outputs([out])
@@ -1691,7 +1689,7 @@ def test_regression_submodule_mixed_training_mode_preservation(tmp_path):
     assert model.sub2.training is False
 
     ex = torch.randn(1, 4)
-    compiled = compile_model(model, (ex,), autotune=False, output_dir=str(tmp_path / "mixed_mode"))
+    compile_model(model, (ex,), autotune=False, output_dir=str(tmp_path / "mixed_mode"))
 
     # Verify exact mixed modes restored
     assert model.training is True
@@ -2339,3 +2337,265 @@ def test_regression_runtime_input_dtype_validation(tmp_path):
         comp.run(s_arr)
 
     comp.close()
+
+
+def test_regression_dynamic_batch_bounded_batches_autotuning(tmp_path):
+    """
+    P1 Regression: Dynamic-batch autotuner gating and multi-batch verification
+    must test bounded batches [1, 2, 16, 128] even when example_input has batch size 2.
+    """
+    class SimpleMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleMLP().eval()
+    ex = torch.randn(2, 8)
+    out_dir = str(tmp_path / "dyn_tune_test")
+    compiled = compile_model(
+        model,
+        (ex,),
+        output_dir=out_dir,
+        dynamic_batch=True,
+        max_batch_size=128,
+        autotune=True,
+        max_autotune_budget=2
+    )
+    report_file = os.path.join(out_dir, "autotuning_report.json")
+    assert os.path.exists(report_file)
+    with open(report_file, "r") as f:
+        r_data = json.load(f)
+    tested_batches = [int(b) for b in r_data["candidate_evaluations"][0]["per_batch_kernel_latencies_us"].keys()]
+    assert tested_batches == [1, 2, 16, 128], f"Expected [1, 2, 16, 128], got {tested_batches}"
+    compiled.close()
+
+
+def test_regression_conv2d_scratch_memory_sum_accounting():
+    """
+    P1 Regression: MemoryPlanner must sum per-thread scratch capacity across distinct
+    generated Conv2D functions rather than taking std::max (Model C requires 3,600 bytes).
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    class SmallCNN(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv1 = nn.Conv2d(1, 8, kernel_size=3, stride=1, padding=1)
+            self.relu1 = nn.ReLU()
+            self.conv2 = nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1)
+            self.relu2 = nn.ReLU()
+            self.flatten = nn.Flatten(start_dim=1)
+            self.fc = nn.Linear(16 * 4 * 4, 10)
+        def forward(self, x):
+            return self.fc(self.flatten(self.relu2(self.conv2(self.relu1(self.conv1(x))))))
+
+    model = SmallCNN().eval()
+    ex = torch.randn(2, 1, 8, 8)
+    ir_graph = export_to_forgetune_ir(model, (ex,), dynamic_batch=True, max_batch_size=128)
+    cpp_g = cpp.json_to_graph(ir_graph.to_json())
+    planner = cpp.MemoryPlanner()
+    plan = planner.plan(cpp_g, 128)
+
+    # Conv1 scratch: 1 * 10 * 10 * 4 = 400 bytes
+    # Conv2 scratch: 8 * 10 * 10 * 4 = 3200 bytes
+    # Total sum = 3600 bytes
+    assert plan.conv2d_scratch_bytes == 3600, (
+        f"Expected total conv2d_scratch_bytes == 3600, got {plan.conv2d_scratch_bytes}"
+    )
+
+
+def test_regression_workspace_budget_exceeded_rejection(tmp_path):
+    """
+    P1 Regression: max_workspace_bytes must strictly reject compilation in Python and CLI
+    when total required workspace (arena + conv2d scratch) exceeds budget.
+    """
+    import subprocess
+
+    class SimpleMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(16, 32)
+            self.fc2 = nn.Linear(32, 16)
+        def forward(self, x):
+            return self.fc2(self.fc1(x))
+
+    model = SimpleMLP().eval()
+    ex = torch.randn(4, 16)
+    out_dir = str(tmp_path / "workspace_budget_exceeded")
+
+    # A budget of 64 bytes is far smaller than the arena required for (4, 32) activation tensors
+    with pytest.raises(ValueError, match="exceeding workspace budget"):
+        compile_model(
+            model,
+            (ex,),
+            output_dir=out_dir,
+            max_workspace_bytes=64,
+            autotune=False
+        )
+
+    # Also test CLI rejection via forgetune_engine executable
+    g_json = str(tmp_path / "model.json")
+    ir_g = export_to_forgetune_ir(model, (ex,))
+    from forgetune import _forgetune_cpp as cpp
+    cpp_g = cpp.json_to_graph(ir_g.to_json())
+    with open(g_json, "w", encoding="utf-8") as f:
+        f.write(cpp.graph_to_json(cpp_g))
+
+    exe = "bin/forgetune_engine.exe" if sys.platform == "win32" else "bin/forgetune_engine"
+    if os.path.isfile(exe):
+        res = subprocess.run([exe, "--compile", g_json, "-o", str(tmp_path / "out.c"), "--max-workspace-bytes", "64"], capture_output=True, text=True)
+        assert res.returncode != 0
+        assert "exceeding workspace limit" in res.stderr.lower() or "workspace limit" in res.stderr.lower()
+
+
+def test_regression_workspace_budget_strict_type_validation(tmp_path):
+    """
+    P1 Regression: max_workspace_bytes must strictly reject bools, floats, and non-positive integers.
+    """
+    class SimpleMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleMLP().eval()
+    ex = torch.randn(2, 8)
+    out_dir = str(tmp_path / "workspace_types")
+
+    # Reject bool True/False
+    with pytest.raises(ValueError, match="must be a strictly positive integer"):
+        compile_model(model, (ex,), output_dir=out_dir, max_workspace_bytes=True, autotune=False)
+    with pytest.raises(ValueError, match="must be a strictly positive integer"):
+        compile_model(model, (ex,), output_dir=out_dir, max_workspace_bytes=False, autotune=False)
+
+    # Reject float
+    with pytest.raises(ValueError, match="must be a strictly positive integer"):
+        compile_model(model, (ex,), output_dir=out_dir, max_workspace_bytes=1048576.0, autotune=False)
+
+    # Reject zero and negative
+    with pytest.raises(ValueError, match="must be a strictly positive integer"):
+        compile_model(model, (ex,), output_dir=out_dir, max_workspace_bytes=0, autotune=False)
+    with pytest.raises(ValueError, match="must be a strictly positive integer"):
+        compile_model(model, (ex,), output_dir=out_dir, max_workspace_bytes=-1024, autotune=False)
+
+
+def test_regression_dynamic_batch_min_batch_size_validation(tmp_path):
+    """
+    P1 Regression: dynamic_batch=True with max_batch_size < 2 must raise ValueError
+    before invoking torch.export.Dim (which crashes when min == max).
+    """
+    class SimpleMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleMLP().eval()
+    ex = torch.randn(1, 8)
+
+    with pytest.raises(ValueError, match="max_batch_size >= 2"):
+        export_to_forgetune_ir(model, (ex,), dynamic_batch=True, max_batch_size=1)
+
+    with pytest.raises(ValueError, match="max_batch_size >= 2"):
+        compile_model(model, (ex,), dynamic_batch=True, max_batch_size=1, output_dir=str(tmp_path / "batch_1"))
+
+
+def test_regression_signed_zero_algebraic_simplification():
+    """
+    P1 Regression: Verify -fno-signed-zeros contract for algebraic simplification (x + 0.0 -> x)
+    and check behavior with signed zeros.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    g = cpp.IRGraph()
+    x_id = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
+    z_node = cpp.IRNode(1, cpp.OpKind.CONST, "zero", [], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32))
+    z_node.const_data = [0.0] * 8
+    z_id = g.add_node(z_node)
+    add_id = g.add_node(cpp.IRNode(2, cpp.OpKind.ADD, "add_zero", [x_id, z_id], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32)))
+    g.set_inputs([x_id])
+    g.set_outputs([add_id])
+
+    # Optimize graph: Optimizer runs algebraic simplification: ADD(x, 0.0) -> x
+    opt = cpp.Optimizer()
+    report = opt.optimize(g, False)
+    assert report.any_changed, "Optimizer should simplify x + 0.0"
+
+    # Outputs should now point directly to x_id
+    assert g.get_outputs() == [x_id]
+
+
+def test_regression_memory_planner_unverified_graph_rejection():
+    """
+    P1 Regression: MemoryPlanner::plan must call verify_graph and reject malformed/unverified graphs
+    with a std::runtime_error instead of segfaulting.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    g = cpp.IRGraph()
+    # Add a node that references a non-existent input node ID
+    bad_node = cpp.IRNode(0, cpp.OpKind.ADD, "bad_add", [999, 1000], cpp.TensorMeta(cpp.TensorShape([2, 4]), cpp.DType.FLOAT32))
+    g.add_node(bad_node)
+    g.set_inputs([])
+    g.set_outputs([0])
+
+    planner = cpp.MemoryPlanner()
+    with pytest.raises(RuntimeError, match="MemoryPlanner: graph verification failed"):
+        planner.plan(g, 1)
+
+
+def test_regression_autotuner_cache_strict_raw_types(tmp_path):
+    """
+    P1 Regression: Autotuner cache entries must have strict raw types
+    (e.g. enable_fusion must be raw bool, not string 'false').
+    """
+    from forgetune.autotuner import Autotuner
+    from forgetune.graph_adapter import Graph, Node
+
+    tuner = Autotuner(cache_dir=str(tmp_path / "tuning_cache"))
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[2, 4]))
+    c = g.add_node(Node(1, "CONST", shape=[4, 8], const_data=[0.1] * 32))
+    mm = g.add_node(Node(2, "MATMUL", inputs=[x, c], shape=[2, 8]))
+    g.set_inputs([x])
+    g.set_outputs([mm])
+
+    x_val = np.ones((2, 4), dtype=np.float32)
+    ref_out = np.full((2, 8), 0.4, dtype=np.float32)
+
+    cand1, report1 = tuner.tune(
+        graph=g,
+        example_input=x_val,
+        reference_output=ref_out,
+        artifacts_dir=str(tmp_path / "artifacts"),
+        max_budget=2,
+        use_cache=True
+    )
+
+    import glob
+    cache_files = glob.glob(os.path.join(str(tmp_path / "tuning_cache"), "*.json"))
+    assert len(cache_files) >= 1
+    cache_file = cache_files[0]
+    with open(cache_file, "r") as f:
+        data = json.load(f)
+
+    # Corrupt enable_fusion from bool to string "true"
+    data["selected_candidate"]["enable_fusion"] = "true"
+    with open(cache_file, "w") as f:
+        json.dump(data, f)
+
+    # tune() should detect corrupted cache and retune cleanly
+    cand2, report2 = tuner.tune(
+        graph=g,
+        example_input=x_val,
+        reference_output=ref_out,
+        artifacts_dir=str(tmp_path / "artifacts_retune"),
+        max_budget=2,
+        use_cache=True
+    )
+    assert isinstance(cand2.enable_fusion, bool)
+

@@ -6,7 +6,6 @@ Tests constant folding, algebraic simplification, dead-code elimination, and fus
 import os
 import subprocess
 import json
-import pytest
 from forgetune.graph_adapter import Graph, Node
 from forgetune.compiler import get_engine_executable
 
@@ -23,7 +22,7 @@ def test_engine_optimization_pipeline():
     # Live node
     live_out = g.add_node(Node(4, "ADD", inputs=[x, add_c], shape=[2, 2]))
     # Dead node
-    dead_node = g.add_node(Node(5, "RELU", inputs=[x], shape=[2, 2]))
+    g.add_node(Node(5, "RELU", inputs=[x], shape=[2, 2]))
 
     g.set_inputs([x])
     g.set_outputs([live_out])

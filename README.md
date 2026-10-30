@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
 [![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
-[![Tests](https://img.shields.io/badge/Tests-277%2F277%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-285%2F285%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
 **ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state native arena allocations after warm-up.
@@ -194,7 +194,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite across Windows and Linux:
 
 ```bash
-# 1. Run full Python test suite (264 tests)
+# 1. Run full Python test suite (272 tests)
 python -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -206,8 +206,8 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **277 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **264 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 71 audit defect regressions.
+- **Total Enumerated Tests:** **285 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **272 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 79 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-std=c++17 -O2 -Wall -Wextra` on both Linux and Windows.

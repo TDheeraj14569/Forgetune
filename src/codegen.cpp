@@ -13,6 +13,17 @@ std::string CodeGenerator::generate(const IRGraph& graph) const {
         throw std::invalid_argument("Invalid KernelConfig: " + config_err);
     }
 
+    MemoryPlanner planner;
+    MemoryPlan plan = planner.plan(graph, config_.max_batch_size);
+    size_t total_workspace_required = plan.arena_size_bytes + plan.conv2d_scratch_bytes;
+    if (total_workspace_required > config_.max_workspace_bytes) {
+        throw std::runtime_error("Configured maximum batch size (" + std::to_string(config_.max_batch_size) +
+                                 ") requires workspace (" + std::to_string(total_workspace_required) +
+                                 " bytes: " + std::to_string(plan.arena_size_bytes) + " arena + " +
+                                 std::to_string(plan.conv2d_scratch_bytes) + " conv2d scratch) exceeding workspace limit (" +
+                                 std::to_string(config_.max_workspace_bytes) + " bytes)");
+    }
+
     std::ostringstream oss;
 
     emit_headers(oss);

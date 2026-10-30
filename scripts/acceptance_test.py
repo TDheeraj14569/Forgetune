@@ -15,9 +15,9 @@ import subprocess
 from typing import Dict, Any, List
 
 def run_suite(python_exe: str, test_file: str, env: dict) -> Dict[str, Any]:
-    print(f"\n========================================================")
+    print("\n========================================================")
     print(f" [ACCEPTANCE] Running suite: {os.path.basename(test_file)}")
-    print(f"========================================================")
+    print("========================================================")
     t0 = time.perf_counter()
 
     cmd = [
@@ -35,8 +35,10 @@ def run_suite(python_exe: str, test_file: str, env: dict) -> Dict[str, Any]:
 
     passed = 0
     failed = 0
+    skipped = 0
+    errors = 0
     for line in stdout.splitlines():
-        if " passed" in line:
+        if " passed" in line or " failed" in line or " skipped" in line or " error" in line:
             import re
             m_pass = re.search(r"(\d+) passed", line)
             if m_pass:
@@ -44,15 +46,26 @@ def run_suite(python_exe: str, test_file: str, env: dict) -> Dict[str, Any]:
             m_fail = re.search(r"(\d+) failed", line)
             if m_fail:
                 failed = int(m_fail.group(1))
+            m_skip = re.search(r"(\d+) skipped", line)
+            if m_skip:
+                skipped = int(m_skip.group(1))
+            m_err = re.search(r"(\d+) error", line)
+            if m_err:
+                errors = int(m_err.group(1))
+
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    rel_file = os.path.relpath(test_file, root_dir).replace("\\", "/") if os.path.isabs(test_file) else test_file.replace("\\", "/")
 
     return {
-        "file": test_file,
+        "file": rel_file,
         "name": os.path.basename(test_file),
         "returncode": p.returncode,
         "passed": passed,
         "failed": failed,
+        "skipped": skipped,
+        "errors": errors,
         "duration_seconds": round(duration, 3),
-        "success": (p.returncode == 0)
+        "success": (p.returncode == 0 and failed == 0 and errors == 0)
     }
 
 def main():
@@ -88,6 +101,8 @@ def main():
     suite_results: List[Dict[str, Any]] = []
     total_passed = 0
     total_failed = 0
+    total_skipped = 0
+    total_errors = 0
     all_succeeded = True
 
     for s in suites:
@@ -95,7 +110,9 @@ def main():
         suite_results.append(res)
         total_passed += res["passed"]
         total_failed += res["failed"]
-        if not res["success"]:
+        total_skipped += res.get("skipped", 0)
+        total_errors += res.get("errors", 0)
+        if not res["success"] or res.get("skipped", 0) > 0 or res.get("errors", 0) > 0:
             all_succeeded = False
 
     total_duration = time.perf_counter() - start_total
@@ -113,9 +130,11 @@ def main():
         },
         "summary": {
             "total_acceptance_suites": len(suites),
-            "total_tests": total_passed + total_failed,
+            "total_tests": total_passed + total_failed + total_skipped + total_errors,
             "passed_tests": total_passed,
             "failed_tests": total_failed,
+            "skipped_tests": total_skipped,
+            "error_tests": total_errors,
             "all_passed": all_succeeded,
             "total_duration_seconds": round(total_duration, 3)
         },

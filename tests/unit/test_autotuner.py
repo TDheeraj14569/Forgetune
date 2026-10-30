@@ -3,11 +3,8 @@ Category H: Autotuner Unit and Integration Tests.
 Validates search space bounds, candidate rejection, caching, and selection policy.
 """
 
-import os
 import torch
 import torch.nn as nn
-import numpy as np
-import pytest
 from forgetune import compile_model
 from forgetune.autotuner import Autotuner
 

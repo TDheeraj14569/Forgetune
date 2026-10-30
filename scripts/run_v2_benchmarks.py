@@ -15,7 +15,6 @@ import os
 import sys
 import json
 import time
-import platform
 import shutil
 import torch
 import torch.nn as nn
@@ -23,7 +22,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
 
-from forgetune import compile_model, benchmark_function, get_machine_metadata
+from forgetune import compile_model, get_machine_metadata
 from forgetune.manifest import write_atomic_json
 
 # Model Definitions
@@ -176,7 +175,7 @@ def run_benchmarks():
             if "CNN" in name and b == 64:
                 # Rigorous unified 30-sample protocol for Model C at B=64:
                 # Derive both Dataset A (main table) and Dataset B (distribution) from identical raw samples
-                print(f"  [+] Executing unified 30-sample protocol for Model C at B=64...")
+                print("  [+] Executing unified 30-sample protocol for Model C at B=64...")
                 b64_pt_8th_samples = []
                 b64_pt_1th_samples = []
                 b64_ft_e2e_samples = []

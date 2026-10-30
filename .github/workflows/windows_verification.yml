@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          submodules: recursive
 
       - name: 2. Set up Python 3.12
         uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
@@ -59,42 +57,8 @@ jobs:
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"
           $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-          python -c "
-          import sys, os, subprocess, pybind11, sysconfig
-          import ziglang
-
-          zig_exe = os.path.join(os.path.dirname(ziglang.__file__), 'zig.exe')
-          os.makedirs('bin', exist_ok=True)
-          cpp_srcs = [
-              'src/ir.cpp', 'src/graph_verifier.cpp', 'src/interpreter.cpp',
-              'src/pass_manager.cpp', 'src/optimizer.cpp', 'src/fusion.cpp',
-              'src/codegen.cpp', 'src/json_io.cpp', 'src/memory_planner.cpp'
-          ]
-
-          # 1. Compile C++ Test Suite
-          cmd_test = [zig_exe, 'c++', '-target', 'x86_64-windows-gnu', '-o', 'bin/forgetune_test_suite.exe', *cpp_srcs, 'tests/cpp/test_main.cpp', '-I', 'include', '-std=c++17', '-O2', '-Wall', '-Wextra']
-          print('Compiling C++ test suite with -Wall -Wextra')
-          subprocess.run(cmd_test, check=True)
-
-          # 2. Compile C++ Engine CLI
-          cmd_engine = [zig_exe, 'c++', '-target', 'x86_64-windows-gnu', '-o', 'bin/forgetune_engine.exe', *cpp_srcs, 'src/main.cpp', '-I', 'include', '-std=c++17', '-O2', '-Wall', '-Wextra']
-          print('Compiling C++ engine CLI with -Wall -Wextra')
-          subprocess.run(cmd_engine, check=True)
-
-          # 3. Compile pybind11 extension
-          py_inc = sysconfig.get_path('include')
-          pb_inc = pybind11.get_include()
-          py_lib = os.path.join(sys.base_prefix, 'libs', f'python{sys.version_info.major}{sys.version_info.minor}.lib')
-          pyd_out = os.path.join('python', 'forgetune', '_forgetune_cpp.pyd')
-          cmd_pyd = [
-              zig_exe, 'c++', '-target', 'x86_64-windows-gnu', '-shared', '-o', pyd_out,
-              'src/bindings.cpp', 'tests/cpp/test_main.cpp', '-DFORGETUNE_EXCLUDE_MAIN',
-              *cpp_srcs, '-I', 'include', '-I', py_inc, '-I', pb_inc, py_lib, '-std=c++17', '-O2', '-Wall', '-Wextra'
-          ]
-          print('Compiling pybind11 extension with -Wall -Wextra')
-          subprocess.run(cmd_pyd, check=True)
-          print('Native compilation complete!')
-          "
+          python scripts/build_native.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 6. Verify Unsigned Dynamic DLL Loading & Parity via CI Probe
         shell: powershell
@@ -111,7 +75,7 @@ jobs:
           & .\bin\forgetune_test_suite.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: 8. Run Full PyTest Suite (254 tests)
+      - name: 8. Run Full PyTest Suite
         shell: powershell
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"

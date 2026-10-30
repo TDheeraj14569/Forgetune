@@ -11,15 +11,12 @@ Challenging each optimization pass independently against aggressive attack vecto
 
 import os
 import json
-import shutil
-import tempfile
 import subprocess
 import pytest
 import numpy as np
 
 from forgetune.graph_adapter import Graph, Node
 from forgetune.compiler import get_engine_executable
-import forgetune._forgetune_cpp as cpp
 
 ENGINE_EXE = get_engine_executable()
 

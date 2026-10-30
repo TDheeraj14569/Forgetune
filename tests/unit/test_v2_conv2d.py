@@ -3,7 +3,6 @@ Unit tests for ForgeTune v2.0 CONV2D and FUSED_CONV2D_RELU.
 Compares both Python and C++ reference interpreters against PyTorch ground truth.
 """
 
-import pytest
 import torch
 import torch.nn.functional as F
 import numpy as np

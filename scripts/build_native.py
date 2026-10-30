@@ -11,6 +11,8 @@ import sys
 import shutil
 import subprocess
 import sysconfig
+import platform
+import json
 
 def find_zig():
     # 1. PATH
@@ -83,7 +85,9 @@ def main():
     os.makedirs("bin", exist_ok=True)
     os.makedirs("python/forgetune", exist_ok=True)
 
-    target_flags = ["-target", "x86_64-windows-gnu"] if is_win else ["-fPIC"]
+    raw_arch = platform.machine().lower()
+    target_arch = "aarch64" if raw_arch in ("aarch64", "arm64") else "x86_64"
+    target_flags = ["-target", f"{target_arch}-windows-gnu"] if is_win else ["-fPIC"]
 
     # 1. _forgetune_cpp extension
     pyd_path = f"python/forgetune/_forgetune_cpp{pyd_ext}"
@@ -128,7 +132,7 @@ def main():
         else:
             raise RuntimeError(f"Could not locate Windows Python import library '{lib_name}'")
 
-    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra"])
+    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra", "-fno-signed-zeros"])
 
     def check_compilation_result(target_name, result):
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
@@ -156,7 +160,6 @@ def main():
     # Save build metadata for SmartBuildExt freshness validation
     meta_path = os.path.join(os.path.dirname(pyd_path), "_forgetune_cpp.build_meta.json")
     try:
-        import json, platform
         zig_version = "unknown"
         try:
             p_v = subprocess.run([zig_exe, "version"], capture_output=True, text=True)
@@ -189,7 +192,8 @@ def main():
         "src/main.cpp", *srcs_core,
         "-I", "include",
         "-std=c++17", "-O2",
-        "-Wall", "-Wextra"
+        "-Wall", "-Wextra",
+        "-fno-signed-zeros"
     ]
     res2 = subprocess.run(cmd_engine, capture_output=True, text=True)
     check_compilation_result(engine_path, res2)
@@ -204,7 +208,8 @@ def main():
         "tests/cpp/test_main.cpp", *srcs_core,
         "-I", "include",
         "-std=c++17", "-O2",
-        "-Wall", "-Wextra"
+        "-Wall", "-Wextra",
+        "-fno-signed-zeros"
     ]
     res3 = subprocess.run(cmd_suite, capture_output=True, text=True)
     check_compilation_result(suite_path, res3)

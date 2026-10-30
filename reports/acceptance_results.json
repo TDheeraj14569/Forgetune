@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "timestamp": "2026-10-13T20:33:34Z",
+  "timestamp": "2026-10-30T15:40:04Z",
   "environment": {
     "os": "Windows",
     "release": "11",
@@ -10,74 +10,90 @@
   },
   "summary": {
     "total_acceptance_suites": 7,
-    "total_tests": 75,
-    "passed_tests": 75,
+    "total_tests": 82,
+    "passed_tests": 82,
     "failed_tests": 0,
+    "skipped_tests": 0,
+    "error_tests": 0,
     "all_passed": true,
-    "total_duration_seconds": 185.844
+    "total_duration_seconds": 160.098
   },
   "suites": [
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_pipeline_e2e_acceptance.py",
+      "file": "tests/acceptance/test_pipeline_e2e_acceptance.py",
       "name": "test_pipeline_e2e_acceptance.py",
       "returncode": 0,
       "passed": 5,
       "failed": 0,
-      "duration_seconds": 15.012,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 21.513,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_frontend_and_parameters.py",
+      "file": "tests/acceptance/test_frontend_and_parameters.py",
       "name": "test_frontend_and_parameters.py",
       "returncode": 0,
       "passed": 4,
       "failed": 0,
-      "duration_seconds": 6.466,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 8.785,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_optimization_attacks.py",
+      "file": "tests/acceptance/test_optimization_attacks.py",
       "name": "test_optimization_attacks.py",
       "returncode": 0,
       "passed": 9,
       "failed": 0,
-      "duration_seconds": 3.603,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 4.732,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_runtime_abi_robustness.py",
+      "file": "tests/acceptance/test_runtime_abi_robustness.py",
       "name": "test_runtime_abi_robustness.py",
       "returncode": 0,
       "passed": 6,
       "failed": 0,
-      "duration_seconds": 6.019,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 7.083,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_mutation_resilience.py",
+      "file": "tests/acceptance/test_mutation_resilience.py",
       "name": "test_mutation_resilience.py",
       "returncode": 0,
       "passed": 7,
       "failed": 0,
-      "duration_seconds": 3.455,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 4.463,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_autotuner_integrity.py",
+      "file": "tests/acceptance/test_autotuner_integrity.py",
       "name": "test_autotuner_integrity.py",
       "returncode": 0,
-      "passed": 3,
+      "passed": 10,
       "failed": 0,
-      "duration_seconds": 30.022,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 24.003,
       "success": true
     },
     {
-      "file": "C:\\Users\\dheer\\Desktop\\Forgetune\\tests\\acceptance\\test_randomized_differential.py",
+      "file": "tests/acceptance/test_randomized_differential.py",
       "name": "test_randomized_differential.py",
       "returncode": 0,
       "passed": 41,
       "failed": 0,
-      "duration_seconds": 121.267,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 89.517,
       "success": true
     }
   ],

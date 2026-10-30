@@ -5,10 +5,7 @@ Binds to compiled C++ kernels using ctypes with contract validation and direct a
 
 import os
 import sys
-import shutil
 import ctypes
-import subprocess
-import tempfile
 import time
 import numpy as np
 from typing import Tuple, Optional
@@ -93,6 +90,8 @@ class NativeRuntime:
             self.is_dynamic = self.is_shape_dynamic
 
         if hasattr(self.lib, "forgetune_max_batch"):
+            self.lib.forgetune_max_batch.argtypes = []
+            self.lib.forgetune_max_batch.restype = ctypes.c_int64
             self.max_batch_size = int(self.lib.forgetune_max_batch())
         else:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
@@ -423,7 +422,7 @@ class NativeRuntime:
         return int(fn())
 
     def get_process_arena_total_allocations(self) -> int:
-        """Returns total native heap allocations performed across all threads in the process."""
+        """Returns total process-wide AlignedArenaPool buffer allocations performed across all threads."""
         if getattr(self, "is_closed", False):
             raise RuntimeError("Cannot execute NativeRuntime after it has been closed.")
         if not hasattr(self.lib, "forgetune_get_process_arena_total_allocations"):

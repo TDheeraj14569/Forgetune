@@ -8,8 +8,6 @@ Tests all 5 kernel variants against independent reference implementations across
 """
 
 import os
-import shutil
-import tempfile
 import pytest
 import numpy as np
 import torch
@@ -124,7 +122,7 @@ def test_acceptance_randomized_matmul_all_unfused_variants(M, K, N, label, varia
 
     # Compare native vs PyTorch
     max_abs_diff = float(np.max(np.abs(native_out - ref_torch)))
-    max_rel_diff = float(np.max(np.abs((native_out - ref_torch) / (np.abs(ref_torch) + 1e-7))))
+    float(np.max(np.abs((native_out - ref_torch) / (np.abs(ref_torch) + 1e-7))))
 
     # Tolerance scaling for larger K accumulation
     tol = 1e-4 if K <= 64 else 5e-4

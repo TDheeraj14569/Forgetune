@@ -4,11 +4,9 @@ Verifies that constants serialized by CodeGenerator using max_digits10 scientifi
 round-trip with IEEE-754 single-precision fidelity.
 """
 
-import os
 import struct
 import subprocess
 import numpy as np
-import pytest
 
 from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler

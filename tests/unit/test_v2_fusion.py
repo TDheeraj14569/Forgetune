@@ -2,7 +2,6 @@
 Unit tests for ForgeTune v2.0 Operator Fusion: CONV2D + RELU and legality gating.
 """
 
-import pytest
 import numpy as np
 from forgetune.graph_adapter import Node, Graph
 from forgetune import _forgetune_cpp as cpp
@@ -66,10 +65,10 @@ def test_conv2d_relu_fusion_rejected_when_multi_consumer():
     g.set_outputs([add])
 
     cpp_graph = cpp.json_to_graph(g.to_json())
-    initial_count = cpp_graph.live_node_count()
+    cpp_graph.live_node_count()
 
     opt = cpp.Optimizer()
-    report = opt.optimize(cpp_graph, enable_fusion=True)
+    opt.optimize(cpp_graph, enable_fusion=True)
 
     # Fusion must be rejected because CONV2D has multiple consumers
     for nid in cpp_graph.topological_order():
@@ -91,7 +90,7 @@ def test_conv2d_relu_fusion_rejected_when_conv_is_graph_output():
 
     cpp_graph = cpp.json_to_graph(g.to_json())
     opt = cpp.Optimizer()
-    report = opt.optimize(cpp_graph, enable_fusion=True)
+    opt.optimize(cpp_graph, enable_fusion=True)
 
     # Fusion must be rejected because conv is an exported output
     for nid in cpp_graph.topological_order():

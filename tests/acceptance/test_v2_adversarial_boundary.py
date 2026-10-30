@@ -8,7 +8,6 @@ Implements Round 2 Verification:
   5. Interleaved dynamic batch execution: sequential calls with alternating batch sizes
 """
 
-import os
 import ctypes
 import concurrent.futures
 import numpy as np
@@ -17,8 +16,7 @@ import torch
 import torch.nn as nn
 
 from forgetune.compiler import compile_model
-from forgetune.runtime import NativeRuntime
-from forgetune.errors import InvalidShapeError, RuntimeError
+from forgetune.errors import InvalidShapeError
 
 class DynamicLinearReLU(nn.Module):
     def __init__(self):

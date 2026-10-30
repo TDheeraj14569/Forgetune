@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          submodules: recursive
 
       - name: 2. Set up Python 3.12
         uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
@@ -28,8 +26,8 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .
+          pip install -r requirements-ci.txt
+          pip install -e . --no-build-isolation
 
       - name: 4. Build Native Components from Source (-Wall -Wextra)
         run: |

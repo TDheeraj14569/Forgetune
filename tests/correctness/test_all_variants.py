@@ -13,11 +13,8 @@ Under:
   - All-zero and all-negative inputs (testing ReLU clipping behavior)
 """
 
-import os
 import subprocess
-import time
 import torch
-import torch.nn as nn
 import numpy as np
 import pytest
 

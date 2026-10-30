@@ -9,7 +9,6 @@ Determines:
 """
 
 import os
-import sys
 import json
 
 def analyze_blocked_tests():

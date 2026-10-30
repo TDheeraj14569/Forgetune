@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 class TestResultCollector:
     def __init__(self):
         self.results = {}
+        self.total_collected = 0
+
+    def pytest_collection_finish(self, session):
+        self.total_collected = len(session.items)
 
     def pytest_collectreport(self, report):
         if report.failed:
@@ -88,14 +92,15 @@ def main():
 
     manifest = {
         "summary": {
-            "total_python_tests_collected": len(collector.results),
+            "total_python_tests_collected": collector.total_collected if collector.total_collected > 0 else len(collector.results),
+            "total_python_tests_executed": len(collector.results),
             "python_passed": sum(1 for r in collector.results.values() if r["outcome"] == "passed"),
             "python_skipped": sum(1 for r in collector.results.values() if r["outcome"] == "skipped"),
             "python_failed": sum(1 for r in collector.results.values() if r["outcome"] == "failed"),
             "python_error": sum(1 for r in collector.results.values() if r["outcome"] == "error"),
             "native_cpp_tests": len(cpp_tests),
             "native_cpp_passed": len(cpp_tests) if cpp_res == 0 else 0,
-            "total_tests_available": len(collector.results) + len(cpp_tests),
+            "total_tests_available": (collector.total_collected if collector.total_collected > 0 else len(collector.results)) + len(cpp_tests),
             "total_passing": sum(1 for r in collector.results.values() if r["outcome"] == "passed") + (len(cpp_tests) if cpp_res == 0 else 0),
             "total_blocked_by_sac": sum(1 for r in collector.results.values() if "WinError 4551" in str(r.get("exception_type", "")) or "4551" in str(r.get("details", ""))),
             "pytest_return_code": int(pytest_rc)

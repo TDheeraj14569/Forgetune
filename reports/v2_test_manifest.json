@@ -1,14 +1,15 @@
 {
   "summary": {
-    "total_python_tests_collected": 264,
-    "python_passed": 264,
+    "total_python_tests_collected": 272,
+    "total_python_tests_executed": 272,
+    "python_passed": 272,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 277,
-    "total_passing": 277,
+    "total_tests_available": 285,
+    "total_passing": 285,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -583,6 +584,30 @@
     "tests/correctness/test_audit_regressions.py::test_regression_runtime_input_dtype_validation": {
       "outcome": "passed"
     },
+    "tests/correctness/test_audit_regressions.py::test_regression_dynamic_batch_bounded_batches_autotuning": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_conv2d_scratch_memory_sum_accounting": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_workspace_budget_exceeded_rejection": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_workspace_budget_strict_type_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_dynamic_batch_min_batch_size_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_signed_zero_algebraic_simplification": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_memory_planner_unverified_graph_rejection": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_autotuner_cache_strict_raw_types": {
+      "outcome": "passed"
+    },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {
       "outcome": "passed"
     },
@@ -598,10 +623,10 @@
     "tests/integration/test_e2e_tinymlp.py::test_tinymlp_full_lifecycle": {
       "outcome": "passed"
     },
-    "tests/test_autotuner.py::test_autotuner_budget_and_candidates": {
+    "tests/unit/test_autotuner.py::test_autotuner_budget_and_candidates": {
       "outcome": "passed"
     },
-    "tests/test_autotuner.py::test_autotuning_report_generation": {
+    "tests/unit/test_autotuner.py::test_autotuning_report_generation": {
       "outcome": "passed"
     },
     "tests/unit/test_codegen_and_runtime.py::test_runtime_successful_execution": {

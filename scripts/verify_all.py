@@ -10,10 +10,10 @@ import subprocess
 import time
 
 def run_step(step_name: str, cmd: list, env: dict = None) -> bool:
-    print(f"\n========================================================")
+    print("\n========================================================")
     print(f" [VERIFY] {step_name}")
     print(f" Command: {' '.join(cmd)}")
-    print(f"========================================================")
+    print("========================================================")
     t0 = time.perf_counter()
     p = subprocess.run(cmd, env=env)
     dur = time.perf_counter() - t0
@@ -28,7 +28,7 @@ def main():
     os.chdir(root_dir)
 
     python_exe = os.path.join(root_dir, ".venv", "Scripts", "python.exe")
-    pytest_exe = os.path.join(root_dir, ".venv", "Scripts", "pytest.exe")
+    os.path.join(root_dir, ".venv", "Scripts", "pytest.exe")
     zig_exe = os.path.join(root_dir, ".venv", "Lib", "site-packages", "ziglang", "zig.exe")
 
     env = os.environ.copy()

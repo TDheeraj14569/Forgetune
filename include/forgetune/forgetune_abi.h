@@ -63,6 +63,7 @@ FORGETUNE_EXPORT double forgetune_benchmark_kernel(
 FORGETUNE_EXPORT size_t forgetune_get_arena_alloc_count(void);
 FORGETUNE_EXPORT size_t forgetune_get_arena_payload_alloc_count(void);
 FORGETUNE_EXPORT size_t forgetune_get_arena_block_insertion_count(void);
+FORGETUNE_EXPORT size_t forgetune_get_process_arena_total_allocations(void);
 FORGETUNE_EXPORT void forgetune_reset_arena_alloc_count(void);
 FORGETUNE_EXPORT void forgetune_test_inject_arena_alloc(void);
 

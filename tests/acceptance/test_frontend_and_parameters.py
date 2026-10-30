@@ -5,7 +5,6 @@ parameter lifting fidelity, rejection of unsupported ATen operators, and
 bit-exact IEEE 754 float32 JSON serialization.
 """
 
-import json
 import pytest
 import torch
 import torch.nn as nn
@@ -13,7 +12,7 @@ import numpy as np
 
 from forgetune.export_frontend import export_to_forgetune_ir
 from forgetune.graph_adapter import Graph, Node
-from forgetune.errors import UnsupportedOpError, InvalidShapeError
+from forgetune.errors import InvalidShapeError
 import forgetune._forgetune_cpp as cpp
 
 class MultiLayerTestNet(nn.Module):

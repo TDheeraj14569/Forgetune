@@ -6,7 +6,6 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-import pytest
 from forgetune import compile_model, read_manifest
 
 class TinyMLP(nn.Module):

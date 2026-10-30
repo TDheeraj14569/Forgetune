@@ -16,7 +16,6 @@ import subprocess
 import torch
 import torch.nn as nn
 import numpy as np
-import pytest
 
 from forgetune import compile_model, export_to_forgetune_ir
 from forgetune.native_compiler import NativeCompiler

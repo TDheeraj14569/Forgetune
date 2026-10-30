@@ -19,7 +19,7 @@ from .errors import (
     CompilationError,
     CorrectnessError,
     AutotuningError,
-    RuntimeError
+    ForgeTuneRuntimeError,
 )
 
 __version__ = "2.0.0"
@@ -46,5 +46,5 @@ __all__ = [
     "CompilationError",
     "CorrectnessError",
     "AutotuningError",
-    "RuntimeError",
+    "ForgeTuneRuntimeError",
 ]

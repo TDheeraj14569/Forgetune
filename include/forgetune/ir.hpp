@@ -224,9 +224,9 @@ struct IRNode {
     bool deleted = false;               // Soft-delete flag for passes
 
     IRNode() = default;
-    IRNode(NodeId id, OpKind op, std::string name, std::vector<NodeId> inputs, TensorMeta meta)
-        : id(id), op(op), name(std::move(name)), inputs(std::move(inputs)),
-          output_meta(std::move(meta)) {}
+    IRNode(NodeId id_in, OpKind op_in, std::string name_in, std::vector<NodeId> inputs_in, TensorMeta meta_in)
+        : id(id_in), op(op_in), name(std::move(name_in)), inputs(std::move(inputs_in)),
+          output_meta(std::move(meta_in)) {}
 
     // Validate expected arity (-1 indicates variable arity, e.g. CONV2D with optional bias)
     int expected_input_count() const {
@@ -281,6 +281,9 @@ public:
             if (nodes_by_id_.count(node.id)) {
                 throw std::runtime_error("IRGraph::add_node: duplicate node ID " +
                                          std::to_string(node.id));
+            }
+            if (node.id == std::numeric_limits<NodeId>::max()) {
+                throw std::overflow_error("IRGraph::add_node: node ID at INT32_MAX cannot advance next_id_");
             }
             if (node.id >= next_id_) {
                 next_id_ = node.id + 1;

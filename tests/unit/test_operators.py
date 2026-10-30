@@ -6,7 +6,7 @@ Tests MATMUL, ADD, RELU, CONST under valid and invalid conditions.
 import pytest
 import numpy as np
 from forgetune.graph_adapter import Graph, Node
-from forgetune.errors import InvalidShapeError, UnsupportedOpError
+from forgetune.errors import InvalidShapeError
 
 def test_matmul_valid_dimensions():
     # [2, 4] @ [4, 3] -> [2, 3]

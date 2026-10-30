@@ -48,6 +48,8 @@ struct KernelConfig {
     std::string compiler_opt_level = "-O2"; // e.g. -O2, -O3
     int64_t max_batch_size = 128;
     static constexpr int64_t MAX_BATCH_SIZE_LIMIT = 1000000;
+    size_t max_workspace_bytes = 512 * 1024 * 1024; // 512 MiB default workspace limit
+    static constexpr size_t DEFAULT_MAX_WORKSPACE_BYTES = 512 * 1024 * 1024;
 
     bool validate(std::string* error_msg = nullptr) const {
         if (matmul_variant == MatMulVariant::UNKNOWN) {
@@ -64,6 +66,10 @@ struct KernelConfig {
         }
         if (max_batch_size <= 0 || max_batch_size > MAX_BATCH_SIZE_LIMIT) {
             if (error_msg) *error_msg = "max_batch_size must be in range [1, 1000000]";
+            return false;
+        }
+        if (max_workspace_bytes == 0) {
+            if (error_msg) *error_msg = "max_workspace_bytes must be strictly positive (> 0)";
             return false;
         }
         return true;

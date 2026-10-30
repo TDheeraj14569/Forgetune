@@ -5,7 +5,6 @@ Provides compile_model and CompiledModel.
 
 import os
 import sys
-import shutil
 import hashlib
 import json
 import platform
@@ -17,7 +16,7 @@ from .export_frontend import export_to_forgetune_ir
 from .native_compiler import NativeCompiler
 from .runtime import NativeRuntime
 from .autotuner import Autotuner, KernelCandidate
-from .manifest import create_manifest, write_atomic_json, read_manifest
+from .manifest import create_manifest, write_atomic_json
 from .benchmark import benchmark_function
 from .errors import CorrectnessError
 
@@ -239,7 +238,12 @@ def _verify_rebuilt_artifact(
 
         # Test 2: If dynamic batch, test representative memory-bounded batches including configured maximum
         if dynamic_batch or ir_graph.has_dynamic_batch():
-            test_batches = get_bounded_test_batches(example_input.shape, max_batch_size, example_batch=example_input.shape[0])
+            in_node_id = ir_graph.inputs[0] if len(ir_graph.inputs) > 0 else None
+            if in_node_id is not None and in_node_id in ir_graph.nodes:
+                symbolic_shape = tuple(ir_graph.nodes[in_node_id].shape)
+            else:
+                symbolic_shape = (-1, *example_input.shape[1:])
+            test_batches = get_bounded_test_batches(symbolic_shape, max_batch_size, example_batch=example_input.shape[0])
             for b in test_batches:
                 shape = (b, *example_input.shape[1:])
                 test_in = np.ones(shape, dtype=np.float32) * 0.5
@@ -477,8 +481,12 @@ def compile_model(
     # Strict API parameter validation (reject bool masquerading as int)
     if type(max_autotune_budget) is not int or not (1 <= max_autotune_budget <= 8):
         raise ValueError(f"max_autotune_budget must be an integer between 1 and 8, got {max_autotune_budget} ({type(max_autotune_budget).__name__})")
-    if type(max_batch_size) is not int or not (1 <= max_batch_size <= 1000000):
+    if type(max_batch_size) is not int or isinstance(max_batch_size, bool) or not (1 <= max_batch_size <= 1000000):
         raise ValueError(f"max_batch_size must be an integer between 1 and 1000000, got {max_batch_size} ({type(max_batch_size).__name__})")
+    if dynamic_batch and max_batch_size < 2:
+        raise ValueError(f"Dynamic batch execution requires max_batch_size >= 2 (got max_batch_size={max_batch_size}). For static single-batch execution, set dynamic_batch=False.")
+    if type(max_workspace_bytes) is not int or isinstance(max_workspace_bytes, bool) or max_workspace_bytes <= 0:
+        raise ValueError(f"max_workspace_bytes must be a strictly positive integer, got {max_workspace_bytes} ({type(max_workspace_bytes).__name__})")
     if type(autotune) is not bool:
         raise ValueError(f"autotune must be a bool, got {type(autotune).__name__}")
     if type(dynamic_batch) is not bool:
@@ -540,19 +548,17 @@ def compile_model(
         # 1. Export frontend
         ir_graph = export_to_forgetune_ir(model, example_inputs, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
 
-        # Pre-compilation memory estimate validation against configured workspace budget
-        est_bytes = 0
-        for node in ir_graph.nodes.values():
-            if node.deleted or node.op in ("INPUT", "CONST"):
-                continue
-            count = 1
-            for d in node.shape:
-                count *= (max_batch_size if d == -1 else d)
-            est_bytes += count * 4
-        if est_bytes > max_workspace_bytes:
+        # Authoritative workspace validation via MemoryPlanner (arena + Conv2D scratch)
+        from . import _forgetune_cpp as cpp
+        cpp_g = cpp.json_to_graph(ir_graph.to_json())
+        planner = cpp.MemoryPlanner()
+        plan = planner.plan(cpp_g, max_batch_size)
+        total_workspace_required = plan.arena_size_bytes + plan.conv2d_scratch_bytes
+        if total_workspace_required > max_workspace_bytes:
             raise ValueError(
-                f"Configured max_batch_size={max_batch_size} requires estimated workspace "
-                f"{est_bytes / (1024*1024):.1f} MB, exceeding workspace budget {max_workspace_bytes / (1024*1024):.1f} MB"
+                f"Configured max_batch_size={max_batch_size} requires workspace "
+                f"({total_workspace_required} bytes: {plan.arena_size_bytes} arena + {plan.conv2d_scratch_bytes} conv2d scratch), "
+                f"exceeding workspace budget {max_workspace_bytes} bytes ({max_workspace_bytes / (1024*1024):.1f} MB)"
             )
 
         graph_json_str = ir_graph.to_json()

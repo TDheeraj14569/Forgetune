@@ -1,8 +1,10 @@
 #include "forgetune/memory_planner.hpp"
+#include "forgetune/graph_verifier.hpp"
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <limits>
+#include <stdexcept>
 
 namespace forgetune {
 
@@ -25,6 +27,12 @@ std::string MemoryPlan::to_string() const {
 }
 
 MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
+    auto v_res = verify_graph(graph, false);
+    if (!v_res.passed) {
+        std::string err = v_res.errors.empty() ? "unknown verification error" : v_res.errors[0];
+        throw std::runtime_error("MemoryPlanner: graph verification failed: " + err);
+    }
+
     MemoryPlan plan;
     auto order = graph.topological_order();
     int total_steps = static_cast<int>(order.size());
@@ -174,8 +182,8 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
     }
     plan.peak_live_bytes = peak_live;
 
-    // 5. Calculate Conv2D padding scratch workspace requirements (if any padded convolutions exist)
-    size_t max_conv2d_scratch = 0;
+    // 5. Calculate Conv2D padding scratch workspace requirements across distinct generated Conv2D helpers
+    size_t total_conv2d_scratch = 0;
     for (NodeId nid : order) {
         const auto& node = graph.get_node(nid);
         if (node.deleted) continue;
@@ -187,16 +195,37 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
                     const auto& in_node = graph.get_node(node.inputs[0]);
                     if (in_node.output_meta.shape.rank() == 4) {
                         int64_t C_in = in_node.output_meta.shape.dims[1];
-                        int64_t H_pad = in_node.output_meta.shape.dims[2] + 2 * ph;
-                        int64_t W_pad = in_node.output_meta.shape.dims[3] + 2 * pw;
-                        size_t scratch_bytes = static_cast<size_t>(C_in * H_pad * W_pad) * sizeof(float);
-                        max_conv2d_scratch = std::max(max_conv2d_scratch, align_up(scratch_bytes));
+                        int64_t H_in = in_node.output_meta.shape.dims[2];
+                        int64_t W_in = in_node.output_meta.shape.dims[3];
+                        if (ph < 0 || pw < 0 || ph > 100000 || pw > 100000) {
+                            throw std::runtime_error("MemoryPlanner: invalid conv padding");
+                        }
+                        if (H_in > INT64_MAX - 2 * ph || W_in > INT64_MAX - 2 * pw) {
+                            throw std::overflow_error("MemoryPlanner: conv geometry overflow");
+                        }
+                        int64_t H_pad = H_in + 2 * ph;
+                        int64_t W_pad = W_in + 2 * pw;
+                        if (C_in <= 0 || H_pad <= 0 || W_pad <= 0) {
+                            throw std::runtime_error("MemoryPlanner: non-positive conv geometry");
+                        }
+                        if (C_in > INT64_MAX / H_pad) throw std::overflow_error("Conv2D scratch overflow");
+                        int64_t ch = C_in * H_pad;
+                        if (ch > INT64_MAX / W_pad) throw std::overflow_error("Conv2D scratch overflow");
+                        int64_t pad_elems = ch * W_pad;
+                        if (pad_elems > static_cast<int64_t>(std::numeric_limits<size_t>::max() / sizeof(float))) {
+                            throw std::overflow_error("Conv2D scratch overflow");
+                        }
+                        size_t scratch_bytes = static_cast<size_t>(pad_elems) * sizeof(float);
+                        if (std::numeric_limits<size_t>::max() - total_conv2d_scratch < scratch_bytes) {
+                            throw std::overflow_error("Conv2D scratch total overflow");
+                        }
+                        total_conv2d_scratch += scratch_bytes;
                     }
                 }
             }
         }
     }
-    plan.conv2d_scratch_bytes = max_conv2d_scratch;
+    plan.conv2d_scratch_bytes = total_conv2d_scratch;
 
     if (plan.naive_size_bytes > 0) {
         plan.savings_percent = 100.0 * (1.0 - static_cast<double>(plan.arena_size_bytes) /

@@ -314,6 +314,21 @@ class Autotuner:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     cached_report = json.load(f)
                 cand_data = cached_report["selected_candidate"]
+                if not isinstance(cand_data, dict):
+                    raise ValueError("Invalid cache: selected_candidate must be a dict")
+                if not isinstance(cand_data.get("candidate_id"), str):
+                    raise ValueError("Invalid cache: candidate_id must be a string")
+                if not isinstance(cand_data.get("variant"), str):
+                    raise ValueError("Invalid cache: variant must be a string")
+                if not isinstance(cand_data.get("enable_fusion"), bool):
+                    raise ValueError("Invalid cache: enable_fusion must be a boolean")
+                if not isinstance(cand_data.get("opt_level"), str):
+                    raise ValueError("Invalid cache: opt_level must be a string")
+                for t in ("tile_m", "tile_n", "tile_k"):
+                    val = cand_data.get(t)
+                    if val is not None:
+                        if type(val) is not int or isinstance(val, bool) or val <= 0:
+                            raise ValueError(f"Invalid cache: {t} must be a positive int or None")
                 selected = KernelCandidate(**cand_data)
                 valid_candidates = {c.candidate_id: c for c in self.get_candidate_space(max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion)}
                 if selected.candidate_id in valid_candidates:
@@ -344,7 +359,12 @@ class Autotuner:
 
         b_example = input_shape[0] if len(input_shape) > 0 and input_shape[0] > 0 else 1
         if is_dyn:
-            test_batches = get_bounded_test_batches(input_shape, max_b, example_batch=b_example)
+            in_node_id = graph.inputs[0] if len(graph.inputs) > 0 else None
+            if in_node_id is not None and in_node_id in graph.nodes:
+                symbolic_shape = tuple(graph.nodes[in_node_id].shape)
+            else:
+                symbolic_shape = (-1, *input_shape[1:])
+            test_batches = get_bounded_test_batches(symbolic_shape, max_b, example_batch=b_example)
         else:
             test_batches = [b_example]
 
@@ -456,7 +476,7 @@ class Autotuner:
 
             # 2. Compile shared library
             try:
-                comp_info = self.compiler.compile_shared_library(
+                self.compiler.compile_shared_library(
                     cand_cpp, cand_dll, opt_level=cand.opt_level
                 )
             except Exception as e:
@@ -540,7 +560,12 @@ class Autotuner:
         # 2. Pure in-kernel isolated execution timing (3 interleaved rounds inside C++ via steady_clock)
         is_dyn = graph.has_dynamic_batch()
         if is_dyn:
-            eval_batches = get_bounded_test_batches(input_shape, max_b, example_batch=b_example)
+            in_node_id = graph.inputs[0] if len(graph.inputs) > 0 else None
+            if in_node_id is not None and in_node_id in graph.nodes:
+                symbolic_shape = tuple(graph.nodes[in_node_id].shape)
+            else:
+                symbolic_shape = (-1, *input_shape[1:])
+            eval_batches = get_bounded_test_batches(symbolic_shape, max_b, example_batch=b_example)
             k_iters = 2000
         else:
             eval_batches = [b_example]

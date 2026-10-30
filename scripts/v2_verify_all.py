@@ -93,11 +93,25 @@ def extract_pytest_counts(stdout: str) -> dict:
     res["total"] = res["passed"] + res["failed"] + res["skipped"]
     return res
 
+def parse_model_execution_output(stdout: str) -> tuple:
+    batches = [int(b) for b in re.findall(r"Batch B=\s*(\d+): PASS", stdout)]
+    diffs = [float(d) for d in re.findall(r"max_abs=([0-9.eE+-]+)", stdout)]
+    max_diff = max(diffs) if diffs else 0.0
+    batch_str = "$" + ", ".join(str(b) for b in batches) + "$" if batches else "None"
+    if max_diff > 0:
+        s_exp = f"{max_diff:.2e}"
+        base, exp = s_exp.split("e")
+        exp_int = int(exp)
+        latex_diff = f"${base} \\times 10^{{{exp_int}}}$"
+    else:
+        latex_diff = "$0.0$"
+    return batch_str, latex_diff
+
 def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
-    print(f"\n========================================================")
+    print("\n========================================================")
     print(f" [V2-VERIFY] {step_name}")
     print(f" Command: {' '.join(cmd)}")
-    print(f"========================================================")
+    print("========================================================")
     t0 = time.perf_counter()
     p = subprocess.run(cmd, env=env, capture_output=True, text=True)
     dur = time.perf_counter() - t0
@@ -126,7 +140,8 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
     return True, "passed", "", p.stdout or ""
 
 def run_cpp_test_suite_step(step_name: str, python_exe: str, env: dict = None) -> tuple:
-    test_exe = os.path.abspath("bin/forgetune_test_suite.exe")
+    exe_name = "forgetune_test_suite.exe" if sys.platform == "win32" else "forgetune_test_suite"
+    test_exe = os.path.abspath(os.path.join("bin", exe_name))
     if not os.path.isfile(test_exe):
         print(f"[-] ERROR: Native test binary not found at '{test_exe}'. Rebuild required.")
         return False, "binary_missing", f"File not found: {test_exe}", ""
@@ -189,10 +204,14 @@ def main():
     os.chdir(root_dir)
 
     python_exe = os.path.join(root_dir, ".venv", "Scripts", "python.exe")
-    zig_exe = os.path.join(root_dir, ".venv", "Lib", "site-packages", "ziglang", "zig.exe")
+    if not os.path.isfile(python_exe):
+        python_exe = os.path.join(root_dir, ".venv", "bin", "python")
+        if not os.path.isfile(python_exe):
+            python_exe = sys.executable
 
+    sep = ";" if sys.platform == "win32" else ":"
     env = os.environ.copy()
-    env["PYTHONPATH"] = f"{os.path.join(root_dir, 'python')};{root_dir}"
+    env["PYTHONPATH"] = f"{os.path.join(root_dir, 'python')}{sep}{root_dir}"
 
     print("#################################################################")
     print(" FORGETUNE V2.0 — MASTER THREE-ROUND VERIFICATION PROTOCOL")
@@ -267,24 +286,6 @@ def main():
             return "**FAILED**"
         return "**PARTIAL (SAC BLOCKED)**"
 
-    cpp_srcs = [
-        "src/ir.cpp",
-        "src/graph_verifier.cpp",
-        "src/interpreter.cpp",
-        "src/pass_manager.cpp",
-        "src/optimizer.cpp",
-        "src/fusion.cpp",
-        "src/codegen.cpp",
-        "src/json_io.cpp",
-        "src/memory_planner.cpp"
-    ]
-
-    compile_cxx = lambda out_bin, extra_src: [
-        zig_exe, "c++", "-target", "x86_64-windows-gnu", "-o", out_bin,
-        *cpp_srcs, extra_src,
-        "-I", "include", "-std=c++17", "-O2", "-Wall", "-Wextra"
-    ]
-
     # =========================================================================
     # ROUND 1: Clean Build & Full Functional Verification
     # =========================================================================
@@ -294,41 +295,16 @@ def main():
         sys.exit(1)
     os.makedirs("bin", exist_ok=True)
 
-    # 1. Compile C++ Test Suite
-    exec_step(1, "R1: Compile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp"), fatal=True)
+    # 1. Compile all native targets cleanly with 0 warnings
+    exec_step(1, "R1: Build Native Components", [python_exe, "scripts/build_native.py"], fatal=True)
 
-    # 2. Compile C++ Engine CLI
-    exec_step(1, "R1: Compile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp"), fatal=True)
-    shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
-
-    # 3. Compile pybind11 Extension
-    import sysconfig
-    import pybind11
-    py_include = sysconfig.get_path("include")
-    pybind_include = pybind11.get_include()
-    py_lib = os.path.join(sys.base_prefix, "libs", f"python{sys.version_info.major}{sys.version_info.minor}.lib")
-    pyd_output = os.path.join("python", "forgetune", "_forgetune_cpp.pyd")
-    compile_pyd_cmd = [
-        zig_exe, "c++", "-target", "x86_64-windows-gnu", "-shared", "-o", pyd_output,
-        "src/bindings.cpp",
-        "tests/cpp/test_main.cpp",
-        "-DFORGETUNE_EXCLUDE_MAIN",
-        *cpp_srcs,
-        "-I", "include",
-        "-I", py_include,
-        "-I", pybind_include,
-        py_lib,
-        "-std=c++17", "-O2", "-Wall", "-Wextra"
-    ]
-    exec_step(1, "R1: Compile pybind11 Extension", compile_pyd_cmd, fatal=True)
-
-    # 4. Run C++ Test Suite
+    # 2. Run C++ Test Suite
     exec_cpp_test_suite(1, "R1: Run C++ Test Suite (13 tests)", fatal=True)
 
-    # 5. Run PyTest Full Suite
+    # 3. Run PyTest Full Suite
     exec_step(1, "R1: Run Full PyTest Suite", [python_exe, "-m", "pytest", "-v", "tests/"])
 
-    # 6. Run All Model Examples
+    # 4. Run All Model Examples
     exec_step(1, "R1: Run Model A (Dynamic TinyMLP)", [python_exe, "examples/v2_dynamic_tinymlp.py"])
     exec_step(1, "R1: Run Model B (Residual MLP)", [python_exe, "examples/v2_residual_mlp.py"])
     exec_step(1, "R1: Run Model C (Small CNN)", [python_exe, "examples/v2_small_cnn.py"])
@@ -375,10 +351,7 @@ def main():
         sys.exit(1)
 
     # 3. Rebuild all native components from scratch
-    exec_step(3, "R3: Recompile C++ Test Suite", compile_cxx("bin/forgetune_test_suite.exe", "tests/cpp/test_main.cpp"), fatal=True)
-    exec_step(3, "R3: Recompile C++ Engine CLI", compile_cxx("bin/forgetune_test_engine.exe", "src/main.cpp"), fatal=True)
-    shutil.copy("bin/forgetune_test_engine.exe", "bin/forgetune_engine.exe")
-    exec_step(3, "R3: Recompile pybind11 Extension", compile_pyd_cmd, fatal=True)
+    exec_step(3, "R3: Rebuild Native Components", [python_exe, "scripts/build_native.py"], fatal=True)
 
     # 4. Run Full Native C++ Test Suite
     exec_cpp_test_suite(3, "R3: Run C++ Test Suite (13 tests)", fatal=True)
@@ -452,6 +425,9 @@ def main():
             "reason": str(e),
             "stdout": "",
         })
+    r1_pytest = next((r for r in round_results[1] if r["name"] == "R1: Run Full PyTest Suite"), None)
+    c1 = extract_pytest_counts(r1_pytest["stdout"]) if (r1_pytest and r1_pytest.get("stdout")) else {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
+
     # Check for dirty tree (excluding reports and generated artifacts)
     non_report_dirty = check_non_report_dirty(root_dir)
     hard_failures = [f for f in failed_steps if f[1] != "sac_policy_blocked"]
@@ -459,7 +435,7 @@ def main():
     if non_report_dirty:
         final_status = "**FAILED CERTIFICATION (DIRTY WORKING TREE DETECTED)**"
         all_steps_passed = False
-    elif not failed_steps:
+    elif not failed_steps and c1["passed"] == total_collected_tests and c1["failed"] == 0 and c1["skipped"] == 0:
         final_status = "**FULLY VERIFIED**"
         all_steps_passed = True
     elif not hard_failures:
@@ -506,8 +482,6 @@ def main():
     r1_cpp = next((r for r in round_results[1] if r["name"].startswith("R1: Run C++ Test Suite")), None)
     cpp_r1_str = "C++ suite (13/13 passed)" if (r1_cpp and r1_cpp["success"]) else "C++ suite (FAILED)"
 
-    r1_pytest = next((r for r in round_results[1] if r["name"] == "R1: Run Full PyTest Suite"), None)
-    c1 = extract_pytest_counts(r1_pytest["stdout"]) if (r1_pytest and r1_pytest.get("stdout")) else {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
     if r1_pytest and r1_pytest.get("stdout"):
         coll_cnt1 = c1["total"] or total_collected_tests
         py_r1_str = f"Python pytest ({coll_cnt1} collected, {c1['passed']} passed"
@@ -535,11 +509,22 @@ def main():
     verified_py_count = c1["passed"] if (r1_pytest and r1_pytest.get("stdout")) else 0
     total_verified_all = verified_py_count + (13 if (r1_cpp and r1_cpp["success"]) else 0)
 
+    mA_step = next((r for r in round_results[3] if r["name"].startswith("R3: Execute Model A")), None) or \
+              next((r for r in round_results[1] if r["name"].startswith("R1: Run Model A")), None)
+    mB_step = next((r for r in round_results[3] if r["name"].startswith("R3: Execute Model B")), None) or \
+              next((r for r in round_results[1] if r["name"].startswith("R1: Run Model B")), None)
+    mC_step = next((r for r in round_results[3] if r["name"].startswith("R3: Execute Model C")), None) or \
+              next((r for r in round_results[1] if r["name"].startswith("R1: Run Model C")), None)
+
+    mA_batches, mA_diff = parse_model_execution_output(mA_step["stdout"] if mA_step else "")
+    mB_batches, mB_diff = parse_model_execution_output(mB_step["stdout"] if mB_step else "")
+    mC_batches, mC_diff = parse_model_execution_output(mC_step["stdout"] if mC_step else "")
+
     ver_md = [
         "# FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT",
         "",
         f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"**Git Branch:** `v2.0-dev`",
+        "**Git Branch:** `v2.0-dev`",
         f"**Source Revision:** `{curr_rev}`",
         f"**Git Index Fingerprint:** `{curr_tree}`",
         f"**Working-Tree SHA-256:** `{working_tree_sha}`",
@@ -562,9 +547,9 @@ def main():
         "",
         "| Model Identifier | Architecture | Operators Exercised | Dynamic Batches Verified | Numerical Max Abs Diff vs PyTorch |",
         "|---|---|---|:---:|:---:|",
-        "| **Model A** | Dynamic TinyMLP | `INPUT`, `CONST`, `MATMUL`, `ADD`, `RELU` | $1, 2, 7, 16, 32, 64, 128$ | $2.98 \\times 10^{-8}$ |",
-        "| **Model B** | Residual MLP | `INPUT`, `CONST`, `MATMUL`, `ADD` (skip), `RELU` | $1, 2, 7, 16, 32, 64, 128$ | $1.19 \\times 10^{-7}$ |",
-        "| **Model C** | Small CNN | `INPUT`, `CONST`, `CONV2D`, `FUSED_CONV2D_RELU`, `FLATTEN`, `MATMUL`, `ADD` | $1, 2, 7, 16, 32, 64, 128$ | $5.22 \\times 10^{-8}$ |",
+        f"| **Model A** | Dynamic TinyMLP | `INPUT`, `CONST`, `MATMUL`, `ADD`, `RELU` | {mA_batches} | {mA_diff} |",
+        f"| **Model B** | Residual MLP | `INPUT`, `CONST`, `MATMUL`, `ADD` (skip), `RELU` | {mB_batches} | {mB_diff} |",
+        f"| **Model C** | Small CNN | `INPUT`, `CONST`, `CONV2D`, `FUSED_CONV2D_RELU`, `FLATTEN`, `MATMUL`, `ADD` | {mC_batches} | {mC_diff} |",
         "",
         "---",
         "",

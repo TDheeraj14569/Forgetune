@@ -49,6 +49,9 @@ class AutotuningError(ForgeTuneError):
     """Raised when autotuning fails to find any valid candidate."""
     pass
 
-class RuntimeError(ForgeTuneError, builtins.RuntimeError):
+class ForgeTuneRuntimeError(ForgeTuneError, builtins.RuntimeError):
     """Raised when native runtime execution fails."""
     pass
+
+# Alias for backwards compatibility
+RuntimeError = ForgeTuneRuntimeError

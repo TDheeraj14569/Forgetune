@@ -42,6 +42,17 @@ def is_build_metadata_valid(meta_path: str) -> bool:
                 has_ziglang = False
             if not (is_valid_file or is_known_cmd or has_ziglang):
                 return False
+            meta_ver = meta.get("compiler_version")
+            if meta_ver and meta_ver != "unknown":
+                import subprocess
+                try:
+                    p = subprocess.run([comp_path, "version" if "zig" in os.path.basename(comp_path).lower() else "--version"], capture_output=True, text=True, timeout=5)
+                    if p.returncode == 0 and p.stdout:
+                        cur_ver = p.stdout.strip().splitlines()[0] if "zig" not in os.path.basename(comp_path).lower() else p.stdout.strip()
+                        if cur_ver and cur_ver != meta_ver:
+                            return False
+                except Exception:
+                    pass
         return True
     except Exception:
         return False
@@ -97,8 +108,6 @@ class SmartBuildExt(build_ext):
 
 if __name__ == "__main__":
     setup(
-        name="forgetune",
-        version="2.0.0",
         package_dir={"": "python"},
         packages=find_packages(where="python"),
         package_data={"forgetune": ["*.pyd", "*.so", "*.dll"]},

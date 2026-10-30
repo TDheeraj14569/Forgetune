@@ -8,15 +8,12 @@ strictly match PyTorch within float32 tolerance.
 """
 
 import os
-import shutil
-import tempfile
 import pytest
 import torch
 import torch.nn as nn
 import numpy as np
 
 from forgetune.compiler import compile_model, CompiledModel
-from forgetune.errors import InvalidShapeError, RuntimeError
 
 class SingleLinearNoBias(nn.Module):
     def __init__(self, in_features: int, out_features: int):

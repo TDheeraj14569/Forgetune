@@ -7,7 +7,6 @@ and graceful handling of invalid/corrupted dynamic libraries.
 
 import os
 import shutil
-import tempfile
 import ctypes
 import pytest
 import numpy as np
@@ -15,7 +14,7 @@ import numpy as np
 from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
-from forgetune.errors import RuntimeError, InvalidShapeError
+from forgetune.errors import InvalidShapeError
 
 @pytest.fixture(scope="module")
 def sample_runtime_fixture(tmp_path_factory):

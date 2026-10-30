@@ -2,8 +2,6 @@
 Unit tests for ForgeTune v2.0 TensorShape and Dynamic Batching semantics.
 """
 
-import pytest
-from forgetune.graph_adapter import Node, Graph
 from forgetune import _forgetune_cpp as cpp
 
 def test_dynamic_dim_constant():

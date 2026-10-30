@@ -11,7 +11,7 @@ import subprocess
 import time
 import uuid
 import platform
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from .errors import CompilationError
 
 class NativeCompiler:
@@ -145,7 +145,8 @@ class NativeCompiler:
                 "-std=c++17",
                 canonical_opt,
                 "-Wall",
-                "-Wextra"
+                "-Wextra",
+                "-fno-signed-zeros"
             ]
         elif self.compiler_type in ("clang", "gcc"):
             cmd = [
@@ -157,7 +158,8 @@ class NativeCompiler:
                 "-std=c++17",
                 canonical_opt,
                 "-Wall",
-                "-Wextra"
+                "-Wextra",
+                "-fno-signed-zeros"
             ]
         elif self.compiler_type == "msvc":
             msvc_opt_map = {"-O0": "/Od", "-O1": "/O1", "-O2": "/O2", "-O3": "/O2", "-Os": "/O1", "-Oz": "/O1"}

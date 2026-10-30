@@ -5,7 +5,7 @@ handles parameter extraction, transposes linear weights to row-major [K, N],
 and rejects unsupported operators with descriptive errors.
 """
 
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, List
 import torch
 import torch.export
 import numpy as np
@@ -80,6 +80,13 @@ def export_to_forgetune_ir(
 
         if len(example_inputs) != 1:
             raise ValueError(f"ForgeTune v2.0 currently supports single-input models. Got {len(example_inputs)} example inputs.")
+
+        if type(max_batch_size) is not int or isinstance(max_batch_size, bool) or max_batch_size <= 0:
+            raise ValueError(f"max_batch_size must be a strictly positive integer, got {max_batch_size} ({type(max_batch_size).__name__})")
+        if max_batch_size > 1_000_000:
+            raise ValueError(f"max_batch_size cannot exceed 1,000,000, got {max_batch_size}")
+        if dynamic_batch and max_batch_size < 2:
+            raise ValueError(f"Dynamic batch execution requires max_batch_size >= 2 (got max_batch_size={max_batch_size}). For static single-batch execution, set dynamic_batch=False.")
 
         if dynamic_batch and len(example_inputs) > 0 and isinstance(example_inputs[0], torch.Tensor):
             ex_batch = example_inputs[0].shape[0]

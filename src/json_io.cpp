@@ -519,7 +519,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 first_in = false;
                 if (in_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in inputs array");
                 if (in_tok.type == TokType::NUMBER) {
-                    graph_inputs.push_back(static_cast<NodeId>(parse_json_integer(in_tok, "input_id", 0)));
+                    graph_inputs.push_back(static_cast<NodeId>(parse_json_integer(in_tok, "input_id", 0, std::numeric_limits<NodeId>::max())));
                 } else {
                     throw InvalidGraphError("json_to_graph: input node ID must be a non-negative integer");
                 }
@@ -541,7 +541,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                 first_out = false;
                 if (out_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in outputs array");
                 if (out_tok.type == TokType::NUMBER) {
-                    graph_outputs.push_back(static_cast<NodeId>(parse_json_integer(out_tok, "output_id", 0)));
+                    graph_outputs.push_back(static_cast<NodeId>(parse_json_integer(out_tok, "output_id", 0, std::numeric_limits<NodeId>::max())));
                 } else {
                     throw InvalidGraphError("json_to_graph: output node ID must be a non-negative integer");
                 }
@@ -600,7 +600,7 @@ IRGraph json_to_graph(const std::string& json_str) {
 
                     if (f_key == "id") {
                         Token id_tok = lexer.next();
-                        node.id = static_cast<NodeId>(parse_json_integer(id_tok, "node.id", 0));
+                        node.id = static_cast<NodeId>(parse_json_integer(id_tok, "node.id", 0, std::numeric_limits<NodeId>::max()));
                         has_id = true;
                     } else if (f_key == "op") {
                         Token op_tok = lexer.next();
@@ -687,7 +687,7 @@ IRGraph json_to_graph(const std::string& json_str) {
                             }
                             first_nid = false;
                             if (id_tok.type == TokType::END_OF_FILE) throw InvalidGraphError("json_to_graph: Unexpected EOF in node inputs array");
-                            node.inputs.push_back(static_cast<NodeId>(parse_json_integer(id_tok, "node_input_id", 0)));
+                            node.inputs.push_back(static_cast<NodeId>(parse_json_integer(id_tok, "node_input_id", 0, std::numeric_limits<NodeId>::max())));
                         }
                     } else if (f_key == "shape") {
                         Token sh_arr = lexer.next();

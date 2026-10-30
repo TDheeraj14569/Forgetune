@@ -7,9 +7,6 @@ and bitwise numerical fidelity against PyTorch eager mode for:
 3. Model C: Small CNN (Conv2d -> ReLU -> Conv2d -> ReLU -> Flatten -> Linear)
 """
 
-import os
-import shutil
-import tempfile
 import numpy as np
 import pytest
 import torch

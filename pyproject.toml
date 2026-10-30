@@ -7,11 +7,11 @@ name = "forgetune"
 version = "2.0.0"
 description = "Specification-Driven, Correctness-Checked, Self-Optimizing Machine-Learning Compiler"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.14"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
-    { name = "ForgeTune Authors" }
+    { name = "Thota Dheerajeswar", email = "dheerajeswarthota@gmail.com" }
 ]
 dependencies = [
     "torch>=2.1.0",

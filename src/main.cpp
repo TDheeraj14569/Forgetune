@@ -117,6 +117,14 @@ int main(int argc, char** argv) {
                         return 1;
                     }
                     max_batch_size_explicit = true;
+                } else if (arg == "--max-workspace-bytes" && i + 1 < argc) {
+                    std::string val_str = argv[++i];
+                    int64_t ws = 0;
+                    if (!parse_strict_positive_int(val_str, &ws) || ws <= 0) {
+                        std::cerr << "Error: invalid value for --max-workspace-bytes: '" << val_str << "' (expected positive integer)\n";
+                        return 1;
+                    }
+                    config.max_workspace_bytes = static_cast<size_t>(ws);
                 } else if (arg == "--tile-m" && i + 1 < argc) {
                     std::string val_str = argv[++i];
                     if (!parse_strict_positive_int(val_str, &config.tile_m)) {

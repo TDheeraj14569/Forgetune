@@ -8,6 +8,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Position independent code for shared library compatibility
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-Wall -Wextra -fno-signed-zeros)
+elseif(MSVC)
+    add_compile_options(/W4 /fp:fast)
+endif()
+
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include

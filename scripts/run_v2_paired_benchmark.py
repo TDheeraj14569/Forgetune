@@ -247,6 +247,9 @@ def main():
         pass
 
     # Write output JSON
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    rel_dll_path = os.path.relpath(dll_path, repo_root).replace("\\", "/") if os.path.isabs(dll_path) else dll_path.replace("\\", "/")
+
     res_data = {
         "metadata": {
             "experiment": "model_c_batch64_paired_100_blocks",
@@ -262,7 +265,7 @@ def main():
             "equivalence_margin_percent": 5.0,
             "equivalence_margin_us": equiv_margin,
             "pytorch_threads": 1,
-            "native_kernel_path": dll_path,
+            "native_kernel_path": rel_dll_path,
             "candidate_id": manifest_data.get("kernel_config", {}).get("candidate_id") if manifest_data else "unknown",
             "opt_level": manifest_data.get("kernel_config", {}).get("opt_level") if manifest_data else "unknown",
             "kernel_sha256": _compute_file_sha256(dll_path) if os.path.isfile(dll_path) else "unknown",

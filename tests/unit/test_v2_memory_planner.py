@@ -2,7 +2,6 @@
 Unit tests for ForgeTune v2.0 MemoryPlanner and Intermediate Buffer Reuse.
 """
 
-import pytest
 from forgetune.graph_adapter import Node, Graph
 from forgetune import _forgetune_cpp as cpp
 

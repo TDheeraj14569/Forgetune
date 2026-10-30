@@ -4,7 +4,6 @@ Validates that C++ IR, Verifier, and Interpreter are accessible directly in Pyth
 and produce identical numerical results to PyTorch.
 """
 
-import pytest
 import torch
 import numpy as np
 from forgetune import _forgetune_cpp

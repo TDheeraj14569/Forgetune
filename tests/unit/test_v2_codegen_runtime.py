@@ -9,8 +9,6 @@ Validates:
 
 import os
 import sys
-import shutil
-import tempfile
 import numpy as np
 import pytest
 import torch
@@ -19,8 +17,7 @@ from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
 from forgetune.compiler import get_engine_executable
-from forgetune.errors import InvalidShapeError, RuntimeError
-import forgetune._forgetune_cpp as cpp
+from forgetune.errors import InvalidShapeError
 
 ENGINE_EXE = get_engine_executable()
 

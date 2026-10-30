@@ -15,7 +15,7 @@ def test_acceptance_mutation_cycle_detection():
     g = Graph()
     in_id = g.add_node(Node(0, "INPUT", "X", shape=[2, 2], dtype="f32"))
     # Node 1 depends on Node 2, and Node 2 depends on Node 1
-    r1 = g.add_node(Node(1, "RELU", "r1", inputs=[2], shape=[2, 2], dtype="f32"))
+    g.add_node(Node(1, "RELU", "r1", inputs=[2], shape=[2, 2], dtype="f32"))
     r2 = g.add_node(Node(2, "RELU", "r2", inputs=[1], shape=[2, 2], dtype="f32"))
     out = g.add_node(Node(3, "OUTPUT", "out", inputs=[r2], shape=[2, 2], dtype="f32"))
     g.set_inputs([in_id])

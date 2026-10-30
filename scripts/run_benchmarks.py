@@ -11,9 +11,7 @@ Implements Rule 3 of the verification audit:
 
 import os
 import sys
-import json
 import time
-import platform
 import torch
 import torch.nn as nn
 import numpy as np
@@ -49,7 +47,7 @@ def run_benchmarks():
     torch.manual_seed(42)
     model = TinyMLP().eval()
     x = torch.randn(2, 4)
-    x_np = x.numpy()
+    x.numpy()
 
     # Step 1: Ahead-of-Time Compilation of Candidates
     print("\n[Step 1/3] Compiling baseline naive, fused (-O2), fused (-O3), and autotuned candidates...")
@@ -96,9 +94,9 @@ def run_benchmarks():
     fusion = sel_cand.get("enable_fusion")
     tile_sizes = sel_cand.get("tile_sizes")
     opt_level = sel_cand.get("opt_level")
-    print(f"  Baseline Candidate:        naive_ijk (fusion=False, opt_level=-O2)")
-    print(f"  Direct -O2 Candidate:      fused_ikj (fusion=True,  opt_level=-O2)")
-    print(f"  Direct -O3 Candidate:      fused_ikj (fusion=True,  opt_level=-O3)")
+    print("  Baseline Candidate:        naive_ijk (fusion=False, opt_level=-O2)")
+    print("  Direct -O2 Candidate:      fused_ikj (fusion=True,  opt_level=-O2)")
+    print("  Direct -O3 Candidate:      fused_ikj (fusion=True,  opt_level=-O3)")
     print(f"  Selected Autotuned Winner: {cand_id} (variant={variant}, fusion={fusion}, tile_sizes={tile_sizes}, opt_level={opt_level})")
 
     # Step 2: Multi-Round Interleaved End-to-End Latency Benchmarking
@@ -192,7 +190,7 @@ def run_benchmarks():
     print("\n=================================================================")
     print(" BENCHMARK RESULTS SUMMARY (TinyMLP 2x4x8x3)")
     print("=================================================================")
-    print(f" 1. End-to-End Python Invocation Latency (N=500 samples):")
+    print(" 1. End-to-End Python Invocation Latency (N=500 samples):")
     print(f"    - PyTorch CPU:                Median {pt_summary['median_us']:7.2f} us | IQR {pt_summary['iqr_us']:6.2f} us | Std {pt_summary['std_dev_us']:6.2f} us")
     print(f"    - Baseline Naive (-O2):       Median {base_summary['median_us']:7.2f} us | IQR {base_summary['iqr_us']:6.2f} us | Std {base_summary['std_dev_us']:6.2f} us")
     print(f"    - Fused IKJ (-O2):            Median {fused_o2_summary['median_us']:7.2f} us | IQR {fused_o2_summary['iqr_us']:6.2f} us | Std {fused_o2_summary['std_dev_us']:6.2f} us")
@@ -201,7 +199,7 @@ def run_benchmarks():
     print(f"    --> End-to-End Speedup vs PyTorch CPU:         {e2e_speedup_vs_pytorch:.2f}x")
     print(f"    --> End-to-End Speedup (Fused -O2 / Base):     {e2e_fused_o2_vs_baseline:.2f}x")
     print(f"    --> End-to-End Speedup (Winner / Base):        {e2e_speedup_vs_baseline:.2f}x")
-    print(f"\n 2. Pure In-Kernel C++ Execution Latency (10,000 iterations inside C++ via steady_clock):")
+    print("\n 2. Pure In-Kernel C++ Execution Latency (10,000 iterations inside C++ via steady_clock):")
     print(f"    - Baseline Naive Kernel (-O2):    {base_kernel_us:.4f} us ({base_kernel_us*1000.0:.1f} ns)")
     print(f"    - Fused IKJ Kernel (-O2):         {fused_o2_kernel_us:.4f} us ({fused_o2_kernel_us*1000.0:.1f} ns)")
     print(f"    - Fused IKJ Kernel (-O3):         {fused_o3_kernel_us:.4f} us ({fused_o3_kernel_us*1000.0:.1f} ns)")

@@ -10,7 +10,6 @@ Exercises the full native dynamic compilation pipeline in the CI environment:
 import os
 import sys
 import ctypes
-import hashlib
 import subprocess
 import numpy as np
 import torch
@@ -124,7 +123,7 @@ def main():
         print("  [+] Step 3 PASS: Independent clean-build outputs match with 0 bit divergences")
     except OSError as e:
         if getattr(e, "winerror", None) == 4551 or "4551" in str(e):
-            print(f"  [!] Step 3 INTERCEPTED: SAC Policy blocked repro_2 DLL load (WinError 4551)")
+            print("  [!] Step 3 INTERCEPTED: SAC Policy blocked repro_2 DLL load (WinError 4551)")
             print("      This confirms local Windows Smart App Control policy enforcement.")
         else:
             raise

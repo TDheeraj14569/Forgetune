@@ -6,7 +6,6 @@ Tests ahead-of-time export with dynamic batching on:
 - Model C: Small CNN
 """
 
-import pytest
 import torch
 import torch.nn as nn
 import numpy as np

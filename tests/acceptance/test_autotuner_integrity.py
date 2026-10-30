@@ -5,16 +5,11 @@ statistical tie-breaking policy, and caching resilience against corrupted data.
 """
 
 import os
-import json
-import shutil
-import tempfile
 import pytest
 import numpy as np
 
 from forgetune.autotuner import Autotuner, KernelCandidate
 from forgetune.graph_adapter import Graph, Node
-from forgetune.native_compiler import NativeCompiler
-from forgetune.errors import CorrectnessError
 
 @pytest.fixture
 def temp_autotune_dir(tmp_path):
@@ -64,7 +59,6 @@ def test_acceptance_correctness_gating_rejects_failing_candidate(temp_autotune_d
     ref_out = np.full((2, 4), 4.0, dtype=np.float32)
 
     # Patch NativeRuntime.run for candidate 'loop_ikj' to inject numerical errors
-    original_run = None
     from forgetune.runtime import NativeRuntime
     real_run = NativeRuntime.run
 

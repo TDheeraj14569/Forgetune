@@ -2,7 +2,6 @@
 Unit tests for ForgeTune v2.0 IR, JSON Serialization, and Graph Verifier.
 """
 
-import pytest
 from forgetune import _forgetune_cpp as cpp
 from forgetune.graph_adapter import Node, Graph
 

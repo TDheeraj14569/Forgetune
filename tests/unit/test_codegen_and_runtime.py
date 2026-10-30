@@ -11,7 +11,7 @@ from forgetune.graph_adapter import Graph, Node
 from forgetune.native_compiler import NativeCompiler
 from forgetune.runtime import NativeRuntime
 from forgetune.compiler import get_engine_executable
-from forgetune.errors import RuntimeError, InvalidShapeError
+from forgetune.errors import InvalidShapeError
 
 ENGINE_EXE = get_engine_executable()
 

@@ -23,9 +23,8 @@ import torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
 
-from forgetune import export_to_forgetune_ir, _forgetune_cpp as cpp, NativeCompiler, NativeRuntime
+from forgetune import export_to_forgetune_ir, _forgetune_cpp as cpp, NativeRuntime
 from examples.v2_dynamic_tinymlp import DynamicTinyMLP
-from examples.v2_small_cnn import SmallCNN
 
 def compute_stats(samples):
     s = sorted(samples)
@@ -60,7 +59,7 @@ def main():
     ir_samples = []
     for _ in range(30):
         t0 = time.perf_counter()
-        ir_graph = export_to_forgetune_ir(model_a, (ex_a,), dynamic_batch=True)
+        export_to_forgetune_ir(model_a, (ex_a,), dynamic_batch=True)
         t1 = time.perf_counter()
         ir_samples.append((t1 - t0) * 1000.0)
     ir_stats = compute_stats(ir_samples)
@@ -119,7 +118,7 @@ def main():
         g = cpp.json_to_graph(json_canon)
         comp = cpp.Compiler(cfg)
         t0 = time.perf_counter()
-        res = comp.compile(g)
+        comp.compile(g)
         t1 = time.perf_counter()
         comp_samples.append((t1 - t0) * 1000.0)
     comp_stats = compute_stats(comp_samples)
@@ -167,7 +166,7 @@ def main():
     if os.path.exists(existing_dll):
         for _ in range(30):
             t0 = time.perf_counter()
-            lib = ctypes.CDLL(existing_dll)
+            ctypes.CDLL(existing_dll)
             t1 = time.perf_counter()
             load_samples.append((t1 - t0) * 1000.0)
     else:
