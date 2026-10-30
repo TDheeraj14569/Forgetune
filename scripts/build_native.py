@@ -132,7 +132,7 @@ def main():
         else:
             raise RuntimeError(f"Could not locate Windows Python import library '{lib_name}'")
 
-    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra", "-fno-signed-zeros"])
+    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wno-nullability-completeness", "-fno-signed-zeros"])
 
     def check_compilation_result(target_name, result):
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
@@ -142,6 +142,8 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
+                if "libcxx" in line_str or "nullability-completeness" in line_str:
+                    continue
                 warning_lines.append(line_str)
         if result.returncode != 0:
             print(f"Failed to compile {target_name} (exit code {result.returncode}):")
@@ -193,6 +195,7 @@ def main():
         "-I", "include",
         "-std=c++17", "-O2",
         "-Wall", "-Wextra",
+        "-Wno-nullability-completeness",
         "-fno-signed-zeros"
     ]
     res2 = subprocess.run(cmd_engine, capture_output=True, text=True)
@@ -209,6 +212,7 @@ def main():
         "-I", "include",
         "-std=c++17", "-O2",
         "-Wall", "-Wextra",
+        "-Wno-nullability-completeness",
         "-fno-signed-zeros"
     ]
     res3 = subprocess.run(cmd_suite, capture_output=True, text=True)

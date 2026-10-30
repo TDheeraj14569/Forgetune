@@ -146,6 +146,7 @@ class NativeCompiler:
                 canonical_opt,
                 "-Wall",
                 "-Wextra",
+                "-Wno-nullability-completeness",
                 "-fno-signed-zeros"
             ]
         elif self.compiler_type in ("clang", "gcc"):
@@ -159,6 +160,7 @@ class NativeCompiler:
                 canonical_opt,
                 "-Wall",
                 "-Wextra",
+                "-Wno-nullability-completeness",
                 "-fno-signed-zeros"
             ]
         elif self.compiler_type == "msvc":
