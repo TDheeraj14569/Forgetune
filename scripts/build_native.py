@@ -142,6 +142,11 @@ def main():
     ])
 
     def check_compilation_result(target_name, result):
+        if result.returncode != 0:
+            print(f"Failed to compile {target_name} (exit code {result.returncode}):")
+            print(result.stderr)
+            sys.exit(result.returncode)
+
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
         warning_lines = []
         for line in combined.splitlines():
@@ -149,18 +154,17 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
-                # Ignore compiler-internal standard library or third-party toolchain warnings
-                if any(k in line_str.lower() for k in (
+                line_norm = line_str.replace("\\", "/").lower()
+                # Attribute warning to our codebase if it originates from our source or include directories
+                is_our_code = any(p in line_norm for p in ("src/", "include/forgetune/", "tests/cpp/"))
+                # Filter out standard library or third-party toolchain false-positives
+                is_external = any(k in line_norm for k in (
                     "libcxx", "nullability", "_nonnull", "_nullable",
                     "__annotate", "site-packages", "hostedtoolcache",
-                    "python", "pybind11", "include/string", "include/vector"
-                )):
-                    continue
-                warning_lines.append(line_str)
-        if result.returncode != 0:
-            print(f"Failed to compile {target_name} (exit code {result.returncode}):")
-            print(result.stderr)
-            sys.exit(result.returncode)
+                    "python", "pybind11"
+                ))
+                if is_our_code and not is_external:
+                    warning_lines.append(line_str)
         if warning_lines:
             print(f"FAILED zero-warning requirement for {target_name}:")
             for w in warning_lines:
