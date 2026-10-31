@@ -142,7 +142,8 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
-                if "nullability-completeness" in line_str:
+                # Ignore compiler-internal standard library nullability warnings from bundled toolchains (e.g. zig libcxx)
+                if any(k in line_str.lower() for k in ("libcxx", "nullability", "_nonnull", "_nullable")):
                     continue
                 warning_lines.append(line_str)
         if result.returncode != 0:
