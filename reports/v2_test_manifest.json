@@ -1,16 +1,16 @@
 {
   "summary": {
-    "total_python_tests_collected": 282,
-    "total_python_tests_executed": 282,
-    "python_passed": 282,
+    "total_python_tests_collected": 293,
+    "total_python_tests_executed": 293,
+    "python_passed": 293,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "python_collection_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 295,
-    "total_passing": 295,
+    "total_tests_available": 306,
+    "total_passing": 306,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -97,6 +97,9 @@
       "outcome": "passed"
     },
     "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_deterministic_tie_breaking_repeatability": {
+      "outcome": "passed"
+    },
+    "tests/acceptance/test_autotuner_integrity.py::test_acceptance_autotuner_tune_fusion_argument_validation": {
       "outcome": "passed"
     },
     "tests/acceptance/test_frontend_and_parameters.py::test_acceptance_parameter_lifting_and_weight_transposition": {
@@ -639,6 +642,15 @@
     "tests/correctness/test_audit_regressions.py::test_regression_native_runtime_max_batch_size_validation": {
       "outcome": "passed"
     },
+    "tests/correctness/test_audit_regressions.py::test_regression_artifact_validation_and_lifecycle": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_signed_zero_numerical_execution": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_cli_workspace_fallback": {
+      "outcome": "passed"
+    },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {
       "outcome": "passed"
     },
@@ -658,6 +670,27 @@
       "outcome": "passed"
     },
     "tests/unit/test_autotuner.py::test_autotuning_report_generation": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_relative_path_clang": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_windows_drive_letter_clang": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_windows_msvc_format": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_posix_absolute_path": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_suppresses_external_toolchain_warnings": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_fails_closed_on_unplaced_warning": {
+      "outcome": "passed"
+    },
+    "tests/unit/test_build_warning_parser.py::test_warning_parser_ignores_non_warning_lines": {
       "outcome": "passed"
     },
     "tests/unit/test_codegen_and_runtime.py::test_runtime_successful_execution": {

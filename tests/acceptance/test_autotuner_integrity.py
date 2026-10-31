@@ -282,3 +282,31 @@ def test_acceptance_autotuner_deterministic_tie_breaking_repeatability():
         assert s.candidate_id == ref_selected.candidate_id
         assert r == ref_rat
 
+def test_acceptance_autotuner_tune_fusion_argument_validation(tmp_path):
+    """
+    Verifies that direct Autotuner.tune() strictly validates force_fusion and enable_fusion flags.
+    """
+    tuner = Autotuner(cache_dir=str(tmp_path / "cache"))
+    g = Graph()
+    inp = np.zeros((1, 4), dtype=np.float32)
+    out = np.zeros((1, 4), dtype=np.float32)
+
+    # 1. Reject non-boolean force_fusion
+    with pytest.raises(TypeError, match="force_fusion must be a bool"):
+        tuner.tune(g, inp, out, artifacts_dir=str(tmp_path / "art"), force_fusion=1)
+
+    with pytest.raises(TypeError, match="force_fusion must be a bool"):
+        tuner.tune(g, inp, out, artifacts_dir=str(tmp_path / "art"), force_fusion="false")
+
+    # 2. Reject non-boolean enable_fusion
+    with pytest.raises(TypeError, match="enable_fusion must be a bool or None"):
+        tuner.tune(g, inp, out, artifacts_dir=str(tmp_path / "art"), enable_fusion=1)
+
+    with pytest.raises(TypeError, match="enable_fusion must be a bool or None"):
+        tuner.tune(g, inp, out, artifacts_dir=str(tmp_path / "art"), enable_fusion="true")
+
+    # 3. Reject contradictory force_fusion=True with enable_fusion=False
+    with pytest.raises(ValueError, match="Contradictory options: force_fusion=True but enable_fusion=False"):
+        tuner.tune(g, inp, out, artifacts_dir=str(tmp_path / "art"), force_fusion=True, enable_fusion=False)
+
+

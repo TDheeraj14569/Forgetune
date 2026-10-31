@@ -47,6 +47,18 @@ def main():
     np.random.seed(42)
     model = SmallCNN().eval()
 
+    from forgetune.export_frontend import export_to_forgetune_ir
+    from forgetune.compiler import _get_compiler_sources_fingerprint, _compute_graph_sha256
+    from forgetune.native_compiler import NativeCompiler
+
+    nc = NativeCompiler()
+    compiler_info = nc.get_compiler_info()
+    current_compiler_fp = _get_compiler_sources_fingerprint()
+
+    # Compute expected graph hash for SmallCNN
+    ref_ir = export_to_forgetune_ir(model, (torch.randn(2, 1, 8, 8),), dynamic_batch=True)
+    expected_graph_hash = _compute_graph_sha256(ref_ir.to_json())
+
     manifest_path = os.path.abspath("build/artifacts/v2_small_cnn/manifest.json")
     dll_path = None
     manifest_data = None
@@ -60,13 +72,19 @@ def main():
             recorded_sha = manifest_data.get("artifacts", {}).get("dll_sha256")
             cpp_file = manifest_data.get("artifacts", {}).get("cpp_source")
             rec_cpp_sha = manifest_data.get("artifacts", {}).get("cpp_sha256")
-            graph_hash = manifest_data.get("artifacts", {}).get("graph_hash")
+            graph_hash = manifest_data.get("graph_hash") or manifest_data.get("artifacts", {}).get("graph_hash")
             rec_platform = manifest_data.get("platform")
+            rec_fp = manifest_data.get("compiler_fingerprint")
+            rec_comp_info = manifest_data.get("compiler_info", {})
+
             if (cand_dll and os.path.isfile(cand_dll) and recorded_sha and
                 _compute_file_sha256(cand_dll) == recorded_sha and
                 cpp_file and os.path.isfile(cpp_file) and
                 _compute_file_sha256(cpp_file) == rec_cpp_sha and
-                graph_hash and rec_platform == sys.platform):
+                graph_hash == expected_graph_hash and
+                rec_platform == sys.platform and
+                (rec_fp is None or rec_fp == current_compiler_fp) and
+                rec_comp_info.get("type") == compiler_info.get("type")):
                 dll_path = os.path.abspath(cand_dll)
                 is_valid_provenance = True
         except Exception:
@@ -86,6 +104,7 @@ def main():
         )
         manifest_data = compiled.manifest()
         dll_path = os.path.abspath(manifest_data["artifacts"]["shared_library"])
+        compiled.close()  # Close compiled model runtime before creating benchmark NativeRuntime
 
     print(f"Loaded Native Kernel: {dll_path}")
     rt = NativeRuntime(dll_path, (-1, 1, 8, 8), (-1, 10))

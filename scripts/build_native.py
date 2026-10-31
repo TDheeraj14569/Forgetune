@@ -13,6 +13,7 @@ import subprocess
 import sysconfig
 import platform
 import json
+import re
 
 def find_zig():
     # 1. PATH
@@ -45,6 +46,74 @@ def find_zig():
                 return cand
 
     return "zig"
+
+def is_codebase_warning(line_str: str) -> bool:
+    """
+    Parses a compiler diagnostic line and returns True if it represents a warning
+    originating from our codebase (or an unplaced diagnostic), and False if it is
+    an external/toolchain header warning.
+    """
+    lower_line = line_str.lower()
+    warn_match = re.search(r"warning(?:\s+[a-z0-9]+)?\s*:", lower_line)
+    if not warn_match:
+        return False
+
+    prefix = line_str[:warn_match.start()].strip()
+    file_candidate = None
+    m_win = re.match(r"^([a-zA-Z]:[\\/][^:(]+)", prefix)
+    if m_win:
+        file_candidate = m_win.group(1).replace("\\", "/")
+    else:
+        m_posix = re.match(r"^([^:(]+)", prefix)
+        if m_posix:
+            file_candidate = m_posix.group(1).replace("\\", "/")
+
+    if not file_candidate or not file_candidate.strip():
+        # Unknown diagnostic location with a warning: fail closed and report
+        return True
+
+    file_norm = file_candidate.lower()
+    is_toolchain = any(td in file_norm for td in (
+        "/libcxx/", "libcxx/", "/site-packages/", "site-packages/",
+        "/hostedtoolcache/", "hostedtoolcache/", "/usr/include/",
+        "/usr/lib/", "microsoft visual studio", "/vc/tools/"
+    ))
+    if is_toolchain:
+        return False
+
+    is_our_code = (
+        file_norm.startswith("src/") or "/src/" in file_norm or
+        file_norm.startswith("include/forgetune/") or "/include/forgetune/" in file_norm or
+        file_norm.startswith("tests/cpp/") or "/tests/cpp/" in file_norm
+    )
+    if is_our_code:
+        return True
+
+    if any(file_norm.endswith(ext) for ext in (".cpp", ".hpp", ".c", ".h")):
+        return True
+
+    return False
+
+def check_compilation_result(target_name, result):
+    if result.returncode != 0:
+        print(f"Failed to compile {target_name} (exit code {result.returncode}):")
+        print(result.stderr)
+        sys.exit(result.returncode)
+
+    combined = (result.stdout or "") + "\n" + (result.stderr or "")
+    warning_lines = []
+    for line in combined.splitlines():
+        line_str = line.strip()
+        if not line_str:
+            continue
+        if is_codebase_warning(line_str):
+            warning_lines.append(line_str)
+    if warning_lines:
+        print(f"FAILED zero-warning requirement for {target_name}:")
+        for w in warning_lines:
+            print(f"  {w}")
+        sys.exit(1)
+    print(f"   {target_name} compiled successfully with 0 warnings.")
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -152,43 +221,6 @@ def main():
         "-Wno-nullability-declspec",
         "-fno-signed-zeros"
     ])
-
-    def check_compilation_result(target_name, result):
-        if result.returncode != 0:
-            print(f"Failed to compile {target_name} (exit code {result.returncode}):")
-            print(result.stderr)
-            sys.exit(result.returncode)
-
-        combined = (result.stdout or "") + "\n" + (result.stderr or "")
-        warning_lines = []
-        for line in combined.splitlines():
-            line_str = line.strip()
-            if not line_str:
-                continue
-            if "warning:" in line_str.lower():
-                # Extract file path preceding the diagnostic indicator
-                # E.g. "path/to/file.cpp:123:45: warning: message" or "path\to\file.cpp(123): warning C4000: message"
-                file_part = line_str.lower().split("warning:")[0].strip()
-                file_candidate = file_part.split(":")[0].split("(")[0].strip().replace("\\", "/")
-
-                # Check whether the diagnostic source path originates from our codebase
-                is_our_code = (
-                    file_candidate.startswith("src/") or "/src/" in file_candidate or
-                    file_candidate.startswith("include/forgetune/") or "/include/forgetune/" in file_candidate or
-                    file_candidate.startswith("tests/cpp/") or "/tests/cpp/" in file_candidate
-                )
-                # Check whether the file path is explicitly inside external/toolchain standard library headers
-                is_toolchain = any(td in file_candidate for td in (
-                    "/libcxx/", "libcxx/", "/site-packages/", "site-packages/", "/hostedtoolcache/", "hostedtoolcache/"
-                ))
-                if is_our_code and not is_toolchain:
-                    warning_lines.append(line_str)
-        if warning_lines:
-            print(f"FAILED zero-warning requirement for {target_name}:")
-            for w in warning_lines:
-                print(f"  {w}")
-            sys.exit(1)
-        print(f"   {target_name} compiled successfully with 0 warnings.")
 
     res1 = subprocess.run(cmd_pyd, capture_output=True, text=True)
     check_compilation_result(pyd_path, res1)

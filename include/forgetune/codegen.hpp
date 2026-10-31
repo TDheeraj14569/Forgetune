@@ -4,6 +4,8 @@
 #include "forgetune/ir.hpp"
 #include "forgetune/kernel_config.hpp"
 #include <string>
+#include <sstream>
+#include <utility>
 #include <limits>
 #include <stdexcept>
 

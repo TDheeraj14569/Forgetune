@@ -11,7 +11,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     add_compile_options(-Wall -Wextra -fno-signed-zeros)
 elseif(MSVC)
-    add_compile_options(/W4 /fp:fast)
+    add_compile_options(/W4 /fp:precise)
 endif()
 
 # Include directories

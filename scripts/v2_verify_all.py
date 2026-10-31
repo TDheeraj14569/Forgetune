@@ -21,13 +21,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "python")))
 
 def compute_working_tree_fingerprint(root_dir: str) -> str:
-    """Computes SHA-256 fingerprint of all working copy files (tracked + untracked source files)."""
-    h = hashlib.sha256()
+    """Computes SHA-256 fingerprint of all working copy files (tracked + untracked source files). Fails closed if git is unavailable."""
     res = subprocess.run(["git", "ls-files"], cwd=root_dir, capture_output=True, text=True)
+    if res.returncode != 0:
+        return "unverified-git-unavailable"
     tracked_files = [f.strip() for f in res.stdout.splitlines() if f.strip()]
+    if not tracked_files:
+        return "unverified-no-tracked-files"
     
     # Also find untracked files
     res_untracked = subprocess.run(["git", "status", "--porcelain"], cwd=root_dir, capture_output=True, text=True)
+    if res_untracked.returncode != 0:
+        return "unverified-git-status-failed"
     untracked_files = []
     for line in res_untracked.stdout.splitlines():
         if line.startswith("?? "):
@@ -42,6 +47,7 @@ def compute_working_tree_fingerprint(root_dir: str) -> str:
                             untracked_files.append(rel_p)
 
     all_files = sorted(set(tracked_files + untracked_files))
+    h = hashlib.sha256()
     for rel_f in all_files:
         full_p = os.path.join(root_dir, rel_f)
         if os.path.isfile(full_p):
@@ -53,6 +59,8 @@ def compute_working_tree_fingerprint(root_dir: str) -> str:
 def check_non_report_dirty(root_dir: str):
     subprocess.run(["git", "update-index", "-q", "--refresh"], cwd=root_dir, capture_output=True)
     res = subprocess.run(["git", "status", "--porcelain"], cwd=root_dir, capture_output=True, text=True)
+    if res.returncode != 0:
+        return ["GIT_FAILED: Unable to query repository status (fail-closed)"]
     non_report_dirty = []
     ignored_prefixes = ("build/", ".pytest_cache/", ".venv/", "bin/")
     ignored_suffixes = (".pyc", ".build_meta.json")
@@ -93,6 +101,15 @@ def extract_pytest_counts(stdout: str) -> dict:
     res["total"] = res["passed"] + res["failed"] + res["skipped"]
     return res
 
+APPROVED_LINUX_SKIP_NAME = "test_regression_locked_dll_raises_informative_compilation_error"
+
+def extract_pytest_skipped_nodes(stdout: str) -> list:
+    """Extracts node IDs of skipped tests from pytest verbose stdout."""
+    nodes = re.findall(r"(\S+::\S+)\s+SKIPPED", stdout)
+    if not nodes:
+        nodes = re.findall(r"SKIPPED\s+\[\d+\]\s+([^:]+:\d+)", stdout)
+    return nodes
+
 def parse_model_execution_output(stdout: str) -> tuple:
     batches = [int(b) for b in re.findall(r"Batch B=\s*(\d+): PASS", stdout)]
     diffs = [float(d) for d in re.findall(r"max_abs=([0-9.eE+-]+)", stdout)]
@@ -121,7 +138,9 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
         print(p.stderr, end="", file=sys.stderr)
     combined = (p.stdout or "") + "\n" + (p.stderr or "")
     if p.returncode != 0:
-        if "SyntaxError" in combined:
+        if re.search(r"\bWinError 4551\b|\b4551\b|ERROR_APP_CONTROL_BLOCKED", combined):
+            cat = "sac_policy_blocked"
+        elif "SyntaxError" in combined:
             cat = "syntax_error"
         elif "AssertionError" in combined:
             cat = "assertion_failure"
@@ -129,8 +148,6 @@ def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
             cat = "numerical_mismatch"
         elif "error:" in combined.lower() or "failed to compile" in combined.lower() or "compilation error" in combined.lower():
             cat = "compilation_error"
-        elif "4551" in combined or "ERROR_APP_CONTROL_BLOCKED" in combined or "WinError 4551" in combined:
-            cat = "sac_policy_blocked"
         else:
             cat = "execution_failure"
         print(f"[-] FAILED ({cat}): {step_name} exited with code {p.returncode} in {dur:.2f}s")
@@ -248,10 +265,12 @@ def main():
                 cat = "test_failure"
                 reason = f"{counts['failed']} tests failed"
             allowed_skips = 1 if sys.platform != "win32" else 0
-            if counts["skipped"] > allowed_skips:
+            skipped_nodes = extract_pytest_skipped_nodes(stdout)
+            unapproved = [n for n in skipped_nodes if APPROVED_LINUX_SKIP_NAME not in n]
+            if counts["skipped"] > allowed_skips or (counts["skipped"] > 0 and (sys.platform == "win32" or len(unapproved) > 0)):
                 success = False
                 cat = "unexpected_skip"
-                reason = f"{counts['skipped']} tests skipped (max allowed: {allowed_skips})"
+                reason = f"{counts['skipped']} tests skipped (unapproved: {unapproved or 'on Windows'})"
 
         round_results[round_num].append({
             "name": step_name,
@@ -298,7 +317,9 @@ def main():
                 if counts["failed"] > 0:
                     all_ok = False
                 allowed_skips = 1 if sys.platform != "win32" else 0
-                if counts["skipped"] > allowed_skips:
+                skipped_nodes = extract_pytest_skipped_nodes(r.get("stdout", ""))
+                unapproved = [n for n in skipped_nodes if APPROVED_LINUX_SKIP_NAME not in n]
+                if counts["skipped"] > allowed_skips or (counts["skipped"] > 0 and (sys.platform == "win32" or len(unapproved) > 0)):
                     all_ok = False
         if all_ok:
             return "**VERIFIED**"
@@ -455,11 +476,17 @@ def main():
 
     # On Linux, 1 platform-specific skip is approved (Windows-only DLL locking test)
     allowed_final_skips = 1 if sys.platform != "win32" else 0
+    r1_skips = extract_pytest_skipped_nodes(r1_pytest["stdout"]) if (r1_pytest and r1_pytest.get("stdout")) else []
+    unapproved_r1_skips = [s for s in r1_skips if APPROVED_LINUX_SKIP_NAME not in s]
 
     if non_report_dirty:
         final_status = "**FAILED CERTIFICATION (DIRTY WORKING TREE DETECTED)**"
         all_steps_passed = False
-    elif not failed_steps and c1["passed"] + c1["skipped"] == total_collected_tests and c1["failed"] == 0 and c1["skipped"] <= allowed_final_skips:
+    elif (not failed_steps and
+          c1["passed"] + c1["skipped"] == total_collected_tests and
+          c1["failed"] == 0 and
+          c1["skipped"] <= allowed_final_skips and
+          (c1["skipped"] == 0 or (sys.platform != "win32" and len(unapproved_r1_skips) == 0))):
         final_status = "**FULLY VERIFIED**"
         all_steps_passed = True
     elif not hard_failures:
@@ -544,11 +571,16 @@ def main():
     mB_batches, mB_diff = parse_model_execution_output(mB_step["stdout"] if mB_step else "")
     mC_batches, mC_diff = parse_model_execution_output(mC_step["stdout"] if mC_step else "")
 
+    branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
+    detected_branch = branch_res.stdout.strip() if branch_res.returncode == 0 else ""
+    if not detected_branch or detected_branch == "HEAD":
+        detected_branch = os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_HEAD_REF") or "v2.0-dev"
+
     ver_md = [
         "# FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT",
         "",
         f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
-        "**Git Branch:** `v2.0-dev`",
+        f"**Git Branch:** `{detected_branch}`",
         f"**Source Revision:** `{curr_rev}`",
         f"**Git Index Fingerprint:** `{curr_tree}`",
         f"**Working-Tree SHA-256:** `{working_tree_sha}`",

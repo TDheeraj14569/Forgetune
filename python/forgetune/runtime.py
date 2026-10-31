@@ -93,12 +93,23 @@ class NativeRuntime:
         else:
             self.is_dynamic = self.is_shape_dynamic
 
-        if getattr(self, "_configured_max_batch_size", None) is not None and self._configured_max_batch_size > 0:
-            self.max_batch_size = int(self._configured_max_batch_size)
-        elif hasattr(self.lib, "forgetune_max_batch"):
+        # Determine native library batch capacity and validate configured maximum
+        native_limit = None
+        if hasattr(self.lib, "forgetune_max_batch"):
             self.lib.forgetune_max_batch.argtypes = []
             self.lib.forgetune_max_batch.restype = ctypes.c_int64
-            self.max_batch_size = int(self.lib.forgetune_max_batch())
+            native_limit = int(self.lib.forgetune_max_batch())
+
+        configured_req = getattr(self, "_configured_max_batch_size", None)
+        if configured_req is not None and configured_req > 0:
+            configured_val = int(configured_req)
+            if native_limit is not None and configured_val > native_limit:
+                raise ValueError(
+                    f"Configured max_batch_size ({configured_val}) exceeds compiled native library maximum ({native_limit})"
+                )
+            self.max_batch_size = configured_val
+        elif native_limit is not None:
+            self.max_batch_size = native_limit
         else:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 

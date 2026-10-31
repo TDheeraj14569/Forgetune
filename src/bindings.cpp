@@ -243,6 +243,9 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
         .def_static("calculate_total_workspace", &CodeGenerator::calculate_total_workspace,
                     py::arg("arena_bytes"), py::arg("conv2d_scratch_bytes"));
 
+    m.attr("SIZE_MAX") = py::int_(std::numeric_limits<size_t>::max());
+    m.def("get_size_max", []() -> size_t { return std::numeric_limits<size_t>::max(); }, "Returns platform std::numeric_limits<size_t>::max()");
+
     // Native C++ test suite runner
     m.def("run_cpp_test_suite", &run_cpp_test_suite, "Runs all 13 native C++ unit tests in-process");
 }

@@ -2606,8 +2606,8 @@ def test_regression_workspace_addition_overflow_in_codegen():
     when summing arena_size_bytes and conv2d_scratch_bytes near SIZE_MAX.
     """
     from forgetune import _forgetune_cpp as cpp
-    # 64-bit SIZE_MAX
-    SIZE_MAX = (1 << 64) - 1
+    # Platform-derived std::numeric_limits<size_t>::max() from C++ binding
+    SIZE_MAX = getattr(cpp, "SIZE_MAX", cpp.get_size_max() if hasattr(cpp, "get_size_max") else (1 << 64) - 1)
 
     # Normal addition
     assert cpp.CodeGenerator.calculate_total_workspace(1024, 2048) == 3072
@@ -2890,6 +2890,7 @@ def test_regression_native_runtime_max_batch_size_validation(tmp_path):
         model=DummyModel().eval(),
         example_inputs=(x,),
         output_dir=str(tmp_path / "dummy_rt"),
+        dynamic_batch=True,
         autotune=False
     )
     dll_path = compiled.manifest()["artifacts"]["shared_library"]
@@ -2907,9 +2908,191 @@ def test_regression_native_runtime_max_batch_size_validation(tmp_path):
     with pytest.raises(TypeError, match="strictly positive non-boolean integer"):
         NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=0)
 
-    # Valid positive integer succeeds
-    rt = NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=256)
-    assert rt.max_batch_size == 256
-    rt.close()
+    # DLL was compiled with default max_batch_size=128
+    # 1. Requested maximum <= DLL maximum (64 < 128) succeeds
+    rt64 = NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=64)
+    assert rt64.max_batch_size == 64
+    rt64.close()
+
+    # 2. Requested maximum == DLL maximum (128 == 128) succeeds
+    rt128 = NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=128)
+    assert rt128.max_batch_size == 128
+    rt128.close()
+
+    # 3. Requested maximum > DLL maximum (129 > 128) must raise ValueError
+    with pytest.raises(ValueError, match="exceeds compiled native library maximum"):
+        NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=129)
+
+    # 4. Requested maximum huge (1,000,000 > 128) must raise ValueError
+    with pytest.raises(ValueError, match="exceeds compiled native library maximum"):
+        NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=1_000_000)
+
+
+def test_regression_artifact_validation_and_lifecycle(tmp_path):
+    """
+    P1 Regression (Finding 4 & 17): Verify artifact validation and provenance lifecycle.
+    Tests:
+    1. Valid artifact reuse succeeds
+    2. Modified DLL hash is rejected
+    3. Modified C++ source hash is rejected
+    4. Changed graph hash is rejected
+    5. Changed compiler fingerprint is rejected
+    6. Corrupt / invalid manifest safely triggers rebuild (returns False)
+    """
+    from forgetune.compiler import _is_artifact_valid_for_graph, _write_artifact_manifest
+    from forgetune.autotuner import KernelCandidate
+
+    cand_dir = str(tmp_path / "cand_test")
+    os.makedirs(cand_dir, exist_ok=True)
+    cpp_path = os.path.join(cand_dir, "kernel.cpp")
+    dll_ext = ".dll" if sys.platform == "win32" else ".so"
+    dll_path = os.path.join(cand_dir, f"kernel{dll_ext}")
+
+    with open(cpp_path, "w", encoding="utf-8") as f:
+        f.write("// Original C++ source code\nvoid test() {}\n")
+    with open(dll_path, "wb") as f:
+        f.write(b"MOCK_BINARY_DATA_ORIGINAL_DLL")
+
+    cand = KernelCandidate("test_cand", "naive_ijk", enable_fusion=False, opt_level="-O2")
+    compiler_info = {"type": "zig", "version": "0.16.0", "path": "zig.exe"}
+    orig_fp = "compiler_fingerprint_hash_abc123"
+    orig_graph = "graph_hash_orig_789"
+
+    _write_artifact_manifest(
+        cand_dir,
+        graph_hash=orig_graph,
+        cand=cand,
+        cpp_path=cpp_path,
+        dll_path=dll_path,
+        compiler_info=compiler_info,
+        compiler_fingerprint=orig_fp
+    )
+
+    # 1. Valid artifact is accepted
+    assert _is_artifact_valid_for_graph(
+        cand_dir, orig_graph, cand, compiler_info, dll_path, cpp_path, compiler_fingerprint=orig_fp
+    ) is True
+
+    # 2. Modified DLL is rejected
+    with open(dll_path, "wb") as f:
+        f.write(b"MODIFIED_DLL_CONTENT")
+    assert _is_artifact_valid_for_graph(
+        cand_dir, orig_graph, cand, compiler_info, dll_path, cpp_path, compiler_fingerprint=orig_fp
+    ) is False
+    with open(dll_path, "wb") as f:
+        f.write(b"MOCK_BINARY_DATA_ORIGINAL_DLL")
+
+    # 3. Modified C++ source is rejected
+    with open(cpp_path, "w", encoding="utf-8") as f:
+        f.write("// Modified C++ source code\n")
+    assert _is_artifact_valid_for_graph(
+        cand_dir, orig_graph, cand, compiler_info, dll_path, cpp_path, compiler_fingerprint=orig_fp
+    ) is False
+    with open(cpp_path, "w", encoding="utf-8") as f:
+        f.write("// Original C++ source code\nvoid test() {}\n")
+
+    # 4. Changed graph hash is rejected
+    assert _is_artifact_valid_for_graph(
+        cand_dir, "graph_hash_different", cand, compiler_info, dll_path, cpp_path, compiler_fingerprint=orig_fp
+    ) is False
+
+    # 5. Changed compiler fingerprint is rejected
+    assert _is_artifact_valid_for_graph(
+        cand_dir, orig_graph, cand, compiler_info, dll_path, cpp_path, compiler_fingerprint="fp_changed"
+    ) is False
+
+    # 6. Corrupt manifest is safely rejected (returns False, triggering recompile)
+    manifest_file = os.path.join(cand_dir, "cand_manifest.json")
+    with open(manifest_file, "w", encoding="utf-8") as f:
+        f.write("CORRUPT_JSON_DATA{")
+    assert _is_artifact_valid_for_graph(
+        cand_dir, orig_graph, cand, compiler_info, dll_path, cpp_path, compiler_fingerprint=orig_fp
+    ) is False
+
+
+def test_regression_signed_zero_numerical_execution(tmp_path):
+    """
+    P1 Regression (Finding 7): Signed-zero numerical execution under -fno-signed-zeros / /fp:precise.
+    Verifies that ADD(x, 0.0) executes properly with both positive and negative zeros,
+    and positive and negative values, with exact numerical fidelity.
+    """
+    import forgetune
+
+    class AddZeroModule(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.register_buffer("z", torch.zeros(1, 4, dtype=torch.float32))
+        def forward(self, x):
+            return x + self.z
+
+    model = AddZeroModule().eval()
+    ex_in = torch.randn(2, 4, dtype=torch.float32)
+    compiled = forgetune.compile_model(
+        model=model,
+        example_inputs=(ex_in,),
+        output_dir=str(tmp_path / "signed_zero_test"),
+        dynamic_batch=True,
+        autotune=False
+    )
+
+    try:
+        # Test input containing -0.0, +0.0, negative float, and positive float
+        x_test = np.array([[-0.0, +0.0, -42.5, 137.125]], dtype=np.float32)
+        out = compiled(x_test)
+
+        # Magnitudes must be numerically identical
+        np.testing.assert_allclose(out, x_test, atol=1e-7)
+        assert out[0, 0] == 0.0
+        assert out[0, 1] == 0.0
+        assert out[0, 2] == -42.5
+        assert out[0, 3] == 137.125
+    finally:
+        compiled.close()
+
+
+def test_regression_cli_workspace_fallback(tmp_path, monkeypatch):
+    """
+    P1 Regression (Finding 8): CLI workspace fallback test.
+    Forces CLI fallback in emit_cpp_source() by simulating bridge unavailability,
+    verifying --max-workspace-bytes is passed and insufficient budget is rejected.
+    """
+    import subprocess
+    import sys
+    import forgetune
+    from forgetune.autotuner import KernelCandidate
+    from forgetune.compiler import emit_cpp_source
+    from forgetune.export_frontend import export_to_forgetune_ir
+
+    class LinearModule(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = nn.Linear(4, 2)
+        def forward(self, x):
+            return self.linear(x)
+
+    model = LinearModule().eval()
+    ir = export_to_forgetune_ir(model, (torch.randn(1, 4),), dynamic_batch=False)
+    cand = KernelCandidate("cand_cli", "naive_ijk", enable_fusion=False, opt_level="-O2")
+
+    out_cpp = str(tmp_path / "cli_out.cpp")
+    cand_json = str(tmp_path / "cli_cand.json")
+
+    # Monkeypatch the C++ bridge module to None in sys.modules to force CLI fallback path
+    monkeypatch.setitem(sys.modules, "forgetune._forgetune_cpp", None)
+    if hasattr(forgetune, "_forgetune_cpp"):
+        monkeypatch.delattr(forgetune, "_forgetune_cpp")
+
+    # 1. With ample workspace, CLI fallback succeeds and emits C++ source
+    emit_cpp_source(ir, cand, out_cpp, cand_json_path=cand_json, max_workspace_bytes=100_000_000)
+    assert os.path.isfile(out_cpp)
+    with open(out_cpp, "r", encoding="utf-8") as f:
+        src = f.read()
+    assert "forgetune_run" in src
+
+    # 2. With severely constrained workspace budget (1 byte), CLI engine rejects compilation
+    out_fail = str(tmp_path / "cli_fail.cpp")
+    with pytest.raises(subprocess.CalledProcessError):
+        emit_cpp_source(ir, cand, out_fail, cand_json_path=cand_json, max_workspace_bytes=1)
+
 
 

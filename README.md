@@ -45,7 +45,7 @@ flowchart TD
 
     subgraph Memory["3. Memory Planning"]
         E4 --> F["Liveness Analysis & Memory Planner<br/>(Topological Interval Coloring)"]
-        F -->|"38.5% - 58.6% Intermediate Buffer Reduction"| G["Static Arena Offsets<br/>(64-byte AVX-512 Aligned)"]
+        F -->|"38.5% - 58.6% Intermediate Buffer Reduction"| G["Static Arena Offsets<br/>(64-byte SIMD Aligned)"]
     end
 
     subgraph Native["4. Native Codegen & Runtime"]
@@ -67,16 +67,16 @@ flowchart TD
 
 ### Optimization & Operator Fusion
 - **Multi-Operator Loop Fusion:** Fuses `CONV2D + RELU` and `MATMUL + ADD + RELU` into unified cache-resident loops, eliminating intermediate activation store/reload cycles.
-- **Algebraic Rewriting:** Simplifies identity arithmetic ($x + 0 \to x$) and idempotent activations ($\text{ReLU}(\text{ReLU}(x)) \to \text{ReLU}(x)$).
+- **Algebraic Rewriting:** Simplifies identity arithmetic ($x + 0 \to x$ under signed-zero relaxation where $+0.0$ and $-0.0$ are treated as algebraically equivalent) and idempotent activations ($\text{ReLU}(\text{ReLU}(x)) \to \text{ReLU}(x)$). Native C++ kernels compile with strict IEEE 754 precision flags (`/fp:precise` on MSVC) while graph optimizations simplify redundant algebraic operations.
 - **Constant Folding & DCE:** Pre-computes weight transformations and removes unreferenced dead subgraphs at compile time.
 
 ### Liveness-Based Intermediate Buffer Reuse
 - Analyzes activation birth and death intervals across topological execution steps.
 - Solves buffer allocation using interval-coloring register-allocation principles.
-- Packs all disjoint activation lifetimes into a single pre-allocated `AlignedArenaPool` (64-byte aligned to support AVX2/AVX-512 SIMD vector instructions and 64-byte cache-line boundaries), reducing calculated intermediate activation storage by **38.5% to 58.6%**.
+- Packs all disjoint activation lifetimes into a single pre-allocated `AlignedArenaPool` (SIMD-friendly 64-byte-aligned memory and cache-line boundaries), reducing calculated intermediate activation storage by **38.5% to 58.6%** (note: this metric measures calculated intermediate activation buffer reuse, not total process RAM).
 
-### Dynamic Batch Execution ($B \in [1, 128]$)
-- Emits C++ inner loops parameterized on batch length $B$ without requiring recompilation per batch size.
+### Dynamic Batch Execution ($B \in [1, B_{max}]$)
+- Emits C++ inner loops parameterized on batch length $B$ without requiring recompilation per batch size. Models verify across the default range $B \in [1, 128]$, while the compiler and native runtime support a configurable API maximum up to $1,000,000$.
 - Hardened C ABI boundary validation: out-of-bounds requests ($B \le 0$ or $B > B_{max}$) return `-2` and trigger Python `InvalidShapeError` before memory access (with `-1` for null pointers, `-3` for output mismatch, and `-4` for internal runtime exceptions).
 
 ### Dual Versioned C ABI
@@ -131,7 +131,7 @@ To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block 
 ## 5. Quickstart & Installation
 
 ### Prerequisites & Verified Platforms
-- **Python:** 3.11 or 3.12
+- **Python:** 3.11 or 3.12 (Python 3.11 is supported in package specs `requires-python = ">=3.11, <3.13"` and tested; automated CI workflows specifically target Python 3.12)
 - **Windows:** Windows 11 / Windows Server 2022 (AMD64, C++17, Python 3.11/3.12, Zig toolchain, MSVC ABI compatibility)
 - **Linux:** Ubuntu 22.04 / 24.04 (x86_64, GCC 12+ / Clang 16+, Python 3.11/3.12, POSIX toolchains)
 
@@ -194,7 +194,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite across Windows and Linux:
 
 ```bash
-# 1. Run full Python test suite (282 tests)
+# 1. Run full Python test suite (293 tests)
 python -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -206,8 +206,8 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **295 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **282 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 86 audit defect regressions.
+- **Total Enumerated Tests:** **306 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **293 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 91 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-std=c++17 -O2 -Wall -Wextra` on both Linux and Windows.

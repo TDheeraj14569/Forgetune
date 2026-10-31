@@ -69,7 +69,13 @@ def get_bounded_test_batches(
 ) -> List[int]:
     """
     Computes a representative, memory-budget-aware list of batch sizes for correctness verification.
-    Guarantees that test allocations will not exceed the memory budget (capped at min(max_batch_size, 256, max_safe_by_mem)).
+    Guarantees that ahead-of-time test allocations during compilation/verification will not
+    exhaust memory (internal verification resource cap: safe_cap = min(max_batch_size, 256, max_safe_b_by_mem)).
+
+    Note: This ceiling applies exclusively to ahead-of-time test tensor generation during verification.
+    The compiled native kernel and NativeRuntime support the full user-configured max_batch_size
+    (up to 1,000,000 as configured and planned by the native MemoryPlanner).
+    The memory budget estimates intermediate activation/tensor storage based on input tensor geometry.
     """
     if len(input_shape) > 0 and input_shape[0] != -1:
         elem_count = int(np.prod(input_shape))
@@ -695,6 +701,8 @@ def compile_model(
         )
         manifest_data["graph_hash"] = graph_hash
         manifest_data["provenance_hash"] = cand_provenance_hash
+        manifest_data["compiler_fingerprint"] = _get_compiler_sources_fingerprint()
+        manifest_data["platform"] = sys.platform
         manifest_data["latest_note"] = "Root manifest describes latest compilation. Per-artifact manifests are saved alongside candidate artifacts."
         manifest_path = os.path.join(output_dir, "manifest.json")
         prov_manifest_path = os.path.join(output_dir, f"manifest_{cand_provenance_hash}.json")

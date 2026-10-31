@@ -310,6 +310,15 @@ class Autotuner:
         if type(max_budget) is not int or isinstance(max_budget, bool) or not (1 <= max_budget <= 8):
             raise ValueError(f"max_budget must be an integer between 1 and 8, got {max_budget} ({type(max_budget).__name__})")
 
+        if type(force_fusion) is not bool:
+            raise TypeError(f"force_fusion must be a bool, got {force_fusion} ({type(force_fusion).__name__})")
+
+        if enable_fusion is not None and type(enable_fusion) is not bool:
+            raise TypeError(f"enable_fusion must be a bool or None, got {enable_fusion} ({type(enable_fusion).__name__})")
+
+        if force_fusion and enable_fusion is False:
+            raise ValueError("Contradictory options: force_fusion=True but enable_fusion=False")
+
         if max_workspace_bytes is not None:
             if type(max_workspace_bytes) is not int or isinstance(max_workspace_bytes, bool) or max_workspace_bytes <= 0:
                 raise TypeError(f"max_workspace_bytes must be a strictly positive non-boolean integer, got {max_workspace_bytes} ({type(max_workspace_bytes).__name__})")

@@ -90,10 +90,11 @@ def main():
         "test_aligned_arena_pool_and_reentrancy"
     ]
 
+    executed_py_tests = sum(1 for r in collector.results.values() if r["outcome"] in ("passed", "failed"))
     manifest = {
         "summary": {
             "total_python_tests_collected": collector.total_collected if collector.total_collected > 0 else len(collector.results),
-            "total_python_tests_executed": len(collector.results),
+            "total_python_tests_executed": executed_py_tests,
             "python_passed": sum(1 for r in collector.results.values() if r["outcome"] == "passed"),
             "python_skipped": sum(1 for r in collector.results.values() if r["outcome"] == "skipped"),
             "python_failed": sum(1 for r in collector.results.values() if r["outcome"] == "failed"),
