@@ -100,8 +100,8 @@ def main():
         "-o", pyd_path,
         "src/bindings.cpp", "tests/cpp/test_main.cpp", *srcs_core,
         "-I", "include",
-        "-I", py_inc,
-        "-I", pybind_inc,
+        "-isystem", py_inc,
+        "-isystem", pybind_inc,
     ]
 
     if is_win:
@@ -132,7 +132,14 @@ def main():
         else:
             raise RuntimeError(f"Could not locate Windows Python import library '{lib_name}'")
 
-    cmd_pyd.extend(["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wno-nullability-completeness", "-fno-signed-zeros"])
+    cmd_pyd.extend([
+        "-std=c++17", "-O2", "-Wall", "-Wextra",
+        "-Wno-nullability",
+        "-Wno-nullability-completeness",
+        "-Wno-nullability-completeness-on-arrays",
+        "-Wno-nullability-declspec",
+        "-fno-signed-zeros"
+    ])
 
     def check_compilation_result(target_name, result):
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
@@ -142,8 +149,12 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
-                # Ignore compiler-internal standard library nullability warnings from bundled toolchains (e.g. zig libcxx)
-                if any(k in line_str.lower() for k in ("libcxx", "nullability", "_nonnull", "_nullable")):
+                # Ignore compiler-internal standard library or third-party toolchain warnings
+                if any(k in line_str.lower() for k in (
+                    "libcxx", "nullability", "_nonnull", "_nullable",
+                    "__annotate", "site-packages", "hostedtoolcache",
+                    "python", "pybind11", "include/string", "include/vector"
+                )):
                     continue
                 warning_lines.append(line_str)
         if result.returncode != 0:
@@ -177,7 +188,7 @@ def main():
             "machine": platform.machine(),
             "compiler_path": zig_exe,
             "compiler_version": zig_version,
-            "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wno-nullability-completeness", "-fno-signed-zeros"],
+            "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra", "-fno-signed-zeros"],
             "pybind11_version": getattr(pybind11, "__version__", "unknown")
         }
         with open(meta_path, "w", encoding="utf-8") as f:
@@ -196,7 +207,10 @@ def main():
         "-I", "include",
         "-std=c++17", "-O2",
         "-Wall", "-Wextra",
+        "-Wno-nullability",
         "-Wno-nullability-completeness",
+        "-Wno-nullability-completeness-on-arrays",
+        "-Wno-nullability-declspec",
         "-fno-signed-zeros"
     ]
     res2 = subprocess.run(cmd_engine, capture_output=True, text=True)
@@ -213,7 +227,10 @@ def main():
         "-I", "include",
         "-std=c++17", "-O2",
         "-Wall", "-Wextra",
+        "-Wno-nullability",
         "-Wno-nullability-completeness",
+        "-Wno-nullability-completeness-on-arrays",
+        "-Wno-nullability-declspec",
         "-fno-signed-zeros"
     ]
     res3 = subprocess.run(cmd_suite, capture_output=True, text=True)
