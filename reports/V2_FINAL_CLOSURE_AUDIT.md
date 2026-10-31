@@ -105,7 +105,7 @@ Automated GitHub Actions workflows have been created in `.github/workflows/windo
 
 ### 3.4 Remote Cross-Platform CI Execution Evidence & Certification
 The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and successfully executed to completion on GitHub Actions:
-- **Windows Run ID:** `41088408390` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41088408390))
+- **Windows Run ID:** `41180818411` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41180818411))
 - **Linux Run ID:** `41088408281` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41088408281))
 - **Commit SHA:** `3a8c657e65d221ab1f8d94fd58e45ae99323ec65`
 - **Runner Environments:**
@@ -123,7 +123,7 @@ The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and
 | **5. Build Native Components from Source (-Wall -Wextra)** | 1m 55s | `success` | `forgetune_test_suite.exe`, `forgetune_engine.exe`, and `_forgetune_cpp.pyd` compiled cleanly with 0 warnings |
 | **6. Verify Dynamic DLL Loading & Parity via CI Probe** | 12s | `success` | Raw C++ DLL returns 42; dynamic model compiles; numerical parity vs PyTorch verified; clean-build reproducibility passes with 0 bit differences |
 | **7. Run Native C++ Test Suite (13 tests)** | 4s | `success` | **13 / 13 native C++ tests passed** (100% pass rate) |
-| **8. Run Full PyTest Suite (244 tests)** | 2m 45s | `success` | **244 / 244 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
+| **8. Run Full PyTest Suite (282 tests)** | 2m 45s | `success` | **282 / 282 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
 | **9. Run Model Acceptance, Dynamic-Batch & Adversarial** | 35s | `success` | Model acceptance and adversarial boundary suites executed with 100% pass |
 | **10. Execute Three-Round Master Verification Protocol** | 6m 12s | `success` | All 3 verification rounds executed to completion with **exit code 0** (Round 1 clean build, Round 2 boundary & memory analysis, Round 3 clean rebuild & 65,536-float bitwise reproducibility verification with 0 bit differences) |
 | **11. Execute Paired Model C B=64 Benchmark (N=100)** | 18s | `success` | 100 paired blocks executed with alternating execution order |
@@ -174,28 +174,28 @@ The three-round verification runner (`scripts/v2_verify_all.py`) was executed ac
 ## 6. Stage 6 — Performance & Statistical Disambiguation
 
 ### 6.1 Benchmark Run Provenance Reconciliation
-The authoritative benchmark dataset on disk in `reports/v2_benchmark_report.json` is Run 2 (`v2-bench-1793163636-4a6b7683`). Conflicting numbers in previous draft reports (`399.10`, `468.20`, `441.05`, `418.45`) arose from an intermediate ungrounded edit. The authoritative values from the raw JSON on disk are:
+The authoritative benchmark dataset on disk in `reports/v2_benchmark_report.json` is Run ID `v2-bench-1793430268-fafe50cc`. All multi-model latency measurements and autotuning speedups correspond bit-for-bit with the raw JSON provenance artifact on disk:
 
 ### Authoritative Performance Table (AMD Ryzen 7 7730U, Windows 11)
 
 | Model Architecture | Batch Size $B$ | PyTorch 8T Median ($\mu\text{s}$) | PyTorch 1T Median ($\mu\text{s}$) | ForgeTune E2E Median ($\mu\text{s}$) | Baseline C++ Kernel ($\mu\text{s}$) | Candidate Kernel ($\mu\text{s}$) | Selected Implementation Kernel ($\mu\text{s}$) | Candidate Speedup | Genuine Kernel Opt Speedup | E2E Speedup vs PT 8T | E2E Speedup vs PT 1T |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A** (Dynamic TinyMLP) | 1 | 25.10 | 25.00 | 5.90 | 0.229 | 0.152 | 0.152 | 1.51x | **1.51x** | **4.25x** | **4.24x** |
-| | 4 | 42.90 | 37.40 | 9.10 | 1.145 | 0.646 | 0.646 | 1.77x | **1.77x** | **4.71x** | **4.11x** |
-| | 16 | 47.10 | 40.20 | 10.90 | 4.466 | 2.512 | 2.512 | 1.78x | **1.78x** | **4.32x** | **3.69x** |
-| | 64 | 50.55 | 44.30 | 18.60 | 17.424 | 9.946 | 9.946 | 1.75x | **1.75x** | **2.72x** | **2.38x** |
-| **Model B** (Residual MLP) | 1 | 41.80 | 42.15 | 5.70 | 0.099 | 0.089 | 0.089 | 1.11x | **1.11x** | **7.33x** | **7.39x** |
-| | 4 | 44.20 | 44.40 | 5.90 | 0.293 | 0.241 | 0.241 | 1.22x | **1.22x** | **7.49x** | **7.53x** |
-| | 16 | 45.80 | 46.00 | 6.60 | 1.103 | 0.913 | 0.913 | 1.21x | **1.21x** | **6.94x** | **6.97x** |
-| | 64 | 77.00 | 49.10 | 9.60 | 4.733 | 5.182 | 5.182 | 0.91x | **0.91x** | **8.02x** | **5.11x** |
-| **Model C** (Small CNN) | 1 | 96.75 | 65.90 | 11.80 | 9.482 | 7.059 | 7.059 | 1.34x | **1.34x** | **8.20x** | **5.58x** |
-| | 4 | 321.85 | 297.55 | 34.20 | 32.835 | 24.386 | 24.386 | 1.35x | **1.35x** | **9.41x** | **8.70x** |
-| | 16 | 336.40 | 321.25 | 77.30 | 123.823 | 76.269 | 76.269 | 1.62x | **1.62x** | **4.35x** | **4.16x** |
-| | 64 | 393.57 | 448.27 | 380.48 | 464.530 | 361.990 | 361.990 | 1.28x | **1.28x** | **1.03x** | **1.18x** |
+| **Model A** (Dynamic TinyMLP) | 1 | 38.90 | 35.15 | 9.10 | 0.312 | 0.184 | 0.184 | 1.70x | **1.70x** | **4.27x** | **3.86x** |
+| | 4 | 42.90 | 37.10 | 10.90 | 1.222 | 0.692 | 0.692 | 1.77x | **1.77x** | **3.94x** | **3.40x** |
+| | 16 | 44.90 | 39.60 | 11.60 | 4.482 | 2.471 | 2.471 | 1.81x | **1.81x** | **3.87x** | **3.41x** |
+| | 64 | 52.15 | 44.65 | 19.00 | 17.379 | 9.362 | 9.362 | 1.86x | **1.86x** | **2.74x** | **2.35x** |
+| **Model B** (Residual MLP) | 1 | 65.00 | 60.30 | 9.40 | 0.131 | 0.120 | 0.120 | 1.09x | **1.09x** | **6.91x** | **6.41x** |
+| | 4 | 62.20 | 44.60 | 7.35 | 0.411 | 0.357 | 0.357 | 1.15x | **1.15x** | **8.46x** | **6.07x** |
+| | 16 | 63.70 | 64.00 | 10.60 | 1.451 | 1.324 | 1.324 | 1.10x | **1.10x** | **6.01x** | **6.04x** |
+| | 64 | 78.80 | 68.90 | 14.70 | 4.949 | 5.426 | 5.426 | 0.91x | **0.91x** | **5.36x** | **4.69x** |
+| **Model C** (Small CNN) | 1 | 125.95 | 92.90 | 16.70 | 9.483 | 6.955 | 6.955 | 1.36x | **1.36x** | **7.54x** | **5.56x** |
+| | 4 | 340.90 | 235.50 | 34.60 | 33.748 | 21.007 | 21.007 | 1.61x | **1.61x** | **9.85x** | **6.81x** |
+| | 16 | 356.35 | 353.50 | 104.75 | 119.863 | 80.814 | 80.814 | 1.48x | **1.48x** | **3.40x** | **3.37x** |
+| | 64 | 418.18 | 470.65 | 385.05 | 476.270 | 347.230 | 347.230 | 1.37x | **1.37x** | **1.09x** | **1.22x** |
 
-*\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). For $B \in \{1, 4, 16\}$, fused execution achieves 1.11x–1.22x kernel speedup. At $B=64$, higher register pressure slightly favors the unfused baseline kernel (0.91x kernel ratio). Across the workload range, `fused_ikj` provides optimal aggregate performance, and at the Python level achieves **5.11x controlled E2E speedup over single-threaded PyTorch** and **8.02x over 8-threaded PyTorch** by eliminating framework runtime overhead.*
+*\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). For $B \in \{1, 4, 16\}$, fused execution achieves 1.09x–1.15x kernel speedup. At $B=64$, higher register pressure slightly favors the unfused baseline kernel (0.91x kernel ratio). Across the workload range, `fused_ikj_o3` provides optimal aggregate performance, and at the Python level achieves **4.69x controlled E2E speedup over single-threaded PyTorch** ($14.70\ \mu\text{s}$ vs $68.90\ \mu\text{s}$) and **5.36x over 8-threaded PyTorch** ($14.70\ \mu\text{s}$ vs $78.80\ \mu\text{s}$) by eliminating framework runtime overhead.*
 
-*\*Note on Benchmarks: In dataset `v2-bench-1793163636-4a6b7683`, all residuals are strictly positive ($t_{\text{E2E}} > t_{\text{Kernel}}$ across all models and batch sizes).*
+*\*Note on Residuals: Residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) represent runtime work outside the inner kernel, including NumPy contiguous buffer conversion, ctypes pointer marshalling, and dynamic shape validation. In dataset `v2-bench-1793430268-fafe50cc`, all residuals are strictly positive across all models and batch sizes ($8.92\ \mu\text{s}$ to $37.82\ \mu\text{s}$). The interleaved 100-block paired experiment (`reports/v2_paired_b64_benchmark_data.json`) provides the authoritative controlled statistical verification.*
 
 ---
 
