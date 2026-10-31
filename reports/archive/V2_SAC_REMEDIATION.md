@@ -77,12 +77,12 @@ To verify that the compilation, ctypes loading, and model execution pipeline ope
 =================================================================
 
 [Step 1] Raw C++ DLL Compilation and ctypes.CDLL Load Check...
-  Compiled probe DLL: C:\Users\dheer\Desktop\Forgetune\build\ci_probe\probe.dll
+  Compiled probe DLL: build\ci_probe\probe.dll
   [+] Step 1 PASS: Unsigned DLL loaded and returned 42
 
 [Step 2] Full ForgeTune Model Compilation & Parity Check...
-  Compiled ForgeTune model to: C:\Users\dheer\Desktop\Forgetune\build\ci_probe\real_model
-  Loaded kernel DLL: C:\Users\dheer\Desktop\Forgetune\build\ci_probe\real_model\baseline\kernel.dll
+  Compiled ForgeTune model to: build\ci_probe\real_model
+  Loaded kernel DLL: build\ci_probe\real_model\baseline\kernel.dll
   Batch B= 1: Max Diff vs PyTorch = 1.490116e-08
   Batch B= 4: Max Diff vs PyTorch = 2.980232e-08
   Batch B=16: Max Diff vs PyTorch = 5.960464e-08

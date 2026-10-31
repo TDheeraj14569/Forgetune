@@ -143,7 +143,7 @@ def main():
             "numerical_tolerance": {
                 "max_absolute_error_bound": 1e-4,
                 "max_relative_error_bound": 1e-4,
-                "status": "PASSED"
+                "status": "PASSED" if all_succeeded else "FAILED"
             },
             "kernel_variants_verified": [
                 "naive_ijk",

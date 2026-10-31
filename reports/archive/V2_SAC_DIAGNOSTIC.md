@@ -1,8 +1,8 @@
 # FORGETUNE V2.0 — WINDOWS APPLICATION CONTROL / SAC DIAGNOSTIC REPORT
 
 **Host Environment:** Windows 11 Enterprise / Pro AMD64 (Build 26200)  
-**Host Name:** `DHEERAJ`  
-**Execution User:** `DHEERAJ\dheer` (`S-1-5-21-1659675339-1829319150-3515109752-1001`)  
+**Host Name:** `<REDACTED_HOST>`  
+**Execution User:** `<REDACTED_USER>` (`<REDACTED_SID>`)  
 **Enforcement Subsystem:** Windows Defender Application Control (WDAC) / Smart App Control (SAC) Kernel Code Integrity Driver  
 **Active Policy ID:** `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`  
 **Impacted Objects:** Dynamically emitted unsigned test DLLs in newly created/transient directories  
@@ -36,9 +36,9 @@ Source:        Microsoft-Windows-CodeIntegrity
 Date:          2026-10-25T10:17:14.7150000Z
 Event ID:      3077
 Level:         Error
-User:          DHEERAJ\dheer (S-1-5-21-1659675339-1829319150-3515109752-1001)
-Computer:      DHEERAJ
-Description:   Code Integrity determined that a process (\Device\HarddiskVolume3\Users\dheer\AppData\Roaming\uv\python\cpython-3.12.14-windows-x86_64-none\python.exe) attempted to load \Device\HarddiskVolume3\Users\dheer\Desktop\Forgetune\build\artifacts\repro_2\baseline\kernel.dll that did not meet the Enterprise signing level requirements or violated code integrity policy (Policy ID:{0283ac0f-fff1-49ae-ada1-8a933130cad6}).
+User:          <REDACTED_USER> (<REDACTED_SID>)
+Computer:      <REDACTED_HOST>
+Description:   Code Integrity determined that a process (\Device\HarddiskVolume3\<REDACTED_PATH>\python.exe) attempted to load \Device\HarddiskVolume3\<REDACTED_PATH>\kernel.dll that did not meet the Enterprise signing level requirements or violated code integrity policy (Policy ID:{0283ac0f-fff1-49ae-ada1-8a933130cad6}).
 ```
 
 ### Event ID 3033: Signing Level Requirement Failure
@@ -48,9 +48,9 @@ Source:        Microsoft-Windows-CodeIntegrity
 Date:          2026-10-25T10:17:14.7110000Z
 Event ID:      3033
 Level:         Error
-User:          DHEERAJ\dheer (S-1-5-21-1659675339-1829319150-3515109752-1001)
-Computer:      DHEERAJ
-Description:   Code Integrity determined that a process (\Device\HarddiskVolume3\Users\dheer\AppData\Roaming\uv\python\cpython-3.12.14-windows-x86_64-none\python.exe) attempted to load \Device\HarddiskVolume3\Users\dheer\Desktop\Forgetune\build\artifacts\repro_2\baseline\kernel.dll that did not meet the Enterprise signing level requirements.
+User:          <REDACTED_USER> (<REDACTED_SID>)
+Computer:      <REDACTED_HOST>
+Description:   Code Integrity determined that a process (\Device\HarddiskVolume3\<REDACTED_PATH>\python.exe) attempted to load \Device\HarddiskVolume3\<REDACTED_PATH>\kernel.dll that did not meet the Enterprise signing level requirements.
 ```
 
 ---

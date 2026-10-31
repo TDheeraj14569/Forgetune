@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <memory>
 #include <cstdint>
+#include <limits>
 #include <cstddef>
 #include <stdexcept>
 #include <sstream>
@@ -273,6 +274,9 @@ public:
     // Add a node to the graph. Returns the node's ID.
     NodeId add_node(IRNode node) {
         if (node.id == INVALID_NODE_ID) {
+            if (next_id_ >= std::numeric_limits<NodeId>::max()) {
+                throw std::overflow_error("IRGraph::add_node: node ID at INT32_MAX cannot advance next_id_");
+            }
             node.id = next_id_++;
         } else {
             if (node.id < 0) {

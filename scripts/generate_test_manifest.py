@@ -98,6 +98,7 @@ def main():
             "python_skipped": sum(1 for r in collector.results.values() if r["outcome"] == "skipped"),
             "python_failed": sum(1 for r in collector.results.values() if r["outcome"] == "failed"),
             "python_error": sum(1 for r in collector.results.values() if r["outcome"] == "error"),
+            "python_collection_error": sum(1 for r in collector.results.values() if r["outcome"] == "collection_error"),
             "native_cpp_tests": len(cpp_tests),
             "native_cpp_passed": len(cpp_tests) if cpp_res == 0 else 0,
             "total_tests_available": (collector.total_collected if collector.total_collected > 0 else len(collector.results)) + len(cpp_tests),
@@ -132,8 +133,11 @@ def main():
     print(f" Pytest Return Code:       {manifest['summary']['pytest_return_code']}")
     print(f" Saved to:                 {manifest_path}")
 
-    if pytest_rc != 0 or cpp_res != 0:
-        print(f"[-] Test manifest generation completed with test failures (pytest_rc={pytest_rc}, cpp_res={cpp_res})")
+    has_collection_error = any(r.get("outcome") == "collection_error" for r in collector.results.values())
+    has_error = any(r.get("outcome") == "error" for r in collector.results.values())
+    has_failed = any(r.get("outcome") == "failed" for r in collector.results.values())
+    if pytest_rc != 0 or cpp_res != 0 or has_collection_error or has_error or has_failed:
+        print(f"[-] Test manifest generation completed with errors/failures (pytest_rc={pytest_rc}, cpp_res={cpp_res})")
         sys.exit(int(pytest_rc) if pytest_rc != 0 else 1)
 
 if __name__ == "__main__":

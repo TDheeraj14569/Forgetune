@@ -32,9 +32,17 @@ class KernelCandidate:
         opt_level: str = "-O2",
         tile_sizes: Optional[Any] = None
     ):
+        if not isinstance(candidate_id, str):
+            raise TypeError(f"candidate_id must be a str, got {type(candidate_id).__name__}")
+        if not isinstance(variant, str):
+            raise TypeError(f"variant must be a str, got {type(variant).__name__}")
+        if type(enable_fusion) is not bool:
+            raise TypeError(f"enable_fusion must be a bool, got {type(enable_fusion).__name__}")
+        if not isinstance(opt_level, str):
+            raise TypeError(f"opt_level must be a str, got {type(opt_level).__name__}")
         self.candidate_id = candidate_id
         self.variant = variant
-        self.enable_fusion = bool(enable_fusion)
+        self.enable_fusion = enable_fusion
         self.opt_level = opt_level
         if variant in ("tiled", "fused_tiled"):
             if tile_sizes is not None and tile_m is None and isinstance(tile_sizes, (list, tuple)) and len(tile_sizes) == 3:
@@ -290,7 +298,8 @@ class Autotuner:
         use_cache: bool = True,
         oracle: Optional[Any] = None,
         force_fusion: bool = False,
-        enable_fusion: Optional[bool] = None
+        enable_fusion: Optional[bool] = None,
+        max_workspace_bytes: Optional[int] = None
     ) -> Tuple[KernelCandidate, Dict[str, Any]]:
         """
         Runs correctness-gated autotuning across candidate configurations.
@@ -411,6 +420,8 @@ class Autotuner:
                 cfg = cpp.KernelConfig()
                 cfg.candidate_id = cand.candidate_id
                 cfg.max_batch_size = g_cpp.max_batch_size()
+                if max_workspace_bytes is not None:
+                    cfg.max_workspace_bytes = int(max_workspace_bytes)
                 variant_map = {
                     "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
                     "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
@@ -449,6 +460,8 @@ class Autotuner:
                     "--candidate-id", cand.candidate_id,
                     "--max-batch-size", str(getattr(graph, "max_batch_size", 128))
                 ]
+                if max_workspace_bytes is not None:
+                    engine_cmd.extend(["--max-workspace-bytes", str(max_workspace_bytes)])
                 if cand.tile_m is not None:
                     engine_cmd.extend([
                         "--tile-m", str(cand.tile_m),

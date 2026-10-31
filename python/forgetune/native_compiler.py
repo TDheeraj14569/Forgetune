@@ -160,9 +160,10 @@ class NativeCompiler:
                 canonical_opt,
                 "-Wall",
                 "-Wextra",
-                "-Wno-nullability-completeness",
                 "-fno-signed-zeros"
             ]
+            if self.compiler_type == "clang":
+                cmd.append("-Wno-nullability-completeness")
         elif self.compiler_type == "msvc":
             msvc_opt_map = {"-O0": "/Od", "-O1": "/O1", "-O2": "/O2", "-O3": "/O2", "-Os": "/O1", "-Oz": "/O1"}
             msvc_opt = msvc_opt_map.get(canonical_opt, "/O2")
@@ -173,6 +174,7 @@ class NativeCompiler:
                 f"/Fe:{temp_dll_path}",
                 "/std:c++17",
                 msvc_opt,
+                "/fp:fast",
                 "/W4"
             ]
         else:

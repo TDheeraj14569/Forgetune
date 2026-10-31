@@ -35,12 +35,7 @@ def is_build_metadata_valid(meta_path: str) -> bool:
         if comp_path:
             is_known_cmd = comp_path in ("zig", "clang", "gcc", "cl", "g++", "clang++")
             is_valid_file = os.path.isfile(comp_path) or shutil.which(comp_path) is not None
-            try:
-                import ziglang
-                has_ziglang = (comp_path == "zig" or os.path.basename(comp_path).startswith("zig"))
-            except ImportError:
-                has_ziglang = False
-            if not (is_valid_file or is_known_cmd or has_ziglang):
+            if not (is_valid_file or is_known_cmd):
                 return False
             meta_ver = meta.get("compiler_version")
             if meta_ver and meta_ver != "unknown":
@@ -84,13 +79,13 @@ class SmartBuildExt(build_ext):
             build_script = os.path.join(os.path.dirname(__file__), "scripts", "build_native.py")
             if os.path.isfile(build_script):
                 import subprocess
-                print(f"[setup.py] Compiling native extension via scripts/build_native.py...")
+                print("[setup.py] Compiling native extension via scripts/build_native.py...")
                 res = subprocess.run([sys.executable, build_script], capture_output=True, text=True)
                 if res.returncode != 0:
                     print(res.stdout)
                     print(res.stderr)
                     raise RuntimeError(f"Native build failed with exit code {res.returncode}")
-                print(f"[setup.py] Native extension compiled successfully.")
+                print("[setup.py] Native extension compiled successfully.")
             else:
                 super().run()
 

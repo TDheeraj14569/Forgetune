@@ -4,9 +4,13 @@
 #include <sstream>
 #include <iomanip>
 #include <limits>
+#include <cstdint>
 #include <stdexcept>
 
 namespace forgetune {
+
+// Maximum defensible padding dimension for convolution scratch buffer allocation
+constexpr int64_t kMaxConvPadding = 100000;
 
 std::string MemoryPlan::to_string() const {
     std::ostringstream oss;
@@ -197,7 +201,7 @@ MemoryPlan MemoryPlanner::plan(const IRGraph& graph, int64_t max_batch) const {
                         int64_t C_in = in_node.output_meta.shape.dims[1];
                         int64_t H_in = in_node.output_meta.shape.dims[2];
                         int64_t W_in = in_node.output_meta.shape.dims[3];
-                        if (ph < 0 || pw < 0 || ph > 100000 || pw > 100000) {
+                        if (ph < 0 || pw < 0 || ph > kMaxConvPadding || pw > kMaxConvPadding) {
                             throw std::runtime_error("MemoryPlanner: invalid conv padding");
                         }
                         if (H_in > INT64_MAX - 2 * ph || W_in > INT64_MAX - 2 * pw) {

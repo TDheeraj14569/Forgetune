@@ -69,7 +69,7 @@ def get_bounded_test_batches(
 ) -> List[int]:
     """
     Computes a representative, memory-budget-aware list of batch sizes for correctness verification.
-    Guarantees that test allocations will not exceed the memory budget.
+    Guarantees that test allocations will not exceed the memory budget (capped at min(max_batch_size, 256, max_safe_by_mem)).
     """
     if len(input_shape) > 0 and input_shape[0] != -1:
         elem_count = int(np.prod(input_shape))
@@ -257,7 +257,13 @@ def _verify_rebuilt_artifact(
     finally:
         runtime.close()
 
-def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, cand_json_path: Optional[str] = None) -> None:
+def emit_cpp_source(
+    ir_graph,
+    candidate: KernelCandidate,
+    output_cpp_path: str,
+    cand_json_path: Optional[str] = None,
+    max_workspace_bytes: Optional[int] = None
+) -> None:
     """
     Emits standalone C++ source code for a given IR graph and candidate configuration.
     Uses in-process C++ compiler bridge (_forgetune_cpp) when available, falling back to CLI.
@@ -267,6 +273,8 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
         g_cpp = cpp.json_to_graph(ir_graph.to_json())
         cfg = cpp.KernelConfig()
         cfg.candidate_id = candidate.candidate_id
+        if max_workspace_bytes is not None:
+            cfg.max_workspace_bytes = int(max_workspace_bytes)
         variant_map = {
             "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
             "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
@@ -313,6 +321,8 @@ def emit_cpp_source(ir_graph, candidate: KernelCandidate, output_cpp_path: str, 
             "--tile-n", str(candidate.tile_n),
             "--tile-k", str(candidate.tile_k)
         ])
+    if max_workspace_bytes is not None:
+        cmd.extend(["--max-workspace-bytes", str(max_workspace_bytes)])
     if candidate.enable_fusion:
         cmd.append("--fusion")
     if hasattr(ir_graph, "max_batch_size"):
@@ -594,7 +604,8 @@ def compile_model(
                 artifacts_dir=output_dir,
                 max_budget=max_autotune_budget,
                 oracle=oracle,
-                enable_fusion=enable_fusion
+                enable_fusion=enable_fusion,
+                max_workspace_bytes=max_workspace_bytes
             )
             cand_provenance_hash = _get_candidate_provenance_hash(graph_hash, selected_cand)
             cand_dir = os.path.join(output_dir, f"{selected_cand.candidate_id}_{cand_provenance_hash}")
@@ -606,7 +617,7 @@ def compile_model(
 
             if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info, final_dll_path, final_cpp_path):
                 cand_json_path = os.path.join(cand_dir, "graph.json")
-                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, cand_json_path)
+                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, cand_json_path, max_workspace_bytes=max_workspace_bytes)
                 native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=selected_cand.opt_level)
                 _verify_rebuilt_artifact(final_dll_path, ir_graph, ex_np, ref_np, oracle, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
                 _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
@@ -639,7 +650,7 @@ def compile_model(
             final_dll_path = os.path.join(cand_dir, f"kernel_{cand_provenance_hash}{dll_ext}")
 
             if not _is_artifact_valid_for_graph(cand_dir, graph_hash, selected_cand, compiler_info, final_dll_path, final_cpp_path):
-                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, final_json_path)
+                emit_cpp_source(ir_graph, selected_cand, final_cpp_path, final_json_path, max_workspace_bytes=max_workspace_bytes)
                 native_compiler.compile_shared_library(final_cpp_path, final_dll_path, opt_level=compiler_opt_level)
                 _verify_rebuilt_artifact(final_dll_path, ir_graph, ex_np, ref_np, oracle, dynamic_batch=dynamic_batch, max_batch_size=max_batch_size)
                 _write_artifact_manifest(cand_dir, graph_hash, selected_cand, final_cpp_path, final_dll_path, compiler_info)
@@ -670,10 +681,13 @@ def compile_model(
             compiler_info=native_compiler.get_compiler_info(),
             artifacts={
                 "cpp_source": final_cpp_path,
-                "shared_library": final_dll_path
+                "shared_library": final_dll_path,
+                "dll_sha256": _compute_file_sha256(final_dll_path),
+                "cpp_sha256": _compute_file_sha256(final_cpp_path)
             },
             optimization_summary=opt_report
         )
+        manifest_data["graph_hash"] = graph_hash
         manifest_data["provenance_hash"] = cand_provenance_hash
         manifest_data["latest_note"] = "Root manifest describes latest compilation. Per-artifact manifests are saved alongside candidate artifacts."
         manifest_path = os.path.join(output_dir, "manifest.json")

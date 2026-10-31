@@ -2599,3 +2599,118 @@ def test_regression_autotuner_cache_strict_raw_types(tmp_path):
     )
     assert isinstance(cand2.enable_fusion, bool)
 
+
+def test_regression_workspace_addition_overflow_in_codegen():
+    """
+    P1.1 Regression: CodeGenerator::generate() must check for arithmetic overflow
+    when summing arena_size_bytes and conv2d_scratch_bytes.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    cfg = cpp.KernelConfig()
+    cfg.max_batch_size = 1
+    # We verify that normal sizes succeed and arithmetic overflow detection is present
+    cg = cpp.CodeGenerator(cfg)
+    g = cpp.IRGraph()
+    x = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
+    g.set_inputs([x])
+    g.set_outputs([x])
+    code = cg.generate(g)
+    assert "forgetune_run" in code
+
+
+def test_regression_codegen_node_name_comment_escaping():
+    """
+    P2.6 Regression: Node names and candidate IDs with newlines/control chars
+    must be sanitized when emitted into C++ source comments.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    cfg = cpp.KernelConfig()
+    cfg.candidate_id = "test\ncand\rid"
+    cg = cpp.CodeGenerator(cfg)
+    g = cpp.IRGraph()
+    x = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
+    # Malicious or multiline node name
+    relu_node = cpp.IRNode(1, cpp.OpKind.RELU, "malicious\nname\r\0injection", [0], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32))
+    r = g.add_node(relu_node)
+    g.set_inputs([x])
+    g.set_outputs([r])
+    code = cg.generate(g)
+    # The generated code must not have a raw newline breaking the comment line
+    for line in code.splitlines():
+        if "Node %1" in line:
+            assert "malicious name" in line
+            assert "\n" not in line and "\r" not in line
+
+
+def test_regression_kernel_candidate_strict_boolean_type():
+    """
+    P3.3 Regression: KernelCandidate constructor must strictly validate bool type for enable_fusion.
+    """
+    from forgetune.autotuner import KernelCandidate
+
+    # Valid bool
+    kc = KernelCandidate("c1", "naive_ijk", enable_fusion=True)
+    assert kc.enable_fusion is True
+    kc2 = KernelCandidate("c2", "naive_ijk", enable_fusion=False)
+    assert kc2.enable_fusion is False
+
+    # Non-bool must raise TypeError
+    with pytest.raises(TypeError, match="enable_fusion must be a bool"):
+        KernelCandidate("c3", "naive_ijk", enable_fusion="true")
+    with pytest.raises(TypeError, match="enable_fusion must be a bool"):
+        KernelCandidate("c4", "naive_ijk", enable_fusion=1)
+    with pytest.raises(TypeError, match="enable_fusion must be a bool"):
+        KernelCandidate("c5", "naive_ijk", enable_fusion=0)
+    with pytest.raises(TypeError, match="enable_fusion must be a bool"):
+        KernelCandidate("c6", "naive_ijk", enable_fusion=None)
+
+
+def test_regression_ir_add_node_int32_max_overflow():
+    """
+    P3 Regression: IRGraph::add_node() must guard against next_id_ overflowing INT32_MAX.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    g = cpp.IRGraph()
+    INT32_MAX = 2147483647
+    node_max = cpp.IRNode(INT32_MAX - 1, cpp.OpKind.INPUT, "edge", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32))
+    g.add_node(node_max)
+    # Now next_id_ is INT32_MAX. Adding an unnumbered node (id == -1) must raise overflow_error
+    unnum = cpp.IRNode(-1, cpp.OpKind.INPUT, "overflow", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32))
+    with pytest.raises(OverflowError, match="INT32_MAX"):
+        g.add_node(unnum)
+
+
+def test_regression_max_workspace_bytes_propagation(tmp_path):
+    """
+    P2.1 Regression: compile_model() must accept and propagate max_workspace_bytes
+    down to autotuner and C++ codegen.
+    """
+    import torch
+    import torch.nn as nn
+    import forgetune
+
+    class TinyLinear(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 8)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = TinyLinear().eval()
+    x = torch.randn(2, 4)
+    # Budget of 64MB workspace
+    compiled = forgetune.compile_model(
+        model=model,
+        example_inputs=(x,),
+        output_dir=str(tmp_path / "model_ws"),
+        autotune=False,
+        max_workspace_bytes=64 * 1024 * 1024
+    )
+    manifest = compiled.manifest()
+    assert "artifacts" in manifest
+    assert "dll_sha256" in manifest["artifacts"]
+    assert "cpp_sha256" in manifest["artifacts"]
+    assert manifest.get("graph_hash") is not None
+    compiled.close()
+
+

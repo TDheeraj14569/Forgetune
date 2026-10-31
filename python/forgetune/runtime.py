@@ -12,7 +12,8 @@ from typing import Tuple, Optional
 from .errors import RuntimeError, InvalidShapeError
 
 class NativeRuntime:
-    def __init__(self, dll_path: str, expected_input_shape: Tuple[int, ...], expected_output_shape: Tuple[int, ...]):
+    def __init__(self, dll_path: str, expected_input_shape: Tuple[int, ...], expected_output_shape: Tuple[int, ...], max_batch_size: Optional[int] = None):
+        self._configured_max_batch_size = max_batch_size
         self.original_dll_path = os.path.abspath(dll_path)
         self.expected_input_shape = tuple(expected_input_shape)
         self.expected_output_shape = tuple(expected_output_shape)
@@ -93,6 +94,8 @@ class NativeRuntime:
             self.lib.forgetune_max_batch.argtypes = []
             self.lib.forgetune_max_batch.restype = ctypes.c_int64
             self.max_batch_size = int(self.lib.forgetune_max_batch())
+        elif getattr(self, "_configured_max_batch_size", None) is not None and self._configured_max_batch_size > 0:
+            self.max_batch_size = int(self._configured_max_batch_size)
         else:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 

@@ -1,15 +1,16 @@
 {
   "summary": {
-    "total_python_tests_collected": 272,
-    "total_python_tests_executed": 272,
-    "python_passed": 272,
+    "total_python_tests_collected": 277,
+    "total_python_tests_executed": 277,
+    "python_passed": 277,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
+    "python_collection_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 285,
-    "total_passing": 285,
+    "total_tests_available": 290,
+    "total_passing": 290,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -606,6 +607,21 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_regression_autotuner_cache_strict_raw_types": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_workspace_addition_overflow_in_codegen": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_codegen_node_name_comment_escaping": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_kernel_candidate_strict_boolean_type": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_ir_add_node_int32_max_overflow": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_max_workspace_bytes_propagation": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

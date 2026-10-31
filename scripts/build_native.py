@@ -142,7 +142,7 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
-                if "libcxx" in line_str or "nullability-completeness" in line_str:
+                if "nullability-completeness" in line_str:
                     continue
                 warning_lines.append(line_str)
         if result.returncode != 0:
@@ -176,7 +176,7 @@ def main():
             "machine": platform.machine(),
             "compiler_path": zig_exe,
             "compiler_version": zig_version,
-            "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra"],
+            "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Wno-nullability-completeness", "-fno-signed-zeros"],
             "pybind11_version": getattr(pybind11, "__version__", "unknown")
         }
         with open(meta_path, "w", encoding="utf-8") as f:

@@ -93,7 +93,7 @@ All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). 
 
 ### Multi-Model Benchmark Table (Dataset: `v2-bench-1793163636-4a6b7683`)
 
-| Workload Model | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8T)** | **Controlled E2E Speedup (1T)** | ForgeTune Native Kernel (μs) | **Native Kernel Speedup** | E2E - Kernel Residual (μs) |
+| Workload Model | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8T)** | **Controlled E2E Speedup (1T)** | ForgeTune Native Kernel (μs) | **Autotune gain vs baseline kernel** | E2E - Kernel Residual (μs) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Model A (Dynamic TinyMLP)** | $B=1$ | 25.10 | 25.00 | 5.90 | **4.25x** | **4.24x** | 0.152 | **1.51x** | 5.75 |
 | *Linear(16->32) -> ReLU -> Linear(32->8)* | $B=4$ | 42.90 | 37.40 | 9.10 | **4.71x** | **4.11x** | 0.646 | **1.77x** | 8.45 |
@@ -110,21 +110,21 @@ All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). 
 
 *\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). For $B \in \{1, 4, 16\}$, fused execution achieves 1.11x–1.22x kernel speedup. At $B=64$, higher register pressure slightly favors the unfused baseline kernel (0.91x kernel ratio). Across the workload range, `fused_ikj` provides optimal aggregate performance, and at the Python level achieves **5.11x controlled E2E speedup over single-threaded PyTorch** and **8.02x over 8-threaded PyTorch** by eliminating framework runtime overhead.*
 
-*\*Residual Note: In the authoritative benchmark dataset (`v2-bench-1793163636-4a6b7683`), residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) across all models and batch sizes are strictly non-negative, and the paired 100-block hypothesis test at $B=64$ provides the definitive statistical verification.*
+*\*Residual Note: Residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) represent runtime work outside the inner kernel, including NumPy contiguous buffer conversion, ctypes pointer marshalling, and dynamic shape validation. Because E2E and kernel benchmarks are independently sampled distributions, separate measurement sessions under CPU frequency scaling or timer jitter can produce small signed residuals (as documented in the 30-sample distribution in `reports/V2_BENCHMARK_REPORT.md`). The paired 100-block hypothesis test with alternating execution order provides the definitive controlled statistical verification.*
 
 ### Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
 To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
-- **PyTorch 1-Thread E2E Median:** $340.42\ \mu\text{s}$
-- **ForgeTune E2E Median:** $288.35\ \mu\text{s}$
-- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+77.38\ \mu\text{s}$ (ForgeTune is significantly faster)
-- **Median Difference:** $+50.55\ \mu\text{s}$
-- **Standard Error ($SE$):** $7.25\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 72.54\ \mu\text{s}$)
-- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.02\ \mu\text{s}$):** $t = 13.01$, exact Student's t $p = 1.83 \times 10^{-23} \ll 0.0001$. Non-inferiority is decisively certified.
-- **Two-Sided TOST Equivalence ($\pm 5\%$ margin, $\pm 17.02\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+65.33, +89.42]\ \mu\text{s}$), placing the entire confidence interval well above $+17.02\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
+- **PyTorch 1-Thread E2E Median:** $349.35\ \mu\text{s}$
+- **ForgeTune E2E Median:** $287.82\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+71.29\ \mu\text{s}$ (ForgeTune is significantly faster)
+- **Median Difference:** $+58.08\ \mu\text{s}$
+- **Standard Error ($SE$):** $6.60\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 66.00\ \mu\text{s}$)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.47\ \mu\text{s}$):** $t = 13.45$, exact Student's t $p = 2.27 \times 10^{-24} \ll 0.0001$. Non-inferiority is decisively certified.
+- **Two-Sided TOST Equivalence ($\pm 5\%$ margin, $\pm 17.47\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+60.33, +82.25]\ \mu\text{s}$), placing the entire confidence interval well above $+17.47\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[+65.84\ \mu\text{s},\; +89.84\ \mu\text{s}]$
-  - Median Difference: $[+49.45\ \mu\text{s},\; +55.05\ \mu\text{s}]$
+  - Mean Difference: $[+60.68\ \mu\text{s},\; +82.48\ \mu\text{s}]$
+  - Median Difference: $[+55.58\ \mu\text{s},\; +61.85\ \mu\text{s}]$
 
 ---
 

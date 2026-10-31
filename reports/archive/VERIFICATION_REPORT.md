@@ -39,7 +39,7 @@ All 52 automated tests passed with exit code `0` during clean rebuild.
 
 ## 3. Production Frontend & ATen Operator Normalization
 
-ForgeTune utilizes `torch.export.export(model, example_inputs)` ahead-of-time graph capture in [`python/forgetune/export_frontend.py`](file:///c:/Users/dheer/Desktop/Forgetune/python/forgetune/export_frontend.py).
+ForgeTune utilizes `torch.export.export(model, example_inputs)` ahead-of-time graph capture in [`python/forgetune/export_frontend.py`](python/forgetune/export_frontend.py).
 
 ### 3.1 Exported ATen Operator Targets
 For the canonical TinyMLP (`Linear(4 -> 8) -> ReLU -> Linear(8 -> 3)`), `torch.export.export()` produces:
@@ -123,7 +123,7 @@ Directly measures generated C++ kernel execution without Python/ctypes invocatio
 ## 5. Bit-Exact Float32 Constant and Weight Serialization
 
 `src/codegen.cpp` utilizes `std::scientific` with `std::setprecision(std::numeric_limits<float>::max_digits10)` (9 decimal digits).
-Verified in [`tests/unit/test_float_serialization.py`](file:///c:/Users/dheer/Desktop/Forgetune/tests/unit/test_float_serialization.py) across 14 difficult float32 values:
+Verified in [`tests/unit/test_float_serialization.py`](tests/unit/test_float_serialization.py) across 14 difficult float32 values:
 - Smallest positive subnormal: $1.40129846 \times 10^{-45}$
 - Largest subnormal: $1.17549421 \times 10^{-38}$
 - Smallest positive normal: $1.17549435 \times 10^{-38}$
@@ -135,11 +135,11 @@ Verified in [`tests/unit/test_float_serialization.py`](file:///c:/Users/dheer/De
 
 ## 6. Three Independent Audits Summary
 
-- **Audit A (Requirements and Traceability):** **PASSED** ([reports/AUDIT_A.md](file:///c:/Users/dheer/Desktop/Forgetune/reports/AUDIT_A.md))
+- **Audit A (Requirements and Traceability):** **PASSED** ([reports/AUDIT_A.md](reports/AUDIT_A.md))
   - 100% requirement traceability verified across all 24 specifications.
-- **Audit B (Correctness, Safety, and Edge Cases):** **PASSED** ([reports/AUDIT_B.md](file:///c:/Users/dheer/Desktop/Forgetune/reports/AUDIT_B.md))
+- **Audit B (Correctness, Safety, and Edge Cases):** **PASSED** ([reports/AUDIT_B.md](reports/AUDIT_B.md))
   - Verified weight layout transposition, floating-point literal formatting, partial tile boundary conditions, integer overflow guards, pybind11 numerical fidelity, broadcasting contract, algebraic rewrite multi-consumer safety, Windows GNU PE/COFF ABI compliance, and Windows DLL staging backoff.
-- **Audit C (Clean Rebuild and Reproducibility):** **PASSED** ([reports/AUDIT_C.md](file:///c:/Users/dheer/Desktop/Forgetune/reports/AUDIT_C.md))
+- **Audit C (Clean Rebuild and Reproducibility):** **PASSED** ([reports/AUDIT_C.md](reports/AUDIT_C.md))
   - Rebuilt all artifacts from scratch via `scripts/clean_build.py`, verified all 52 automated tests pass (8 C++ + 44 Python), clean exit code 0.
 
 ---

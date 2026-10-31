@@ -85,7 +85,7 @@ def main():
     print(f"  Compiler:   {selected.get('opt_level')}")
 
     if "best_median_latency_us" in report:
-        print(f"\nMeasured Latency (Interleaved Candidate Evaluation):")
+        print("\nMeasured Latency (Interleaved Candidate Evaluation):")
         print(f"  Selected candidate (e2e): {report['best_median_latency_us']:.2f} us")
         if report.get("baseline_median_latency_us"):
             print(f"  Baseline naive (e2e):     {report['baseline_median_latency_us']:.2f} us")
