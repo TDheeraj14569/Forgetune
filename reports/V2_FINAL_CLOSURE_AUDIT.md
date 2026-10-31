@@ -48,8 +48,8 @@ git diff 0233951bcd8500a1acd9046fb2b5633b90025902 HEAD -- src/ include/ python/ 
 |---|---|---|:---:|
 | **Working Tree Status** | Clean | Clean (no uncommitted tracked changes) | **MATCH** |
 | **Current Branch** | `v2.0-dev` | `v2.0-dev` | **MATCH** |
-| **Current HEAD** | Latest on `v2.0-dev` | `4f7d4cae101f9f41bc116f477a09d904661681de` | **MATCH** |
-| **Current Tree** | Latest tree fingerprint | `e346737645569b0822f2d43323fcd2d68be0697b` | **MATCH** |
+| **Current HEAD** | Latest on `v2.0-dev` | `9db750f3d49a0d832243bfd86d647229e502f7cc` | **MATCH** |
+| **Current Tree** | Latest tree fingerprint | `34f443a091c2f698d244bc2586b05a569bf39cd0` | **MATCH** |
 | **Master Commit** | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | **FROZEN** |
 | **Tag v1.0.0 Commit** | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | `a07e807e1f6557057b7c76e7579b6c6ef13b6032` | **FROZEN** |
 | **Core Source Preserved** | Strict semantic preservation | 0 diff in `include/` & `python/`; 2 warning silencer statements in `src/`; 1 Gate 8 test file in `tests/` | **PRESERVED** |

@@ -91,24 +91,24 @@ flowchart TD
 
 All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). Latency measurements are reported using authoritative on-disk artifacts (`reports/v2_benchmark_report.json` and `reports/v2_paired_b64_benchmark_data.json`).
 
-### Multi-Model Benchmark Table (Dataset: `v2-bench-1793163636-4a6b7683`)
+### Multi-Model Benchmark Table (Dataset: `v2-bench-1793407126-0df89c62`)
 
 | Workload Model | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8T)** | **Controlled E2E Speedup (1T)** | ForgeTune Native Kernel (μs) | **Autotune gain vs baseline kernel** | E2E - Kernel Residual (μs) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A (Dynamic TinyMLP)** | $B=1$ | 25.10 | 25.00 | 5.90 | **4.25x** | **4.24x** | 0.152 | **1.51x** | 5.75 |
-| *Linear(16->32) -> ReLU -> Linear(32->8)* | $B=4$ | 42.90 | 37.40 | 9.10 | **4.71x** | **4.11x** | 0.646 | **1.77x** | 8.45 |
-| *(Selected: `tiled_16`)* | $B=16$ | 47.10 | 40.20 | 10.90 | **4.32x** | **3.69x** | 2.512 | **1.78x** | 8.39 |
-| | $B=64$ | 50.55 | 44.30 | 18.60 | **2.72x** | **2.38x** | 9.946 | **1.75x** | 8.65 |
-| **Model B (Residual MLP)** | $B=1$ | 41.80 | 42.15 | 5.70 | **7.33x** | **7.39x** | 0.089 | **1.11x** | 5.61 |
-| *Linear + Residual Skip + ReLU* | $B=4$ | 44.20 | 44.40 | 5.90 | **7.49x** | **7.53x** | 0.241 | **1.22x** | 5.66 |
-| *(Selected: `fused_ikj`)* | $B=16$ | 45.80 | 46.00 | 6.60 | **6.94x** | **6.97x** | 0.913 | **1.21x** | 5.69 |
-| | $B=64$ | 77.00 | 49.10 | 9.60 | **8.02x** | **5.11x** | 5.182 | **0.91x** | 4.42 |
-| **Model C (Small CNN)** | $B=1$ | 96.75 | 65.90 | 11.80 | **8.20x** | **5.58x** | 7.059 | **1.34x** | 4.74 |
-| *Conv2d -> ReLU -> Conv2d -> ReLU -> FC* | $B=4$ | 321.85 | 297.55 | 34.20 | **9.41x** | **8.70x** | 24.386 | **1.35x** | 9.81 |
-| *(Selected: `loop_ikj`)* | $B=16$ | 336.40 | 321.25 | 77.30 | **4.35x** | **4.16x** | 76.269 | **1.62x** | 1.03 |
-| | $B=64$ | 393.57 | 448.27 | 380.48 | **1.03x** | **1.18x** | 361.990 | **1.28x** | 18.49 |
+| **Model A (Dynamic TinyMLP)** | $B=1$ | 24.90 | 35.20 | 9.50 | **2.62x** | **3.71x** | 0.227 | **1.37x** | 9.27 |
+| *Linear(16->32) -> ReLU -> Linear(32->8)* | $B=4$ | 31.60 | 40.80 | 10.90 | **2.90x** | **3.74x** | 0.491 | **1.71x** | 10.41 |
+| *(Selected: `loop_ikj`)* | $B=16$ | 44.70 | 39.20 | 11.40 | **3.92x** | **3.44x** | 1.769 | **1.89x** | 9.63 |
+| | $B=64$ | 50.70 | 31.90 | 13.40 | **3.78x** | **2.38x** | 7.658 | **2.25x** | 5.74 |
+| **Model B (Residual MLP)** | $B=1$ | 60.15 | 60.20 | 9.35 | **6.43x** | **6.44x** | 0.117 | **1.12x** | 9.23 |
+| *Linear + Residual Skip + ReLU* | $B=4$ | 62.70 | 68.70 | 10.90 | **5.75x** | **6.30x** | 0.380 | **1.09x** | 10.52 |
+| *(Selected: `fused_ikj_o3`)* | $B=16$ | 64.10 | 64.00 | 10.50 | **6.10x** | **6.10x** | 1.369 | **1.08x** | 9.13 |
+| | $B=64$ | 78.60 | 49.10 | 10.10 | **7.78x** | **4.86x** | 5.046 | **1.14x** | 5.05 |
+| **Model C (Small CNN)** | $B=1$ | 88.25 | 100.65 | 11.60 | **7.61x** | **8.68x** | 5.093 | **1.67x** | 6.51 |
+| *Conv2d -> ReLU -> Conv2d -> ReLU -> FC* | $B=4$ | 242.80 | 303.95 | 34.60 | **7.02x** | **8.78x** | 20.178 | **1.68x** | 14.42 |
+| *(Selected: `loop_ikj`)* | $B=16$ | 339.35 | 268.10 | 104.60 | **3.24x** | **2.56x** | 73.764 | **1.60x** | 30.84 |
+| | $B=64$ | 404.75 | 455.05 | 383.12 | **1.06x** | **1.19x** | 357.630 | **1.31x** | 25.49 |
 
-*\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). For $B \in \{1, 4, 16\}$, fused execution achieves 1.11x–1.22x kernel speedup. At $B=64$, higher register pressure slightly favors the unfused baseline kernel (0.91x kernel ratio). Across the workload range, `fused_ikj` provides optimal aggregate performance, and at the Python level achieves **5.11x controlled E2E speedup over single-threaded PyTorch** and **8.02x over 8-threaded PyTorch** by eliminating framework runtime overhead.*
+*\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). Operator fusion with `-O3` compilation (`fused_ikj_o3`) achieves 1.08x–1.14x native kernel speedup over baseline across all batch sizes. At the Python level, ForgeTune achieves **4.86x controlled E2E speedup over single-threaded PyTorch** ($10.10\ \mu\text{s}$ vs $49.10\ \mu\text{s}$) and **7.78x over 8-threaded PyTorch** ($10.10\ \mu\text{s}$ vs $78.60\ \mu\text{s}$) by eliminating framework runtime overhead.*
 
 *\*Residual Note: Residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) represent runtime work outside the inner kernel, including NumPy contiguous buffer conversion, ctypes pointer marshalling, and dynamic shape validation. Because E2E and kernel benchmarks are independently sampled distributions, separate measurement sessions under CPU frequency scaling or timer jitter can produce small signed residuals (as documented in the 30-sample distribution in `reports/V2_BENCHMARK_REPORT.md`). The paired 100-block hypothesis test with alternating execution order provides the definitive controlled statistical verification.*
 
