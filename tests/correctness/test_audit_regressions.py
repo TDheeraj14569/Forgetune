@@ -2602,20 +2602,28 @@ def test_regression_autotuner_cache_strict_raw_types(tmp_path):
 
 def test_regression_workspace_addition_overflow_in_codegen():
     """
-    P1.1 Regression: CodeGenerator::generate() must check for arithmetic overflow
-    when summing arena_size_bytes and conv2d_scratch_bytes.
+    P1.1 Regression: CodeGenerator::calculate_total_workspace() must detect arithmetic overflow
+    when summing arena_size_bytes and conv2d_scratch_bytes near SIZE_MAX.
     """
     from forgetune import _forgetune_cpp as cpp
-    cfg = cpp.KernelConfig()
-    cfg.max_batch_size = 1
-    # We verify that normal sizes succeed and arithmetic overflow detection is present
-    cg = cpp.CodeGenerator(cfg)
-    g = cpp.IRGraph()
-    x = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
-    g.set_inputs([x])
-    g.set_outputs([x])
-    code = cg.generate(g)
-    assert "forgetune_run" in code
+    # 64-bit SIZE_MAX
+    SIZE_MAX = (1 << 64) - 1
+
+    # Normal addition
+    assert cpp.CodeGenerator.calculate_total_workspace(1024, 2048) == 3072
+
+    # Exact boundary condition: arena + scratch == SIZE_MAX succeeds
+    assert cpp.CodeGenerator.calculate_total_workspace(SIZE_MAX - 100, 100) == SIZE_MAX
+
+    # Arithmetic overflow: arena + scratch > SIZE_MAX must raise OverflowError
+    with pytest.raises(OverflowError, match="overflow"):
+        cpp.CodeGenerator.calculate_total_workspace(SIZE_MAX, 1)
+
+    with pytest.raises(OverflowError, match="overflow"):
+        cpp.CodeGenerator.calculate_total_workspace(SIZE_MAX - 10, 11)
+
+    with pytest.raises(OverflowError, match="overflow"):
+        cpp.CodeGenerator.calculate_total_workspace(SIZE_MAX // 2 + 100, SIZE_MAX // 2 + 100)
 
 
 def test_regression_codegen_node_name_comment_escaping():
@@ -2680,14 +2688,31 @@ def test_regression_ir_add_node_int32_max_overflow():
         g.add_node(unnum)
 
 
+def test_regression_ir_allocate_id_int32_max_overflow():
+    """
+    P2 Regression: IRGraph::allocate_id() must guard against next_id_ overflowing INT32_MAX.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    g = cpp.IRGraph()
+    INT32_MAX = 2147483647
+    node_max = cpp.IRNode(INT32_MAX - 1, cpp.OpKind.INPUT, "edge", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32))
+    g.add_node(node_max)
+    # next_id_ is now INT32_MAX. Calling allocate_id() directly must raise OverflowError
+    with pytest.raises(OverflowError, match="INT32_MAX"):
+        g.allocate_id()
+
+
 def test_regression_max_workspace_bytes_propagation(tmp_path):
     """
-    P2.1 Regression: compile_model() must accept and propagate max_workspace_bytes
-    down to autotuner and C++ codegen.
+    P2.1 Regression: emit_cpp_source() and compile_model() must propagate max_workspace_bytes
+    down to C++ codegen, rejecting workspace budgets that are smaller than required.
     """
     import torch
     import torch.nn as nn
     import forgetune
+    from forgetune.compiler import emit_cpp_source
+    from forgetune.autotuner import KernelCandidate
+    from forgetune.export_frontend import export_to_forgetune_ir
 
     class TinyLinear(nn.Module):
         def __init__(self):
@@ -2698,7 +2723,19 @@ def test_regression_max_workspace_bytes_propagation(tmp_path):
 
     model = TinyLinear().eval()
     x = torch.randn(2, 4)
-    # Budget of 64MB workspace
+    ir_graph = export_to_forgetune_ir(model, (x,))
+    cand = KernelCandidate("test_cand", "naive_ijk", enable_fusion=False)
+
+    # 1. Deliberately insufficient workspace budget (1 byte) must cause C++ codegen to reject with RuntimeError
+    with pytest.raises(RuntimeError, match="exceeding workspace limit"):
+        emit_cpp_source(
+            ir_graph,
+            cand,
+            output_cpp_path=str(tmp_path / "fail.cpp"),
+            max_workspace_bytes=1
+        )
+
+    # 2. Adequate workspace budget (64MB) succeeds and compiles
     compiled = forgetune.compile_model(
         model=model,
         example_inputs=(x,),
@@ -2712,5 +2749,167 @@ def test_regression_max_workspace_bytes_propagation(tmp_path):
     assert "cpp_sha256" in manifest["artifacts"]
     assert manifest.get("graph_hash") is not None
     compiled.close()
+
+
+def test_regression_non_finite_constants_rejected_by_verifier():
+    """
+    P1 Regression: Graph verifier must reject CONST nodes containing NaN or Infinity.
+    """
+    from forgetune import _forgetune_cpp as cpp
+
+    # Test NaN constant
+    g_nan = cpp.IRGraph()
+    x = g_nan.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
+    c_nan = cpp.IRNode(1, cpp.OpKind.CONST, "c_nan", [], cpp.TensorMeta(cpp.TensorShape([4]), cpp.DType.FLOAT32))
+    c_nan.const_data = [1.0, float('nan'), 3.0, 4.0]
+    g_nan.add_node(c_nan)
+    g_nan.set_inputs([x])
+    g_nan.set_outputs([x])
+    with pytest.raises(Exception, match="non-finite"):
+        cpp.verify_graph(g_nan, True)
+
+    # Test Inf constant
+    g_inf = cpp.IRGraph()
+    x2 = g_inf.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
+    c_inf = cpp.IRNode(1, cpp.OpKind.CONST, "c_inf", [], cpp.TensorMeta(cpp.TensorShape([4]), cpp.DType.FLOAT32))
+    c_inf.const_data = [1.0, float('inf'), 3.0, 4.0]
+    g_inf.add_node(c_inf)
+    g_inf.set_inputs([x2])
+    g_inf.set_outputs([x2])
+    with pytest.raises(Exception, match="non-finite"):
+        cpp.verify_graph(g_inf, True)
+
+
+def test_regression_constant_folding_overflow_to_infinity_compiles_cleanly(tmp_path):
+    """
+    P1 Regression: Constant folding pass must NOT fold ADD(2.0e38, 2.0e38) into an inff constant.
+    The operation remains unfurled, and the generated C++ compiles cleanly without syntax errors.
+    """
+    from forgetune import _forgetune_cpp as cpp
+    from forgetune.native_compiler import NativeCompiler
+
+    g = cpp.IRGraph()
+    x = g.add_node(cpp.IRNode(0, cpp.OpKind.INPUT, "x", [], cpp.TensorMeta(cpp.TensorShape([1, 4]), cpp.DType.FLOAT32)))
+    c0 = cpp.IRNode(1, cpp.OpKind.CONST, "c0", [], cpp.TensorMeta(cpp.TensorShape([4]), cpp.DType.FLOAT32))
+    c0.const_data = [2.0e38, 2.0e38, 2.0e38, 2.0e38]
+    g.add_node(c0)
+    c1 = cpp.IRNode(2, cpp.OpKind.CONST, "c1", [], cpp.TensorMeta(cpp.TensorShape([4]), cpp.DType.FLOAT32))
+    c1.const_data = [2.0e38, 2.0e38, 2.0e38, 2.0e38]
+    g.add_node(c1)
+    add_node = cpp.IRNode(3, cpp.OpKind.ADD, "add_big", [1, 2], cpp.TensorMeta(cpp.TensorShape([4]), cpp.DType.FLOAT32))
+    g.add_node(add_node)
+    g.set_inputs([x])
+    g.set_outputs([3])
+
+    # Run optimizer (which executes constant folding)
+    opt = cpp.Optimizer()
+    opt.optimize(g, False)
+
+    # Node 3 must NOT have been replaced by a CONST node containing inff
+    assert g.has_node(3)
+    assert g.get_node(3).op == cpp.OpKind.ADD
+
+    # Generated C++ source must compile cleanly without inff syntax errors
+    cfg = cpp.KernelConfig()
+    cfg.max_batch_size = 1
+    cg = cpp.CodeGenerator(cfg)
+    code = cg.generate(g)
+    assert "inff" not in code
+    assert "nanf" not in code
+
+    cpp_path = str(tmp_path / "fold_overflow.cpp")
+    with open(cpp_path, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    comp = NativeCompiler()
+    dll_ext = ".dll" if sys.platform == "win32" else ".so"
+    dll_path = str(tmp_path / f"fold_overflow{dll_ext}")
+    res = comp.compile_shared_library(cpp_path, dll_path)
+    assert res["success"] is True
+    assert os.path.isfile(dll_path)
+
+
+def test_regression_runtime_non_float32_rejected(tmp_path):
+    """
+    P1/P2 Regression: CompiledModel.run() and NativeRuntime.run() must reject
+    float64 and integer inputs with TypeError rather than silently downcasting.
+    """
+    import torch
+    import torch.nn as nn
+    import forgetune
+
+    class SimpleLinear(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleLinear().eval()
+    x = torch.randn(2, 4)
+    compiled = forgetune.compile_model(
+        model=model,
+        example_inputs=(x,),
+        output_dir=str(tmp_path / "dtype_model"),
+        autotune=False
+    )
+
+    # float64 torch tensor
+    x_f64 = torch.randn(2, 4, dtype=torch.float64)
+    with pytest.raises(TypeError, match="float32"):
+        compiled.run(x_f64)
+
+    # int32 numpy array
+    x_i32 = np.ones((2, 4), dtype=np.int32)
+    with pytest.raises(TypeError, match="float32"):
+        compiled.run(x_i32)
+
+    # float64 numpy array
+    x_np_f64 = np.ones((2, 4), dtype=np.float64)
+    with pytest.raises(TypeError, match="float32"):
+        compiled.run(x_np_f64)
+
+    compiled.close()
+
+
+def test_regression_native_runtime_max_batch_size_validation(tmp_path):
+    """
+    P3 Regression: NativeRuntime constructor must strictly validate optional max_batch_size.
+    """
+    import torch
+    import torch.nn as nn
+    import forgetune
+    from forgetune.runtime import NativeRuntime
+
+    class DummyModel(nn.Module):
+        def forward(self, x):
+            return x
+
+    x = torch.randn(2, 4)
+    compiled = forgetune.compile_model(
+        model=DummyModel().eval(),
+        example_inputs=(x,),
+        output_dir=str(tmp_path / "dummy_rt"),
+        autotune=False
+    )
+    dll_path = compiled.manifest()["artifacts"]["shared_library"]
+    compiled.close()
+
+    # Boolean max_batch_size must raise TypeError
+    with pytest.raises(TypeError, match="strictly positive non-boolean integer"):
+        NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=True)
+
+    # Float max_batch_size must raise TypeError
+    with pytest.raises(TypeError, match="strictly positive non-boolean integer"):
+        NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=12.5)
+
+    # Non-positive max_batch_size must raise TypeError
+    with pytest.raises(TypeError, match="strictly positive non-boolean integer"):
+        NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=0)
+
+    # Valid positive integer succeeds
+    rt = NativeRuntime(dll_path, (-1, 4), (-1, 4), max_batch_size=256)
+    assert rt.max_batch_size == 256
+    rt.close()
 
 

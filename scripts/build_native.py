@@ -62,9 +62,21 @@ def main():
         import pybind11
         pybind_inc = pybind11.get_include()
     except ImportError:
-        pybind_inc = os.path.join(sys.prefix, "Lib", "site-packages", "pybind11", "include")
-        if not os.path.isdir(pybind_inc):
-            pybind_inc = os.path.join(repo_root, ".venv", "Lib", "site-packages", "pybind11", "include")
+        cand_subdirs = [
+            ("Lib", "site-packages", "pybind11", "include"),
+            ("lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "pybind11", "include"),
+            ("lib", "site-packages", "pybind11", "include"),
+            ("include", "pybind11"),
+        ]
+        pybind_inc = ""
+        for base in [sys.prefix, repo_root, os.path.join(repo_root, ".venv")]:
+            for sub in cand_subdirs:
+                c = os.path.join(base, *sub)
+                if os.path.isdir(c):
+                    pybind_inc = c
+                    break
+            if pybind_inc:
+                break
 
     is_win = sys.platform == "win32"
     pyd_ext = ".pyd" if is_win else ".so"
@@ -154,16 +166,22 @@ def main():
             if not line_str:
                 continue
             if "warning:" in line_str.lower():
-                line_norm = line_str.replace("\\", "/").lower()
-                # Attribute warning to our codebase if it originates from our source or include directories
-                is_our_code = any(p in line_norm for p in ("src/", "include/forgetune/", "tests/cpp/"))
-                # Filter out standard library or third-party toolchain false-positives
-                is_external = any(k in line_norm for k in (
-                    "libcxx", "nullability", "_nonnull", "_nullable",
-                    "__annotate", "site-packages", "hostedtoolcache",
-                    "python", "pybind11"
+                # Extract file path preceding the diagnostic indicator
+                # E.g. "path/to/file.cpp:123:45: warning: message" or "path\to\file.cpp(123): warning C4000: message"
+                file_part = line_str.lower().split("warning:")[0].strip()
+                file_candidate = file_part.split(":")[0].split("(")[0].strip().replace("\\", "/")
+
+                # Check whether the diagnostic source path originates from our codebase
+                is_our_code = (
+                    file_candidate.startswith("src/") or "/src/" in file_candidate or
+                    file_candidate.startswith("include/forgetune/") or "/include/forgetune/" in file_candidate or
+                    file_candidate.startswith("tests/cpp/") or "/tests/cpp/" in file_candidate
+                )
+                # Check whether the file path is explicitly inside external/toolchain standard library headers
+                is_toolchain = any(td in file_candidate for td in (
+                    "/libcxx/", "libcxx/", "/site-packages/", "site-packages/", "/hostedtoolcache/", "hostedtoolcache/"
                 ))
-                if is_our_code and not is_external:
+                if is_our_code and not is_toolchain:
                     warning_lines.append(line_str)
         if warning_lines:
             print(f"FAILED zero-warning requirement for {target_name}:")

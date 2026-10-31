@@ -13,6 +13,9 @@ from .errors import RuntimeError, InvalidShapeError
 
 class NativeRuntime:
     def __init__(self, dll_path: str, expected_input_shape: Tuple[int, ...], expected_output_shape: Tuple[int, ...], max_batch_size: Optional[int] = None):
+        if max_batch_size is not None:
+            if type(max_batch_size) is not int or isinstance(max_batch_size, bool) or max_batch_size <= 0:
+                raise TypeError(f"max_batch_size must be a strictly positive non-boolean integer, got {max_batch_size} ({type(max_batch_size).__name__})")
         self._configured_max_batch_size = max_batch_size
         self.original_dll_path = os.path.abspath(dll_path)
         self.expected_input_shape = tuple(expected_input_shape)
@@ -90,12 +93,12 @@ class NativeRuntime:
         else:
             self.is_dynamic = self.is_shape_dynamic
 
-        if hasattr(self.lib, "forgetune_max_batch"):
+        if getattr(self, "_configured_max_batch_size", None) is not None and self._configured_max_batch_size > 0:
+            self.max_batch_size = int(self._configured_max_batch_size)
+        elif hasattr(self.lib, "forgetune_max_batch"):
             self.lib.forgetune_max_batch.argtypes = []
             self.lib.forgetune_max_batch.restype = ctypes.c_int64
             self.max_batch_size = int(self.lib.forgetune_max_batch())
-        elif getattr(self, "_configured_max_batch_size", None) is not None and self._configured_max_batch_size > 0:
-            self.max_batch_size = int(self._configured_max_batch_size)
         else:
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 
@@ -225,8 +228,8 @@ class NativeRuntime:
 
         if type(input_tensor) is not np.ndarray:
             input_tensor = np.asarray(input_tensor)
-        if np.iscomplexobj(input_tensor) or input_tensor.dtype.kind not in ('f', 'i', 'u'):
-            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
+        if np.iscomplexobj(input_tensor) or input_tensor.dtype != np.float32:
+            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires float32 input (no silent casting from '{input_tensor.dtype}').")
 
         if self.is_dynamic:
             # Validate rank
@@ -256,9 +259,9 @@ class NativeRuntime:
                     f"Dynamic batch size {actual_batch} out of valid range [1, {self.max_batch_size}]"
                 )
 
-            # Ensure contiguous float32
-            if input_tensor.dtype != np.float32 or not input_tensor.flags["C_CONTIGUOUS"]:
-                input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
+            # Ensure contiguous array
+            if not input_tensor.flags["C_CONTIGUOUS"]:
+                input_tensor = np.ascontiguousarray(input_tensor)
 
             if self.is_output_dynamic:
                 output_shape = (actual_batch, *self._output_shape_tail)
@@ -303,9 +306,9 @@ class NativeRuntime:
                     f"Input shape mismatch: expected {self.expected_input_shape}, got {input_tensor.shape}"
                 )
 
-            # Ensure contiguous float32
-            if input_tensor.dtype != np.float32 or not input_tensor.flags["C_CONTIGUOUS"]:
-                input_tensor = np.ascontiguousarray(input_tensor, dtype=np.float32)
+            # Ensure contiguous array
+            if not input_tensor.flags["C_CONTIGUOUS"]:
+                input_tensor = np.ascontiguousarray(input_tensor)
 
             # Allocate output buffer
             output_tensor = np.empty(self.expected_output_shape, dtype=np.float32)
@@ -343,8 +346,8 @@ class NativeRuntime:
 
         if type(input_tensor) is not np.ndarray:
             input_tensor = np.asarray(input_tensor)
-        if np.iscomplexobj(input_tensor) or input_tensor.dtype.kind not in ('f', 'i', 'u'):
-            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
+        if np.iscomplexobj(input_tensor) or input_tensor.dtype != np.float32:
+            raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires float32 input (no silent casting from '{input_tensor.dtype}').")
 
         if self.benchmark_fn is None:
             raise RuntimeError("DLL does not export forgetune_benchmark_kernel")

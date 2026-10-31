@@ -136,8 +136,23 @@ def main():
     has_collection_error = any(r.get("outcome") == "collection_error" for r in collector.results.values())
     has_error = any(r.get("outcome") == "error" for r in collector.results.values())
     has_failed = any(r.get("outcome") == "failed" for r in collector.results.values())
-    if pytest_rc != 0 or cpp_res != 0 or has_collection_error or has_error or has_failed:
-        print(f"[-] Test manifest generation completed with errors/failures (pytest_rc={pytest_rc}, cpp_res={cpp_res})")
+
+    allowed_skips = (
+        {"tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error"}
+        if sys.platform != "win32" else set()
+    )
+    unapproved_skips = [
+        nid for nid, r in collector.results.items()
+        if r.get("outcome") == "skipped" and not any(allowed in nid for allowed in allowed_skips)
+    ]
+    has_unapproved_skip = len(unapproved_skips) > 0
+    if has_unapproved_skip:
+        print(f"[-] Unapproved test skips detected ({len(unapproved_skips)}):")
+        for s in unapproved_skips:
+            print(f"    - {s}")
+
+    if pytest_rc != 0 or cpp_res != 0 or has_collection_error or has_error or has_failed or has_unapproved_skip:
+        print(f"[-] Test manifest generation completed with errors/failures/unapproved skips (pytest_rc={pytest_rc}, cpp_res={cpp_res})")
         sys.exit(int(pytest_rc) if pytest_rc != 0 else 1)
 
 if __name__ == "__main__":

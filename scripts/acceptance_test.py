@@ -184,10 +184,14 @@ def main():
 
     print("\n=================================================================")
     print(" ACCEPTANCE TESTING EXECUTION SUMMARY")
-    print(f" Total Tests Executed: {total_passed + total_failed}")
-    print(f" Passed:               {total_passed}")
-    print(f" Failed:               {total_failed}")
-    print(f" Total Duration:       {total_duration:.2f}s")
+    print(f" Total Tests Accounted: {total_passed + total_failed + total_skipped + total_errors}")
+    print(f" Passed:                {total_passed}")
+    print(f" Failed:                {total_failed}")
+    if total_skipped > 0:
+        print(f" Skipped:               {total_skipped}")
+    if total_errors > 0:
+        print(f" Errors:                {total_errors}")
+    print(f" Total Duration:        {total_duration:.2f}s")
     print(f" Machine Report Saved: {report_file}")
     print("=================================================================")
 

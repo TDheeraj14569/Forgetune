@@ -4,6 +4,7 @@
 #include <sstream>
 #include <limits>
 #include <vector>
+#include <cmath>
 
 namespace forgetune {
 
@@ -28,10 +29,7 @@ std::string CodeGenerator::generate(const IRGraph& graph) const {
 
     MemoryPlanner planner;
     MemoryPlan plan = planner.plan(graph, config_.max_batch_size);
-    if (plan.conv2d_scratch_bytes > std::numeric_limits<size_t>::max() - plan.arena_size_bytes) {
-        throw std::overflow_error("Total workspace size arithmetic overflow");
-    }
-    const size_t total_workspace_required = plan.arena_size_bytes + plan.conv2d_scratch_bytes;
+    const size_t total_workspace_required = calculate_total_workspace(plan.arena_size_bytes, plan.conv2d_scratch_bytes);
     if (total_workspace_required > config_.max_workspace_bytes) {
         throw std::runtime_error("Configured maximum batch size (" + std::to_string(config_.max_batch_size) +
                                  ") requires workspace (" + std::to_string(total_workspace_required) +
@@ -95,6 +93,10 @@ void CodeGenerator::emit_constants(std::ostringstream& oss, const IRGraph& graph
 
         oss << "static const float const_data_" << node.id << "[" << node.const_data.size() << "] = {\n  ";
         for (size_t i = 0; i < node.const_data.size(); ++i) {
+            if (!std::isfinite(node.const_data[i])) {
+                throw std::invalid_argument("Cannot emit non-finite float constant (NaN or Inf) for CONST node %" +
+                                            std::to_string(node.id) + " at index " + std::to_string(i));
+            }
             if (i > 0) {
                 oss << ", ";
                 if (i % 8 == 0) oss << "\n  ";

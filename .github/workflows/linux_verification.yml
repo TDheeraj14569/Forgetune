@@ -21,12 +21,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 3. Set Up Virtual Environment & Install Dependencies
+      - name: 3. Set Up Virtual Environment & Install Pinned Dependencies
         run: |
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-ci.txt
           pip install -e .
 
       - name: 4. Build Native Components from Source (-Wall -Wextra)
@@ -42,3 +42,8 @@ jobs:
         run: |
           . .venv/bin/activate
           python -m pytest -v tests/
+
+      - name: 7. Execute Three-Round Master Verification Protocol
+        run: |
+          . .venv/bin/activate
+          python scripts/v2_verify_all.py --mode=full --skip-benchmarks

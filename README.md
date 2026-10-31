@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
 [![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
-[![Tests](https://img.shields.io/badge/Tests-285%2F285%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-295%2F295%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 
 **ForgeTune v2.0** is an ahead-of-time (AOT) C++17 machine learning inference compiler and lightweight native runtime designed for low-latency CPU inference with dynamic batching and zero steady-state native arena allocations after warm-up.
@@ -115,16 +115,16 @@ All benchmarks are measured on AMD64 hardware (Windows 11, PyTorch 2.14.1+cpu). 
 ### Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
 To evaluate Model C at $B=64$ without sequential bias, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
-- **PyTorch 1-Thread E2E Median:** $349.35\ \mu\text{s}$
-- **ForgeTune E2E Median:** $287.82\ \mu\text{s}$
-- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+71.29\ \mu\text{s}$ (ForgeTune is significantly faster)
-- **Median Difference:** $+58.08\ \mu\text{s}$
-- **Standard Error ($SE$):** $6.60\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 66.00\ \mu\text{s}$)
-- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.47\ \mu\text{s}$):** $t = 13.45$, exact Student's t $p = 2.27 \times 10^{-24} \ll 0.0001$. Non-inferiority is decisively certified.
-- **Two-Sided TOST Equivalence ($\pm 5\%$ margin, $\pm 17.47\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+60.33, +82.25]\ \mu\text{s}$), placing the entire confidence interval well above $+17.47\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
+- **PyTorch 1-Thread E2E Median:** $418.48\ \mu\text{s}$
+- **ForgeTune E2E Median:** $297.93\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+121.40\ \mu\text{s}$ (ForgeTune is significantly faster)
+- **Median Difference:** $+111.12\ \mu\text{s}$
+- **Standard Error ($SE$):** $8.76\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 87.61\ \mu\text{s}$)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -20.92\ \mu\text{s}$):** $t = 16.24$, exact Student's t $p = 5.57 \times 10^{-30} \ll 0.0001$. Non-inferiority is decisively certified.
+- **Two-Sided TOST Equivalence ($\pm 5\%$ margin, $\pm 20.92\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+106.85, +135.95]\ \mu\text{s}$), placing the entire confidence interval well above $+20.92\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[+60.68\ \mu\text{s},\; +82.48\ \mu\text{s}]$
-  - Median Difference: $[+55.58\ \mu\text{s},\; +61.85\ \mu\text{s}]$
+  - Mean Difference: $[+107.06\ \mu\text{s},\; +135.85\ \mu\text{s}]$
+  - Median Difference: $[+74.70\ \mu\text{s},\; +143.05\ \mu\text{s}]$
 
 ---
 
@@ -194,7 +194,7 @@ print(f"Batch 64 output shape: {out_b64.shape}")
 The repository enforces a defensible, multi-tier automated test suite across Windows and Linux:
 
 ```bash
-# 1. Run full Python test suite (272 tests)
+# 1. Run full Python test suite (282 tests)
 python -m pytest -v tests/
 
 # 2. Run standalone native C++ unit tests (13 tests)
@@ -206,11 +206,13 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 ### Test Accounting Summary
-- **Total Enumerated Tests:** **285 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
-  - **272 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 79 audit defect regressions.
+- **Total Enumerated Tests:** **295 tests** (100% passing, 0 failed, 0 skipped, 0 blocked).
+  - **282 Python Tests:** Collected and executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 86 audit defect regressions.
   - **13 Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe`.
   - *Note on overlap:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 - **Compiler Diagnostics:** Builds with **0 warnings and 0 errors** under `-std=c++17 -O2 -Wall -Wextra` on both Linux and Windows.
+  - Upstream Python C API header warnings are selectively silenced using `-Wno-nullability*` flags (`-Wno-nullability`, `-Wno-nullability-completeness`, `-Wno-nullability-completeness-on-arrays`, `-Wno-nullability-declspec`) because external Python headers lack complete nullability annotations on Windows/MinGW toolchains.
+  - Intermediate inference compilation applies `-fno-signed-zeros` (fast-math signed-zero relaxation) to treat $+0.0$ and $-0.0$ interchangeably for maximum CPU throughput while preserving IEEE 754 float32 finite ranges. MSVC uses `/fp:precise` to ensure deterministic floating-point semantics.
 - **Bitwise Reproducibility:** 3-round verification protocol compares 65,536 float32 values across independent clean compilations with **0 bit divergences** (0/2,097,152 bits).
 
 ---
@@ -221,6 +223,7 @@ To maintain architectural transparency, the current scope and limitations are ex
 - **Execution Target:** CPU inference only. No CUDA, Metal, or GPU backends are implemented.
 - **Operator Set:** Designed for MLPs and Feed-Forward CNNs. Supports `MATMUL`, `ADD`, `MUL`, `RELU`, `SIGMOID`, `TANH`, `CONV2D`, `FLATTEN`, and fused combinations. Does not support dynamic control flow, RNNs, or Multi-Head Attention mechanisms.
 - **Dynamic Dimension Scope:** Dynamic behavior is strictly constrained to the leading batch dimension ($B \le 128$). Internal tensor channel and spatial dimensions ($C, H, W$) are resolved statically at export time.
+- **Floating-Point & Numerical Semantics:** Operations use single-precision IEEE 754 float32. Inference kernels use fast-math signed-zero relaxation (`-fno-signed-zeros`), which allows the compiler to treat positive and negative zero as numerically equivalent in SIMD pipelines.
 - **Threading Model:** Single-threaded execution per runtime instance. Multi-threading is achieved at the application level via concurrent independent runtime instances.
 
 ---

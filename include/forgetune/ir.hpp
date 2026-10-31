@@ -274,10 +274,7 @@ public:
     // Add a node to the graph. Returns the node's ID.
     NodeId add_node(IRNode node) {
         if (node.id == INVALID_NODE_ID) {
-            if (next_id_ >= std::numeric_limits<NodeId>::max()) {
-                throw std::overflow_error("IRGraph::add_node: node ID at INT32_MAX cannot advance next_id_");
-            }
-            node.id = next_id_++;
+            node.id = allocate_id();
         } else {
             if (node.id < 0) {
                 throw std::runtime_error("IRGraph::add_node: negative node ID");
@@ -476,6 +473,9 @@ public:
 
     // Allocate a new unique node ID without adding a node
     NodeId allocate_id() {
+        if (next_id_ >= std::numeric_limits<NodeId>::max()) {
+            throw std::overflow_error("IRGraph::allocate_id: node ID at INT32_MAX cannot advance next_id_");
+        }
         return next_id_++;
     }
 

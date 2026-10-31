@@ -312,7 +312,7 @@ std::unordered_map<NodeId, std::vector<float>> Interpreter::evaluate(
         const auto& shape = node.output_meta.shape;
         if (shape.has_dynamic_batch()) {
             int64_t static_elems = shape.static_element_count();
-            if (static_elems <= 0 || (it->second.size() % static_elems != 0)) {
+            if (static_elems <= 0 || (it->second.size() % static_cast<size_t>(static_elems) != 0)) {
                 throw InvalidShapeError("Interpreter: input buffer size not a multiple of static element count for node %" +
                                         std::to_string(in_id));
             }

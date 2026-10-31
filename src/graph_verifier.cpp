@@ -2,6 +2,7 @@
 #include <unordered_set>
 #include <sstream>
 #include <limits>
+#include <cmath>
 
 namespace forgetune {
 
@@ -162,6 +163,14 @@ VerificationResult verify_graph(const IRGraph& graph, bool check_throw) {
                     res.add_error("CONST node %" + std::to_string(node.id) + " buffer size mismatch: data has " +
                                   std::to_string(node.const_data.size()) + " floats, shape expects " +
                                   std::to_string(expected_elements));
+                }
+                for (size_t i = 0; i < node.const_data.size(); ++i) {
+                    if (!std::isfinite(node.const_data[i])) {
+                        res.add_error("CONST node %" + std::to_string(node.id) +
+                                      " contains non-finite element (NaN or Inf) at index " +
+                                      std::to_string(i));
+                        break;
+                    }
                 }
                 break;
             }

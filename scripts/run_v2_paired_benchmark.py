@@ -58,11 +58,17 @@ def main():
                 manifest_data = json.load(f)
             cand_dll = manifest_data.get("artifacts", {}).get("shared_library")
             recorded_sha = manifest_data.get("artifacts", {}).get("dll_sha256")
-            if cand_dll and os.path.isfile(cand_dll) and recorded_sha:
-                cur_sha = _compute_file_sha256(cand_dll)
-                if cur_sha == recorded_sha:
-                    dll_path = os.path.abspath(cand_dll)
-                    is_valid_provenance = True
+            cpp_file = manifest_data.get("artifacts", {}).get("cpp_source")
+            rec_cpp_sha = manifest_data.get("artifacts", {}).get("cpp_sha256")
+            graph_hash = manifest_data.get("artifacts", {}).get("graph_hash")
+            rec_platform = manifest_data.get("platform")
+            if (cand_dll and os.path.isfile(cand_dll) and recorded_sha and
+                _compute_file_sha256(cand_dll) == recorded_sha and
+                cpp_file and os.path.isfile(cpp_file) and
+                _compute_file_sha256(cpp_file) == rec_cpp_sha and
+                graph_hash and rec_platform == sys.platform):
+                dll_path = os.path.abspath(cand_dll)
+                is_valid_provenance = True
         except Exception:
             pass
 
@@ -93,80 +99,83 @@ def main():
     ITERS_PER_BLOCK = 50
     WARMUP_PER_BLOCK = 5
 
-    # Initial warmup
-    dummy = torch.randn(64, 1, 8, 8)
-    dummy_np = dummy.numpy()
-    with torch.no_grad():
-        for _ in range(25):
-            _ = model(dummy)
-    for _ in range(25):
-        _ = rt.run(dummy_np)
-
     blocks = []
-    print(f"\nCollecting {N_BLOCKS} paired blocks (alternating execution order)...")
+    try:
+        # Initial warmup
+        dummy = torch.randn(64, 1, 8, 8)
+        dummy_np = dummy.numpy()
+        with torch.no_grad():
+            for _ in range(25):
+                _ = model(dummy)
+        for _ in range(25):
+            _ = rt.run(dummy_np)
 
-    for i in range(N_BLOCKS):
-        # Generate fresh input tensor for this block
-        x_torch = torch.randn(64, 1, 8, 8)
-        x_np = x_torch.numpy()
+        print(f"\nCollecting {N_BLOCKS} paired blocks (alternating execution order)...")
 
-        pt_times = []
-        ft_times = []
+        for i in range(N_BLOCKS):
+            # Generate fresh input tensor for this block
+            x_torch = torch.randn(64, 1, 8, 8)
+            x_np = x_torch.numpy()
 
-        # Alternating order: odd blocks -> PT then FT; even blocks -> FT then PT
-        if i % 2 == 0:
-            # PyTorch first
-            with torch.no_grad():
+            pt_times = []
+            ft_times = []
+
+            # Alternating order: odd blocks -> PT then FT; even blocks -> FT then PT
+            if i % 2 == 0:
+                # PyTorch first
+                with torch.no_grad():
+                    for _ in range(WARMUP_PER_BLOCK):
+                        _ = model(x_torch)
+                    for _ in range(ITERS_PER_BLOCK):
+                        t0 = time.perf_counter_ns()
+                        _ = model(x_torch)
+                        t1 = time.perf_counter_ns()
+                        pt_times.append((t1 - t0) / 1000.0)
+
                 for _ in range(WARMUP_PER_BLOCK):
-                    _ = model(x_torch)
+                    _ = rt.run(x_np)
                 for _ in range(ITERS_PER_BLOCK):
                     t0 = time.perf_counter_ns()
-                    _ = model(x_torch)
+                    _ = rt.run(x_np)
                     t1 = time.perf_counter_ns()
-                    pt_times.append((t1 - t0) / 1000.0)
-
-            for _ in range(WARMUP_PER_BLOCK):
-                _ = rt.run(x_np)
-            for _ in range(ITERS_PER_BLOCK):
-                t0 = time.perf_counter_ns()
-                _ = rt.run(x_np)
-                t1 = time.perf_counter_ns()
-                ft_times.append((t1 - t0) / 1000.0)
-        else:
-            # ForgeTune first
-            for _ in range(WARMUP_PER_BLOCK):
-                _ = rt.run(x_np)
-            for _ in range(ITERS_PER_BLOCK):
-                t0 = time.perf_counter_ns()
-                _ = rt.run(x_np)
-                t1 = time.perf_counter_ns()
-                ft_times.append((t1 - t0) / 1000.0)
-
-            with torch.no_grad():
+                    ft_times.append((t1 - t0) / 1000.0)
+            else:
+                # ForgeTune first
                 for _ in range(WARMUP_PER_BLOCK):
-                    _ = model(x_torch)
+                    _ = rt.run(x_np)
                 for _ in range(ITERS_PER_BLOCK):
                     t0 = time.perf_counter_ns()
-                    _ = model(x_torch)
+                    _ = rt.run(x_np)
                     t1 = time.perf_counter_ns()
-                    pt_times.append((t1 - t0) / 1000.0)
+                    ft_times.append((t1 - t0) / 1000.0)
 
-        pt_med = float(np.median(pt_times))
-        ft_med = float(np.median(ft_times))
-        diff = pt_med - ft_med
+                with torch.no_grad():
+                    for _ in range(WARMUP_PER_BLOCK):
+                        _ = model(x_torch)
+                    for _ in range(ITERS_PER_BLOCK):
+                        t0 = time.perf_counter_ns()
+                        _ = model(x_torch)
+                        t1 = time.perf_counter_ns()
+                        pt_times.append((t1 - t0) / 1000.0)
 
-        blocks.append({
-            "block_index": i + 1,
-            "order": "PT_then_FT" if (i % 2 == 0) else "FT_then_PT",
-            "pytorch_1thread_us": round(pt_med, 2),
-            "forgetune_e2e_us": round(ft_med, 2),
-            "paired_difference_us": round(diff, 2)
-        })
+            pt_med = float(np.median(pt_times))
+            ft_med = float(np.median(ft_times))
+            diff = pt_med - ft_med
 
-        if (i + 1) % 20 == 0:
-            print(f"  Processed block {i + 1} / {N_BLOCKS} (latest diff: {diff:+.2f} us)")
+            blocks.append({
+                "block_index": i + 1,
+                "order": "PT_then_FT" if (i % 2 == 0) else "FT_then_PT",
+                "pytorch_1thread_us": round(pt_med, 2),
+                "forgetune_e2e_us": round(ft_med, 2),
+                "paired_difference_us": round(diff, 2)
+            })
 
-    torch.set_num_threads(orig_threads)
+            if (i + 1) % 20 == 0:
+                print(f"  Processed block {i + 1} / {N_BLOCKS} (latest diff: {diff:+.2f} us)")
+    finally:
+        torch.set_num_threads(orig_threads)
+        if hasattr(rt, "close"):
+            rt.close()
 
     # 3. Statistical Analysis
     diffs = np.array([b["paired_difference_us"] for b in blocks], dtype=np.float64)

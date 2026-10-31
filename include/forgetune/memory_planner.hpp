@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <limits>
+#include <cstdint>
 #include <stdexcept>
 
 namespace forgetune {

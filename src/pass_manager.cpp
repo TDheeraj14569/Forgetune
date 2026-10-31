@@ -3,6 +3,7 @@
 #include "forgetune/interpreter.hpp"
 #include <algorithm>
 #include <unordered_set>
+#include <cmath>
 
 namespace forgetune {
 
@@ -122,6 +123,19 @@ bool ConstantFoldingPass::run(IRGraph& graph) {
                 auto res = interp.evaluate(mini, {});
                 folded_data = res[m_op];
             } else {
+                continue;
+            }
+
+            // Verify that all folded elements are finite; do not fold non-finite results (e.g. overflow to Inf or NaN)
+            bool all_finite = true;
+            for (float val : folded_data) {
+                if (!std::isfinite(val)) {
+                    all_finite = false;
+                    break;
+                }
+            }
+            if (!all_finite) {
+                // Leave operation unfurled for runtime execution
                 continue;
             }
 

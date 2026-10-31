@@ -96,15 +96,15 @@ def extract_pytest_counts(stdout: str) -> dict:
 def parse_model_execution_output(stdout: str) -> tuple:
     batches = [int(b) for b in re.findall(r"Batch B=\s*(\d+): PASS", stdout)]
     diffs = [float(d) for d in re.findall(r"max_abs=([0-9.eE+-]+)", stdout)]
-    max_diff = max(diffs) if diffs else 0.0
     batch_str = "$" + ", ".join(str(b) for b in batches) + "$" if batches else "None"
-    if max_diff > 0:
+    if diffs:
+        max_diff = max(diffs)
         s_exp = f"{max_diff:.2e}"
         base, exp = s_exp.split("e")
         exp_int = int(exp)
         latex_diff = f"${base} \\times 10^{{{exp_int}}}$"
     else:
-        latex_diff = "$0.0$"
+        latex_diff = "N/A"
     return batch_str, latex_diff
 
 def run_step(step_name: str, cmd: list, env: dict = None) -> tuple:
@@ -240,6 +240,19 @@ def main():
     def exec_step(round_num: int, step_name: str, cmd: list, fatal: bool = False) -> bool:
         nonlocal all_steps_passed
         success, cat, reason, stdout = run_step(step_name, cmd, env=env)
+        # Parse pytest outputs across all steps to strictly reject failures and unapproved skips
+        if "pytest" in step_name.lower() or any("pytest" in str(c).lower() for c in cmd):
+            counts = extract_pytest_counts(stdout)
+            if counts["failed"] > 0:
+                success = False
+                cat = "test_failure"
+                reason = f"{counts['failed']} tests failed"
+            allowed_skips = 1 if sys.platform != "win32" else 0
+            if counts["skipped"] > allowed_skips:
+                success = False
+                cat = "unexpected_skip"
+                reason = f"{counts['skipped']} tests skipped (max allowed: {allowed_skips})"
+
         round_results[round_num].append({
             "name": step_name,
             "success": success,
@@ -279,6 +292,14 @@ def main():
         if not results:
             return "**NOT RUN**"
         all_ok = all(r["success"] for r in results)
+        for r in results:
+            if "pytest" in r["name"].lower() or "test suite" in r["name"].lower():
+                counts = extract_pytest_counts(r.get("stdout", ""))
+                if counts["failed"] > 0:
+                    all_ok = False
+                allowed_skips = 1 if sys.platform != "win32" else 0
+                if counts["skipped"] > allowed_skips:
+                    all_ok = False
         if all_ok:
             return "**VERIFIED**"
         any_hard = any(not r["success"] and r["cat"] != "sac_policy_blocked" for r in results)

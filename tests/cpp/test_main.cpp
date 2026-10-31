@@ -543,11 +543,11 @@ bool test_v2_interpreter_new_ops() {
 
         Interpreter interp;
         std::vector<float> in_data(16);
-        for (int i = 0; i < 16; ++i) in_data[i] = static_cast<float>(i);
+        for (size_t i = 0; i < 16; ++i) in_data[i] = static_cast<float>(i);
         auto outs = interp.evaluate(g, {{x, in_data}});
         const auto& res_flat = outs[flat];
         TEST_ASSERT(res_flat.size() == 16, "Flattened size must be 16");
-        for (int i = 0; i < 16; ++i) {
+        for (size_t i = 0; i < 16; ++i) {
             TEST_ASSERT(res_flat[i] == static_cast<float>(i), "Flattened elements must preserve order");
         }
     }

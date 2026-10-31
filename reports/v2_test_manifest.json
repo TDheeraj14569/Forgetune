@@ -1,16 +1,16 @@
 {
   "summary": {
-    "total_python_tests_collected": 277,
-    "total_python_tests_executed": 277,
-    "python_passed": 277,
+    "total_python_tests_collected": 282,
+    "total_python_tests_executed": 282,
+    "python_passed": 282,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "python_collection_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 290,
-    "total_passing": 290,
+    "total_tests_available": 295,
+    "total_passing": 295,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -621,7 +621,22 @@
     "tests/correctness/test_audit_regressions.py::test_regression_ir_add_node_int32_max_overflow": {
       "outcome": "passed"
     },
+    "tests/correctness/test_audit_regressions.py::test_regression_ir_allocate_id_int32_max_overflow": {
+      "outcome": "passed"
+    },
     "tests/correctness/test_audit_regressions.py::test_regression_max_workspace_bytes_propagation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_non_finite_constants_rejected_by_verifier": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_constant_folding_overflow_to_infinity_compiles_cleanly": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_runtime_non_float32_rejected": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_regression_native_runtime_max_batch_size_validation": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

@@ -174,7 +174,7 @@ class NativeCompiler:
                 f"/Fe:{temp_dll_path}",
                 "/std:c++17",
                 msvc_opt,
-                "/fp:fast",
+                "/fp:precise",
                 "/W4"
             ]
         else:

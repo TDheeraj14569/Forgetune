@@ -239,7 +239,9 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
         .def(py::init<KernelConfig>(), py::arg("config") = KernelConfig{})
         .def("generate", &CodeGenerator::generate, py::arg("graph"))
         .def("set_config", &CodeGenerator::set_config)
-        .def("get_config", &CodeGenerator::get_config);
+        .def("get_config", &CodeGenerator::get_config)
+        .def_static("calculate_total_workspace", &CodeGenerator::calculate_total_workspace,
+                    py::arg("arena_bytes"), py::arg("conv2d_scratch_bytes"));
 
     // Native C++ test suite runner
     m.def("run_cpp_test_suite", &run_cpp_test_suite, "Runs all 13 native C++ unit tests in-process");

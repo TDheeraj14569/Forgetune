@@ -268,13 +268,17 @@ def emit_cpp_source(
     Emits standalone C++ source code for a given IR graph and candidate configuration.
     Uses in-process C++ compiler bridge (_forgetune_cpp) when available, falling back to CLI.
     """
+    if max_workspace_bytes is not None:
+        if type(max_workspace_bytes) is not int or isinstance(max_workspace_bytes, bool) or max_workspace_bytes <= 0:
+            raise TypeError(f"max_workspace_bytes must be a strictly positive non-boolean integer, got {max_workspace_bytes} ({type(max_workspace_bytes).__name__})")
+
     try:
         from . import _forgetune_cpp as cpp
         g_cpp = cpp.json_to_graph(ir_graph.to_json())
         cfg = cpp.KernelConfig()
         cfg.candidate_id = candidate.candidate_id
         if max_workspace_bytes is not None:
-            cfg.max_workspace_bytes = int(max_workspace_bytes)
+            cfg.max_workspace_bytes = max_workspace_bytes
         variant_map = {
             "naive_ijk": cpp.MatMulVariant.NAIVE_IJK,
             "loop_ikj": cpp.MatMulVariant.LOOP_IKJ,
@@ -299,7 +303,7 @@ def emit_cpp_source(
                 f.write(res.generated_cpp_source)
             return
         else:
-            raise RuntimeError(f"C++ compiler bridge compilation failed: {'; '.join(res.diagnostics)}")
+            raise RuntimeError(f"C++ compiler bridge compilation failed: {res.error_message}")
     except (ImportError, ModuleNotFoundError):
         pass  # In-process bridge unavailable -> fallback to standalone CLI engine
 
@@ -381,12 +385,14 @@ class CompiledModel:
         if isinstance(input_tensor, torch.Tensor):
             if input_tensor.is_complex() or not input_tensor.is_floating_point():
                 raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires real numeric float32 input.")
-            arr = input_tensor.detach().cpu().to(torch.float32).numpy()
+            if input_tensor.dtype != torch.float32:
+                raise TypeError(f"Unsupported input tensor dtype '{input_tensor.dtype}': ForgeTune requires float32 input (no silent casting from '{input_tensor.dtype}').")
+            arr = input_tensor.detach().cpu().numpy()
         else:
             raw_arr = np.asarray(input_tensor)
-            if np.iscomplexobj(raw_arr) or raw_arr.dtype.kind not in ('f', 'i', 'u'):
-                raise TypeError(f"Unsupported input tensor dtype '{raw_arr.dtype}': ForgeTune requires real numeric float32 input.")
-            arr = raw_arr.astype(np.float32)
+            if np.iscomplexobj(raw_arr) or raw_arr.dtype != np.float32:
+                raise TypeError(f"Unsupported input tensor dtype '{raw_arr.dtype}': ForgeTune requires float32 input (no silent casting from '{raw_arr.dtype}').")
+            arr = raw_arr
 
         return self._runtime.run(arr, batch_size=batch_size)
 

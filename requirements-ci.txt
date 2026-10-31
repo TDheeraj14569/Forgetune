@@ -1,4 +1,4 @@
-# Pinned Windows CI Dependencies for ForgeTune v2.0
+# Pinned CI Dependencies for ForgeTune v2.0 (Windows & Linux)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.14.1+cpu
 numpy==2.5.2

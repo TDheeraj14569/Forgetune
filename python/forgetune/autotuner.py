@@ -138,7 +138,8 @@ class Autotuner:
         input_shape: Tuple[int, ...],
         max_budget: int = 8,
         force_fusion: bool = False,
-        enable_fusion: Optional[bool] = None
+        enable_fusion: Optional[bool] = None,
+        max_workspace_bytes: Optional[int] = None
     ) -> str:
         h = hashlib.sha256()
         h.update(b"forgetune_v7_complete_provenance_2.0_")
@@ -147,6 +148,7 @@ class Autotuner:
         h.update(str(max_budget).encode("utf-8"))
         h.update(str(force_fusion).encode("utf-8"))
         h.update(str(enable_fusion).encode("utf-8"))
+        h.update(str(max_workspace_bytes).encode("utf-8"))
         h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
         h.update(self._get_compiler_sources_fingerprint().encode("utf-8"))
         h.update(sys.platform.encode("utf-8"))
@@ -308,13 +310,17 @@ class Autotuner:
         if type(max_budget) is not int or isinstance(max_budget, bool) or not (1 <= max_budget <= 8):
             raise ValueError(f"max_budget must be an integer between 1 and 8, got {max_budget} ({type(max_budget).__name__})")
 
+        if max_workspace_bytes is not None:
+            if type(max_workspace_bytes) is not int or isinstance(max_workspace_bytes, bool) or max_workspace_bytes <= 0:
+                raise TypeError(f"max_workspace_bytes must be a strictly positive non-boolean integer, got {max_workspace_bytes} ({type(max_workspace_bytes).__name__})")
+
         os.makedirs(artifacts_dir, exist_ok=True)
         graph_json = graph.to_json()
         input_shape = tuple(example_input.shape)
         output_shape = tuple(reference_output.shape)
 
         cache_key = self._compute_cache_key(
-            graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion
+            graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion, max_workspace_bytes=max_workspace_bytes
         )
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
@@ -322,6 +328,8 @@ class Autotuner:
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
                     cached_report = json.load(f)
+                if cached_report.get("max_workspace_bytes") != max_workspace_bytes:
+                    raise ValueError("Cache workspace limit mismatch")
                 cand_data = cached_report["selected_candidate"]
                 if not isinstance(cand_data, dict):
                     raise ValueError("Invalid cache: selected_candidate must be a dict")
@@ -677,6 +685,7 @@ class Autotuner:
             "machine_metadata": get_machine_metadata(),
             "round_execution_orders": round_exec_orders,
             "fusion_candidates_enabled": bool(enable_fusion),
+            "max_workspace_bytes": max_workspace_bytes,
             "candidate_evaluations": candidate_results
         }
 

@@ -4,6 +4,8 @@
 #include "forgetune/ir.hpp"
 #include "forgetune/kernel_config.hpp"
 #include <string>
+#include <limits>
+#include <stdexcept>
 
 namespace forgetune {
 
@@ -12,6 +14,14 @@ class CodeGenerator {
 public:
     explicit CodeGenerator(KernelConfig config = KernelConfig{})
         : config_(std::move(config)) {}
+
+    // Checked workspace addition helper
+    static size_t calculate_total_workspace(size_t arena_bytes, size_t conv2d_scratch_bytes) {
+        if (conv2d_scratch_bytes > std::numeric_limits<size_t>::max() - arena_bytes) {
+            throw std::overflow_error("Total workspace size arithmetic overflow");
+        }
+        return arena_bytes + conv2d_scratch_bytes;
+    }
 
     // Generate standalone C++ source code
     std::string generate(const IRGraph& graph) const;
