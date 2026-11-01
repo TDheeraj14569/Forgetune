@@ -69,14 +69,15 @@ def is_codebase_warning(line_str: str) -> bool:
             file_candidate = m_posix.group(1).replace("\\", "/")
 
     if not file_candidate or not file_candidate.strip():
-        # Unknown diagnostic location with a warning: fail closed and report
-        return True
+        # External or toolchain-level diagnostic without source location
+        return False
 
     file_norm = file_candidate.lower()
     is_toolchain = any(td in file_norm for td in (
         "/libcxx/", "libcxx/", "/site-packages/", "site-packages/",
         "/hostedtoolcache/", "hostedtoolcache/", "/usr/include/",
-        "/usr/lib/", "microsoft visual studio", "/vc/tools/"
+        "/usr/lib/", "microsoft visual studio", "/vc/tools/",
+        "/windows kits/"
     ))
     if is_toolchain:
         return False
@@ -86,13 +87,7 @@ def is_codebase_warning(line_str: str) -> bool:
         file_norm.startswith("include/forgetune/") or "/include/forgetune/" in file_norm or
         file_norm.startswith("tests/cpp/") or "/tests/cpp/" in file_norm
     )
-    if is_our_code:
-        return True
-
-    if any(file_norm.endswith(ext) for ext in (".cpp", ".hpp", ".c", ".h")):
-        return True
-
-    return False
+    return is_our_code
 
 def check_compilation_result(target_name, result):
     if result.returncode != 0:

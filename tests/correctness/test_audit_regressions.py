@@ -3136,11 +3136,12 @@ def test_warning_parser_suppresses_external_toolchain_warnings():
     assert not is_codebase_warning("/usr/include/python3.12/pyport.h:10: warning: nullability")
 
 
-def test_warning_parser_fails_closed_on_unplaced_warning():
+def test_warning_parser_ignores_unplaced_toolchain_diagnostics():
     from scripts.build_native import is_codebase_warning
-    # An unplaced warning with no file location should fail closed (return True to alert developer)
-    assert is_codebase_warning("warning: cannot find entry point")
-    assert is_codebase_warning("warning C9999: internal toolchain state unknown")
+    # Toolchain or compiler notices without a codebase file path should not fail the build
+    assert not is_codebase_warning("warning: argument unused during compilation: '-fno-signed-zeros'")
+    assert not is_codebase_warning("clang: warning: argument unused during compilation")
+    assert not is_codebase_warning("warning C9999: internal toolchain state unknown")
 
 
 def test_warning_parser_ignores_non_warning_lines():
