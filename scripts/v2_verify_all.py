@@ -323,7 +323,7 @@ def main():
                     all_ok = False
                 allowed_skips = 1 if sys.platform != "win32" else 0
                 skipped_nodes = extract_pytest_skipped_nodes(r.get("stdout", ""))
-                unapproved = [n for n in skipped_nodes if APPROVED_LINUX_SKIP_NAME not in n]
+                unapproved = [n for n in skipped_nodes if not is_approved_linux_skip(n)]
                 if counts["skipped"] > allowed_skips or (counts["skipped"] > 0 and (sys.platform == "win32" or len(unapproved) > 0)):
                     all_ok = False
         if all_ok:
