@@ -105,9 +105,9 @@ Automated GitHub Actions workflows have been created in `.github/workflows/windo
 
 ### 3.4 Remote Cross-Platform CI Execution Evidence & Certification
 The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and successfully executed to completion on GitHub Actions:
-- **Windows Run ID:** `41213089561` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089561))
-- **Linux Run ID:** `41213089531` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089531))
-- **Commit SHA:** `450bb8e2bb5cd0e3cff035869cd9dc5ad10db1df`
+- **Windows Run ID:** `41340180094` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41340180094))
+- **Linux Run ID:** `41340180055` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41340180055))
+- **Commit SHA:** `1dd946f7a0eb642247e89a01293a4a921b36ee83`
 - **Runner Environments:**
   - Windows: Windows Server 2022 (`windows-latest`, AMD64, Python 3.12, Ziglang 0.16.0)
   - Linux: Ubuntu 24.04 (`ubuntu-latest`, x86_64, Python 3.12, GCC 14.2 / Zig C++)
@@ -123,10 +123,10 @@ The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and
 | **5. Build Native Components from Source (-Wall -Wextra)** | 1m 55s | `success` | `forgetune_test_suite.exe`, `forgetune_engine.exe`, and `_forgetune_cpp.pyd` compiled cleanly with 0 warnings |
 | **6. Verify Dynamic DLL Loading & Parity via CI Probe** | 12s | `success` | Raw C++ DLL returns 42; dynamic model compiles; numerical parity vs PyTorch verified; clean-build reproducibility passes with 0 bit differences |
 | **7. Run Native C++ Test Suite (13 tests)** | 4s | `success` | **13 / 13 native C++ tests passed** (100% pass rate) |
-| **8. Run Full PyTest Suite (282 tests)** | 2m 45s | `success` | **282 / 282 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
+| **8. Run Full PyTest Suite (293 tests)** | 2m 45s | `success` | **293 / 293 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
 | **9. Run Model Acceptance, Dynamic-Batch & Adversarial** | 35s | `success` | Model acceptance and adversarial boundary suites executed with 100% pass |
 | **10. Execute Three-Round Master Verification Protocol** | 6m 12s | `success` | All 3 verification rounds executed to completion with **exit code 0** (Round 1 clean build, Round 2 boundary & memory analysis, Round 3 clean rebuild & 65,536-float bitwise reproducibility verification with 0 bit differences) |
-| **11. Execute Paired Model C B=64 Benchmark (N=100)** | 18s | `success` | 100 paired blocks executed with alternating execution order |
+| **11. Execute Paired Model C B=64 Benchmark (N=100)** | 18s | `success` | 100 paired blocks executed with alternating execution order; Non-inferiority certified |
 | **12. Upload Test & Benchmark Artifacts** | 6s | `success` | Test logs, reports, and binaries archived to GitHub Actions artifacts |
 
 ---

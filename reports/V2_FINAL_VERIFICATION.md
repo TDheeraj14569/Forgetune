@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-31 23:38:24
 **Git Branch:** `v2.0-dev`
-**Source Revision:** `4305558843f1ae015e905b3aee602ac9d48f9242`
+**Source Revision:** `1dd946f7a0eb642247e89a01293a4a921b36ee83`
 **Git Index Fingerprint:** `20b1ef9fb44e51ede75ce86d6ad2a0b92bd58be8`
 **Working-Tree SHA-256:** `d9d119b24ab0167f6573a2a069f2d4208f7f990785e9d248bcb974eb3e7663fb`
 **Verification Mode:** `FULL`
