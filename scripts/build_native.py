@@ -14,6 +14,7 @@ import sysconfig
 import platform
 import json
 import re
+from typing import Optional
 
 def find_zig():
     # 1. PATH
@@ -47,16 +48,20 @@ def find_zig():
 
     return "zig"
 
-def is_codebase_warning(line_str: str) -> bool:
+def classify_diagnostic(line_str: str, repo_root: Optional[str] = None) -> str:
     """
-    Parses a compiler diagnostic line and returns True if it represents a warning
-    originating from our codebase (or an unplaced diagnostic), and False if it is
-    an external/toolchain header warning.
+    Parses a compiler output line and categorizes it into:
+      - 'not_a_warning': Line is not a compiler warning diagnostic.
+      - 'toolchain_warning': Warning originating from external toolchains, SDKs,
+                             standard libraries, or unplaced compiler CLI flags.
+      - 'unknown_warning': Warning originating from an unrecognized external path.
+      - 'project_warning': Warning originating from inside our project source tree
+                           (src/, include/forgetune/, tests/cpp/).
     """
     lower_line = line_str.lower()
     warn_match = re.search(r"warning(?:\s+[a-z0-9]+)?\s*:", lower_line)
     if not warn_match:
-        return False
+        return "not_a_warning"
 
     prefix = line_str[:warn_match.start()].strip()
     file_candidate = None
@@ -69,27 +74,52 @@ def is_codebase_warning(line_str: str) -> bool:
             file_candidate = m_posix.group(1).replace("\\", "/")
 
     if not file_candidate or not file_candidate.strip():
-        # External or toolchain-level diagnostic without source location
-        return False
+        # External or toolchain-level diagnostic without source location (e.g. CLI flags)
+        return "toolchain_warning"
 
-    file_norm = file_candidate.lower()
-    is_toolchain = any(td in file_norm for td in (
+    file_norm = file_candidate.lower().strip()
+    is_toolchain = file_norm in ("clang", "clang++", "zig", "gcc", "g++", "cl", "lld-link", "ld") or any(td in file_norm for td in (
         "/libcxx/", "libcxx/", "/site-packages/", "site-packages/",
         "/hostedtoolcache/", "hostedtoolcache/", "/usr/include/",
         "/usr/lib/", "microsoft visual studio", "/vc/tools/",
         "/windows kits/"
     ))
     if is_toolchain:
-        return False
+        return "toolchain_warning"
 
-    is_our_code = (
-        file_norm.startswith("src/") or "/src/" in file_norm or
-        file_norm.startswith("include/forgetune/") or "/include/forgetune/" in file_norm or
-        file_norm.startswith("tests/cpp/") or "/tests/cpp/" in file_norm
-    )
-    return is_our_code
+    if repo_root is None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    repo_root_norm = os.path.abspath(repo_root).replace("\\", "/").lower().rstrip("/")
 
-def check_compilation_result(target_name, result):
+    clean_cand = file_candidate.replace("\\", "/").lstrip("./")
+    clean_cand_lower = clean_cand.lower()
+
+    project_subdirs = ("src/", "include/forgetune/", "tests/cpp/")
+    if any(clean_cand_lower.startswith(sd) for sd in project_subdirs):
+        return "project_warning"
+
+    abs_cand = os.path.abspath(file_candidate).replace("\\", "/").lower()
+    if abs_cand.startswith(repo_root_norm + "/"):
+        rel_under_repo = abs_cand[len(repo_root_norm) + 1:]
+        if any(rel_under_repo.startswith(sd) for sd in project_subdirs):
+            return "project_warning"
+
+    for sd in project_subdirs:
+        if f"/{sd}" in abs_cand or f"\\{sd}" in file_candidate.lower():
+            if "forgetune" in abs_cand or abs_cand.startswith(repo_root_norm):
+                return "project_warning"
+
+    return "unknown_warning"
+
+def is_codebase_warning(line_str: str, repo_root: Optional[str] = None) -> bool:
+    """
+    Parses a compiler diagnostic line and returns True if it represents a warning
+    originating from our codebase (or an unplaced diagnostic), and False if it is
+    an external/toolchain header warning.
+    """
+    return classify_diagnostic(line_str, repo_root) == "project_warning"
+
+def check_compilation_result(target_name, result, repo_root=None):
     if result.returncode != 0:
         print(f"Failed to compile {target_name} (exit code {result.returncode}):")
         print(result.stderr)
@@ -97,12 +127,25 @@ def check_compilation_result(target_name, result):
 
     combined = (result.stdout or "") + "\n" + (result.stderr or "")
     warning_lines = []
+    toolchain_lines = []
+    unknown_lines = []
     for line in combined.splitlines():
         line_str = line.strip()
         if not line_str:
             continue
-        if is_codebase_warning(line_str):
+        diag_kind = classify_diagnostic(line_str, repo_root)
+        if diag_kind == "project_warning":
             warning_lines.append(line_str)
+        elif diag_kind == "toolchain_warning":
+            toolchain_lines.append(line_str)
+        elif diag_kind == "unknown_warning":
+            unknown_lines.append(line_str)
+
+    if toolchain_lines:
+        print(f"   [Notice] Filtered {len(toolchain_lines)} external/toolchain diagnostic(s).")
+    if unknown_lines:
+        print(f"   [Notice] Filtered {len(unknown_lines)} unknown/external diagnostic(s).")
+
     if warning_lines:
         print(f"FAILED zero-warning requirement for {target_name}:")
         for w in warning_lines:

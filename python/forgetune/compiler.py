@@ -69,13 +69,14 @@ def get_bounded_test_batches(
 ) -> List[int]:
     """
     Computes a representative, memory-budget-aware list of batch sizes for correctness verification.
-    Guarantees that ahead-of-time test allocations during compilation/verification will not
+    Guarantees that ahead-of-time test input allocations during compilation/verification will not
     exhaust memory (internal verification resource cap: safe_cap = min(max_batch_size, 256, max_safe_b_by_mem)).
 
-    Note: This ceiling applies exclusively to ahead-of-time test tensor generation during verification.
+    Note: The default 32 MiB threshold (max_single_batch_bytes) is strictly an input-tensor allocation
+    cap during export verification to avoid out-of-memory errors when staging test tensors, not a full
+    memory guarantee or ceiling on total runtime workspace.
     The compiled native kernel and NativeRuntime support the full user-configured max_batch_size
     (up to 1,000,000 as configured and planned by the native MemoryPlanner).
-    The memory budget estimates intermediate activation/tensor storage based on input tensor geometry.
     """
     if len(input_shape) > 0 and input_shape[0] != -1:
         elem_count = int(np.prod(input_shape))

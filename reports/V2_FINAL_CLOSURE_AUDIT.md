@@ -13,17 +13,17 @@
 This closure audit provides the definitive, evidence-backed evaluation of ForgeTune V2.0 on branch `v2.0-dev`. All claims, test inventories, statistical evaluations, and architectural capabilities have been reconciled against the actual repository source code, Windows kernel event logs, and raw benchmark measurements.
 
 ### Key Audit Conclusions:
-1. **Repository Integrity & Git History:** Branch `master` and tag `v1.0.0` remain completely frozen and untouched at commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032`. All v2.0 improvements—including dynamic batch support, IR Schema 2.0, multi-operator loop fusion, liveness interval coloring memory planning, autotuning artifact caching, and 86 audit defect regressions—are cleanly developed and versioned on branch `v2.0-dev`.
+1. **Repository Integrity & Git History:** Branch `master` and tag `v1.0.0` remain completely frozen and untouched at commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032`. All v2.0 improvements—including dynamic batch support, IR Schema 2.0, multi-operator loop fusion, liveness interval coloring memory planning, autotuning artifact caching, and 99 audit defect regressions—are cleanly developed and versioned on branch `v2.0-dev`.
 2. **Corrected Windows Diagnostic Terminology:** The error code observed on novel dynamic DLLs is Win32 error `4551` (`ERROR_APP_CONTROL_BLOCKED`), with the system message `"An Application Control policy has blocked this file."` Neither the exception nor the Windows Code Integrity log provides an underlying NTSTATUS string. The failure occurs at `LoadLibraryW()` via `ctypes.CDLL()`, enforced by Policy ID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` (Event IDs 3077 and 3033).
-3. **Defensible Test Inventory Accounting:** The repository contains **306 enumerated test identifiers, with overlapping execution** (293 collected Python test items via pytest + 13 standalone native C++ test functions). In the test suite execution, all 293 Python tests executed assertions to completion and passed. Containment analysis confirms that the 13 C++ tests execute both standalone in `bin/forgetune_test_suite.exe` and in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
-4. **Three Verification Rounds & Reproducibility:** The three-round verification protocol (`scripts/v2_verify_all.py`) verified clean C++ building, dual-ABI loading, and model execution across Rounds 1 and 2. On remote Windows CI ([Run 41213089561](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089561)), all three rounds executed to completion with **EXIT CODE 0**, including Round 3 bitwise reproducibility across 65,536 float32 values with 0 bit differences (0/65,536 word mismatches, 0/2,097,152 bit divergences across independent clean builds). On Linux CI ([Run 41213089531](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089531)), native compilation (-Wall -Wextra), the 13/13 native C++ test suite, and the full pytest suite executed with 100% pass rate.
+3. **Defensible Test Inventory Accounting:** The repository contains **306 enumerated test identifiers** (293 collected Python test items via pytest + 13 standalone native C++ test functions). On Windows, 293 passed and 0 skipped. On Linux, 292 passed and 1 approved platform-specific skip (`tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking semantics). Containment analysis confirms that the 13 C++ tests execute both standalone in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe` and in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
+4. **Three Verification Rounds & Reproducibility:** The three-round verification protocol (`scripts/v2_verify_all.py`) verified clean C++ building, dual-ABI loading, and model execution across Rounds 1 and 2. In remote Windows CI and locally, all three rounds executed to completion with **EXIT CODE 0**, including Round 3 bitwise reproducibility across 65,536 float32 values with 0 bit differences (0/65,536 word mismatches, 0/2,097,152 bit divergences across independent clean builds). On Linux CI, native compilation (-Wall -Wextra), the 13/13 native C++ test suite, and the full pytest suite (292 passed, 1 approved skip) executed with 100% pass rate.
 5. **Reconciled Benchmark Provenance:**
-   - The authoritative benchmark dataset on disk is (`v2-bench-1793430268-fafe50cc` in `reports/v2_benchmark_report.json`), reporting Model C $B=64$ medians: PyTorch 8T $418.18\ \mu\text{s}$, PyTorch 1T $470.65\ \mu\text{s}$, ForgeTune E2E $385.05\ \mu\text{s}$, ForgeTune Kernel $347.23\ \mu\text{s}$.
+   - The authoritative benchmark dataset on disk is (`v2-bench-1793566051-3743367c` in `reports/v2_benchmark_report.json`), reporting Model C $B=64$ medians: PyTorch 8T $394.68\ \mu\text{s}$, PyTorch 1T $451.90\ \mu\text{s}$, ForgeTune E2E $385.75\ \mu\text{s}$, ForgeTune Kernel $368.34\ \mu\text{s}$.
    - **Residuals:** Residuals ($t_{\text{e2e}} - t_{\text{kernel}}$) reflect Python and ctypes runtime boundary costs; in multi-session measurements, separate sampling can yield signed residuals due to timer resolution and CPU frequency scaling, with the paired benchmark serving as authoritative evidence.
 6. **Expanded Paired Benchmark Experiment ($N=100$ Blocks):** A newly executed paired-block experiment with alternating execution order on Model C at $B=64$ (`reports/v2_paired_b64_benchmark_data.json`) demonstrates:
-   - Sample mean difference: $\bar{d} = +73.59\ \mu\text{s}$ ($SE = 6.28\ \mu\text{s}$, $df = 99$, sample standard deviation $s_d = 62.78\ \mu\text{s}$). ForgeTune is measurably faster than single-threaded PyTorch 1T ($291.00\ \mu\text{s}$ vs $356.68\ \mu\text{s}$ median, with $+64.33\ \mu\text{s}$ median advantage).
-   - One-sided non-inferiority against PyTorch 1T is proven with extreme statistical confidence ($t = 14.56$, exact Student's t $p = 1.19 \times 10^{-26} \ll 0.0001$). Under the original performance acceptance criterion (REQ-24, Milestone 7, Audit 3), **Gate 7 is certified PASS (PERFORMANCE NON-INFERIORITY AND PAIRED BENCHMARK VALIDATION)**.
-   - Two-sided TOST equivalence within $\pm 5\%$ ($\pm 17.83\ \mu\text{s}$) is documented as inconclusive ($90\%\ \text{CI} = [+63.16, +84.01]\ \mu\text{s}$) specifically because the entire confidence interval lies above $+17.83\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
+   - Sample mean difference: $\bar{d} = +64.14\ \mu\text{s}$ ($SE = 5.33\ \mu\text{s}$, $df = 99$, sample standard deviation $s_d = 53.26\ \mu\text{s}$). ForgeTune is measurably faster than single-threaded PyTorch 1T ($294.90\ \mu\text{s}$ vs $353.20\ \mu\text{s}$ median, with $+54.50\ \mu\text{s}$ median advantage).
+   - One-sided non-inferiority against PyTorch 1T is proven with extreme statistical confidence ($t = 15.36$, exact Student's t $p = 3.01 \times 10^{-28} \ll 0.0001$). Under the original performance acceptance criterion (REQ-24, Milestone 7, Audit 3), **Gate 7 is certified PASS (PERFORMANCE NON-INFERIORITY AND PAIRED BENCHMARK VALIDATION)**.
+   - Two-sided TOST equivalence within $\pm 5\%$ ($\pm 17.66\ \mu\text{s}$) is documented as inconclusive ($90\%\ \text{CI} = [+55.30, +72.99]\ \mu\text{s}$) specifically because the entire confidence interval lies above $+17.66\ \mu\text{s}$. The test fails equivalence due to genuine performance superiority, not high variance or performance inferiority.
 7. **Cross-Platform CI Execution & Verification:** The automated GitHub Actions CI workflows (`.github/workflows/windows_verification.yml` and `.github/workflows/linux_verification.yml`) executed on `windows-latest` and `ubuntu-latest` with conclusion **`success`** (Windows CI: native build, CI probe, 13/13 native C++ tests, full pytest suite, 3-round verification protocol with exit code 0, and paired benchmarks; Linux CI: native build, 13/13 native C++ tests, full pytest suite, and 3-round verification protocol with `--skip-benchmarks`).
 8. **Master Release Decision:** **ALL 12 RELEASE GATES ARE CERTIFIED PASS** (12 PASS, 0 FAIL, 0 HOLD). Functional correctness, legacy ABI compatibility, mathematical operator correctness, memory optimization, non-inferior performance parity, and three-round bitwise reproducibility are completely verified. The candidate on `v2.0-dev` is fully certified and ready for human-reviewed release authorization.
 
@@ -136,7 +136,7 @@ The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and
 ### 4.1 Defensible Test Inventory Accounting
 The approved, audited phrasing is:
 
-> **"295 enumerated test identifiers, with overlapping execution"**
+> **"306 enumerated test identifiers, with overlapping execution"**
 
 #### Breakdown:
 1. **Collected Python Test Items (pytest):** Exactly **293 items** collected across `tests/`.
@@ -145,17 +145,17 @@ The approved, audited phrasing is:
 
 #### Containment & Overlap Relationship:
 The 13 native C++ test functions are executed in two distinct operational contexts:
-- **Standalone Context:** Directly compiled into `bin/forgetune_test_suite.exe` and executed as an independent native binary.
+- **Standalone Context:** Directly compiled into `bin/forgetune_test_suite.exe` (or `bin/forgetune_test_suite` on Linux) and executed as an independent native binary.
 - **In-Process PyTest Context:** Executed within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`, which invokes `forgetune._forgetune_cpp.run_cpp_test_suite()`.
 
 ### 4.2 Test Outcome Reconciliation
 | Execution Category | Count | Status | Forensic Explanation |
 |---|:---:|:---:|---|
-| **Python Tests in PyTest Suite (CI & Local)** | 293 | **PASSED** | All 293 collected items executed assertions and passed. Zero blocked, zero failures. |
+| **Python Tests in PyTest Suite (CI & Local)** | 293 | **PASSED** | All 293 collected items executed assertions and passed on Windows (292 passed + 1 approved skip on Linux). Zero unexpected skips, zero failures. |
 | **Native C++ Tests (CI & Local)** | 13 | **PASSED** | 13/13 native C++ tests pass 100% in standalone and in-process execution. |
 | **Total Test Suite Passing** | **306** | **PASSED** | Zero logic, numerical, or compilation failures across the test suite (100% pass rate). |
 | **Round 3 Bitwise Reproducibility (Local)** | 1 | **PASSED** | Bitwise reproducibility across 65,536 float32 values verified with 0 bit differences. |
-| **Round 3 Bitwise Reproducibility (CI)** | 1 | **PASSED** | In Windows CI ([Run 41213089561](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089561)), all 65,536 float32 values matched with 0 bit differences. |
+| **Round 3 Bitwise Reproducibility (CI)** | 1 | **PASSED** | In Windows CI and locally, all 65,536 float32 values matched with 0 bit differences. |
 
 ---
 
@@ -165,37 +165,37 @@ The three-round verification runner (`scripts/v2_verify_all.py`) was executed ac
 
 | Round | Scope | Execution Steps | Result | Detailed Evidence |
 |:---:|---|---|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; build C++ test suite, engine CLI, pybind11 extension; run C++ suite (13/13 passed); run full pytest (282/282 passed); run Models A, B, C | **VERIFIED** | Clean compilation from scratch. All workload examples execute with zero numerical error. Full failure propagation verified. |
+| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; build C++ test suite, engine CLI, pybind11 extension; run C++ suite (13/13 passed); run full pytest (293/293 passed); run Models A, B, C | **VERIFIED** | Clean compilation from scratch. All workload examples execute with zero numerical error. Full failure propagation verified. |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch tests ($B \in [1, 128]$); boundary rejection ($B \le 0, B > 128$); dual ABI verification; memory liveness reuse verification | **VERIFIED** | Zero memory leaks; memory reuse achieves 38.5% to 58.6% storage reduction across Models A, B, and C (`reports/V2_MEMORY_REPORT.md`). |
-| **Round 3** | Clean Rebuild & Bitwise Reproducibility | Clean rebuild of all binaries; rerun C++ suite (13/13 passed); rerun pytest (282/282 passed); rerun Models A, B, C; independent recompilation and 65,536-float bitwise comparison | **VERIFIED** | Verified locally and in Windows CI ([Run 41213089561](https://github.com/TDheeraj14569/Forgetune/actions/runs/41213089561)) with **EXIT CODE 0** and 0/65,536 mismatched floats (0 bit errors). |
+| **Round 3** | Clean Rebuild & Bitwise Reproducibility | Clean rebuild of all binaries; rerun C++ suite (13/13 passed); rerun pytest (293/293 passed); rerun Models A, B, C; independent recompilation and 65,536-float bitwise comparison | **VERIFIED** | Verified locally and in Windows CI with **EXIT CODE 0** and 0/65,536 mismatched floats (0 bit errors). |
 
 ---
 
 ## 6. Stage 6 — Performance & Statistical Disambiguation
 
 ### 6.1 Benchmark Run Provenance Reconciliation
-The authoritative benchmark dataset on disk in `reports/v2_benchmark_report.json` is Run ID `v2-bench-1793430268-fafe50cc`. All multi-model latency measurements and autotuning speedups correspond bit-for-bit with the raw JSON provenance artifact on disk:
+The authoritative benchmark dataset on disk in `reports/v2_benchmark_report.json` is Run ID `v2-bench-1793566051-3743367c`. All multi-model latency measurements and autotuning speedups correspond bit-for-bit with the raw JSON provenance artifact on disk:
 
 ### Authoritative Performance Table (AMD Ryzen 7 7730U, Windows 11)
 
 | Model Architecture | Batch Size $B$ | PyTorch 8T Median ($\mu\text{s}$) | PyTorch 1T Median ($\mu\text{s}$) | ForgeTune E2E Median ($\mu\text{s}$) | Baseline C++ Kernel ($\mu\text{s}$) | Candidate Kernel ($\mu\text{s}$) | Selected Implementation Kernel ($\mu\text{s}$) | Candidate Speedup | Genuine Kernel Opt Speedup | E2E Speedup vs PT 8T | E2E Speedup vs PT 1T |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A** (Dynamic TinyMLP) | 1 | 38.90 | 35.15 | 9.10 | 0.312 | 0.184 | 0.184 | 1.70x | **1.70x** | **4.27x** | **3.86x** |
-| | 4 | 42.90 | 37.10 | 10.90 | 1.222 | 0.692 | 0.692 | 1.77x | **1.77x** | **3.94x** | **3.40x** |
-| | 16 | 44.90 | 39.60 | 11.60 | 4.482 | 2.471 | 2.471 | 1.81x | **1.81x** | **3.87x** | **3.41x** |
-| | 64 | 52.15 | 44.65 | 19.00 | 17.379 | 9.362 | 9.362 | 1.86x | **1.86x** | **2.74x** | **2.35x** |
-| **Model B** (Residual MLP) | 1 | 65.00 | 60.30 | 9.40 | 0.131 | 0.120 | 0.120 | 1.09x | **1.09x** | **6.91x** | **6.41x** |
-| | 4 | 62.20 | 44.60 | 7.35 | 0.411 | 0.357 | 0.357 | 1.15x | **1.15x** | **8.46x** | **6.07x** |
-| | 16 | 63.70 | 64.00 | 10.60 | 1.451 | 1.324 | 1.324 | 1.10x | **1.10x** | **6.01x** | **6.04x** |
-| | 64 | 78.80 | 68.90 | 14.70 | 4.949 | 5.426 | 5.426 | 0.91x | **0.91x** | **5.36x** | **4.69x** |
-| **Model C** (Small CNN) | 1 | 125.95 | 92.90 | 16.70 | 9.483 | 6.955 | 6.955 | 1.36x | **1.36x** | **7.54x** | **5.56x** |
-| | 4 | 340.90 | 235.50 | 34.60 | 33.748 | 21.007 | 21.007 | 1.61x | **1.61x** | **9.85x** | **6.81x** |
-| | 16 | 356.35 | 353.50 | 104.75 | 119.863 | 80.814 | 80.814 | 1.48x | **1.48x** | **3.40x** | **3.37x** |
-| | 64 | 418.18 | 470.65 | 385.05 | 476.270 | 347.230 | 347.230 | 1.37x | **1.37x** | **1.09x** | **1.22x** |
+| **Model A** (Dynamic TinyMLP) | 1 | 35.60 | 35.90 | 9.20 | 0.311 | 0.185 | 0.185 | 1.68x | **1.68x** | **3.87x** | **3.90x** |
+| | 4 | 43.35 | 38.10 | 9.60 | 1.139 | 0.622 | 0.622 | 1.83x | **1.83x** | **4.52x** | **3.97x** |
+| | 16 | 33.60 | 28.50 | 7.80 | 3.393 | 1.734 | 1.734 | 1.96x | **1.96x** | **4.31x** | **3.65x** |
+| | 64 | 51.90 | 49.90 | 21.80 | 17.672 | 9.638 | 9.638 | 1.83x | **1.83x** | **2.38x** | **2.29x** |
+| **Model B** (Residual MLP) | 1 | 60.15 | 60.10 | 10.80 | 0.100 | 0.090 | 0.090 | 1.11x | **1.11x** | **5.57x** | **5.56x** |
+| | 4 | 44.70 | 44.80 | 9.30 | 0.388 | 0.353 | 0.353 | 1.10x | **1.10x** | **4.81x** | **4.82x** |
+| | 16 | 65.80 | 46.00 | 7.00 | 1.456 | 1.321 | 1.321 | 1.10x | **1.10x** | **9.40x** | **6.57x** |
+| | 64 | 83.45 | 69.20 | 16.50 | 5.763 | 5.232 | 5.232 | 1.10x | **1.10x** | **5.06x** | **4.19x** |
+| **Model C** (Small CNN) | 1 | 110.05 | 90.25 | 11.60 | 9.378 | 6.988 | 6.988 | 1.34x | **1.34x** | **9.49x** | **7.78x** |
+| | 4 | 322.80 | 294.40 | 34.70 | 34.233 | 24.262 | 24.262 | 1.41x | **1.41x** | **9.30x** | **8.48x** |
+| | 16 | 341.30 | 341.60 | 104.40 | 114.662 | 77.403 | 77.403 | 1.48x | **1.48x** | **3.27x** | **3.27x** |
+| | 64 | 394.68 | 451.90 | 385.75 | 468.950 | 368.340 | 368.340 | 1.27x | **1.27x** | **1.02x** | **1.17x** |
 
-*\*Architectural Note on Model B at $B=64$: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). For $B \in \{1, 4, 16\}$, fused execution achieves 1.09x–1.15x kernel speedup. At $B=64$, higher register pressure slightly favors the unfused baseline kernel (0.91x kernel ratio). Across the workload range, `fused_ikj_o3` provides optimal aggregate performance, and at the Python level achieves **4.69x controlled E2E speedup over single-threaded PyTorch** ($14.70\ \mu\text{s}$ vs $68.90\ \mu\text{s}$) and **5.36x over 8-threaded PyTorch** ($14.70\ \mu\text{s}$ vs $78.80\ \mu\text{s}$) by eliminating framework runtime overhead.*
+*\*Architectural Note on Model B: The autotuner evaluates candidates across the full dynamic batch range ($B \in \{1, 4, 16, 64\}$). Operator fusion (`fused_ikj`) is selected, providing consistent 1.10x–1.11x native kernel speedup over baseline across all batch sizes, and achieving **4.19x controlled E2E speedup over single-threaded PyTorch** ($16.50\ \mu\text{s}$ vs $69.20\ \mu\text{s}$) and **5.06x over 8-threaded PyTorch** ($16.50\ \mu\text{s}$ vs $83.45\ \mu\text{s}$) at $B=64$ by eliminating framework runtime overhead.*
 
-*\*Note on Residuals: Residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) represent runtime work outside the inner kernel, including NumPy contiguous buffer conversion, ctypes pointer marshalling, and dynamic shape validation. In dataset `v2-bench-1793430268-fafe50cc`, all residuals are strictly positive across all models and batch sizes ($8.92\ \mu\text{s}$ to $37.82\ \mu\text{s}$). The interleaved 100-block paired experiment (`reports/v2_paired_b64_benchmark_data.json`) provides the authoritative controlled statistical verification.*
+*\*Note on Residuals: Residuals ($t_{\text{E2E}} - t_{\text{Kernel}}$) represent runtime work outside the inner kernel, including NumPy contiguous buffer conversion, ctypes pointer marshalling, and dynamic shape validation. In dataset `v2-bench-1793566051-3743367c`, all residuals are strictly positive across all models and batch sizes ($4.61\ \mu\text{s}$ to $27.00\ \mu\text{s}$). The interleaved 100-block paired experiment (`reports/v2_paired_b64_benchmark_data.json`) provides the authoritative controlled statistical verification.*
 
 ---
 
@@ -206,37 +206,37 @@ An expanded paired-block experiment was executed on the host with alternating ex
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
 
 #### Recomputed Sample Statistics ($N=100$):
-* **PyTorch 1 Thread Median:** $418.48\ \mu\text{s}$
-* **ForgeTune E2E Median:** $297.93\ \mu\text{s}$
-* **Sample Mean Difference ($\bar{d}$):** $+121.40\ \mu\text{s}$ (ForgeTune is on average $121.40\ \mu\text{s}$ faster)
-* **Sample Median Difference:** $+111.12\ \mu\text{s}$
-* **Sample Standard Deviation ($s_d$):** $87.61\ \mu\text{s}$
-* **Standard Error ($SE = s_d / \sqrt{100}$):** $8.76\ \mu\text{s}$
+* **PyTorch 1 Thread Median:** $353.20\ \mu\text{s}$
+* **ForgeTune E2E Median:** $294.90\ \mu\text{s}$
+* **Sample Mean Difference ($\bar{d}$):** $+64.14\ \mu\text{s}$ (ForgeTune is on average $64.14\ \mu\text{s}$ faster)
+* **Sample Median Difference:** $+54.50\ \mu\text{s}$
+* **Sample Standard Deviation ($s_d$):** $53.26\ \mu\text{s}$
+* **Standard Error ($SE = s_d / \sqrt{100}$):** $5.33\ \mu\text{s}$
 * **Degrees of Freedom ($df$):** $99$
 * **Critical Value ($t_{0.05, 99}$ for 90% Two-Sided CI):** $1.66039$
-* **90% Confidence Interval for $\mu_d$:** $[\mathbf{63.16},\; \mathbf{84.01}]\ \mu\text{s}$
-* **95% Confidence Interval for $\mu_d$:** $[61.13,\; 86.04]\ \mu\text{s}$
-* **90% Bootstrap CI for Mean Difference (10,000 resamples, seed 42):** $[63.52,\; 83.99]\ \mu\text{s}$
-* **90% Bootstrap CI for Median Difference (10,000 resamples, seed 42):** $[61.28,\; 67.25]\ \mu\text{s}$
-* **Equivalence Margin ($\pm 5\%$ of PyTorch baseline):** $\pm 17.83\ \mu\text{s}$
+* **90% Confidence Interval for $\mu_d$:** $[\mathbf{55.30},\; \mathbf{72.99}]\ \mu\text{s}$
+* **95% Confidence Interval for $\mu_d$:** $[53.58,\; 74.71]\ \mu\text{s}$
+* **90% Bootstrap CI for Mean Difference (10,000 resamples, seed 42):** $[55.65,\; 73.01]\ \mu\text{s}$
+* **90% Bootstrap CI for Median Difference (10,000 resamples, seed 42):** $[52.35,\; 62.10]\ \mu\text{s}$
+* **Equivalence Margin ($\pm 5\%$ of PyTorch baseline):** $\pm 17.66\ \mu\text{s}$
 
 #### Statistical Hypothesis Testing:
 1. **Test of Zero Mean Difference ($H_0: \mu_d = 0$):**
-   $$t = \frac{73.59 - 0}{6.28} = 11.72, \quad p = 2.03 \times 10^{-20} < 0.0001$$
+   $$t = \frac{64.14 - 0}{5.33} = 12.04, \quad p = 4.16 \times 10^{-21} < 0.0001$$
    The null hypothesis of equal means is decisively rejected (exact Student's t distribution with $df=99$). ForgeTune is measurably and significantly faster than PyTorch 1 Thread.
-2. **One-Sided Non-Inferiority Test ($H_0: \mu_d \le -\delta$ with $\delta = 17.83\ \mu\text{s}$):**
-   $$t = \frac{73.59 - (-17.83)}{6.28} = \frac{91.42}{6.28} = 14.56, \quad p = 1.19 \times 10^{-26} \ll 0.0001$$
+2. **One-Sided Non-Inferiority Test ($H_0: \mu_d \le -\delta$ with $\delta = 17.66\ \mu\text{s}$):**
+   $$t = \frac{64.14 - (-17.66)}{5.33} = \frac{81.80}{5.33} = 15.36, \quad p = 3.01 \times 10^{-28} \ll 0.0001$$
    **Non-inferiority is demonstrated with extreme statistical confidence** ($df=99$). ForgeTune is proven non-inferior to PyTorch 1 Thread.
-3. **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.83, +17.83]\ \mu\text{s}$):**
-   * Lower bound: $63.16 \ge -17.83$ (Satisfied, $p < 10^{-25}$).
-   * Upper bound: $84.01 > +17.83$ (**Exceeds upper margin due to faster execution**).
-   * **Equivalence Analysis:** Because ForgeTune is significantly faster than single-threaded PyTorch ($\bar{d} = +73.59\ \mu\text{s}$), the 90% confidence interval falls entirely in the positive region $[63.16, 84.01]\ \mu\text{s}$ and its lower bound is well above $+17.83\ \mu\text{s}$. Under strict two-sided equivalence within $\pm 5\%$, the test is inconclusive solely because ForgeTune outperforms the baseline, not because of high variance or performance inferiority.
+3. **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.66, +17.66]\ \mu\text{s}$):**
+   * Lower bound: $55.30 \ge -17.66$ (Satisfied, $p < 10^{-27}$).
+   * Upper bound: $72.99 > +17.66$ (**Exceeds upper margin due to faster execution**).
+   * **Equivalence Analysis:** Because ForgeTune is significantly faster than single-threaded PyTorch ($\bar{d} = +64.14\ \mu\text{s}$), the 90% confidence interval falls entirely in the positive region $[55.30, 72.99]\ \mu\text{s}$ and its lower bound is well above $+17.66\ \mu\text{s}$. Under strict two-sided equivalence within $\pm 5\%$, the test is inconclusive solely because ForgeTune outperforms the baseline, not because of high variance or performance inferiority.
 4. **Authoritative Gate 7 Acceptance Resolution (Performance Non-Inferiority and Paired Benchmark Validation):**
    * **Original Criterion & Source:** REQ-24 / Milestone 7 / Audit 3 / Prompt 2180 Section 4.12 ("truthful, reproducible reporting of kernel vs. E2E latency; defensible speedups over PyTorch eager execution; no artificial slowdown").
-   * **Reference Baseline:** PyTorch 2.14.1+cpu 1-Thread E2E ($356.68\ \mu\text{s}$ median) vs ForgeTune E2E ($291.00\ \mu\text{s}$ median).
+   * **Reference Baseline:** PyTorch 2.14.1+cpu 1-Thread E2E ($353.20\ \mu\text{s}$ median) vs ForgeTune E2E ($294.90\ \mu\text{s}$ median).
    * **Raw Paired Dataset:** `reports/v2_paired_b64_benchmark_data.json` ($N=100$ paired blocks, alternating order).
-   * **Sample Difference:** Mean $\bar{d} = +73.59\ \mu\text{s}$, Median $= +64.33\ \mu\text{s}$, $s_d = 62.78\ \mu\text{s}$, $SE = 6.28\ \mu\text{s}$, $df = 99$.
-   * **Hypothesis Result:** Non-inferiority ($H_0: \mu_d \le -17.83\ \mu\text{s}$) decisively certified ($t = 14.56, p = 1.19 \times 10^{-26} \ll 0.0001$).
+   * **Sample Difference:** Mean $\bar{d} = +64.14\ \mu\text{s}$, Median $= +54.50\ \mu\text{s}$, $s_d = 53.26\ \mu\text{s}$, $SE = 5.33\ \mu\text{s}$, $df = 99$.
+   * **Hypothesis Result:** Non-inferiority ($H_0: \mu_d \le -17.66\ \mu\text{s}$) decisively certified ($t = 15.36, p = 3.01 \times 10^{-28} \ll 0.0001$).
    * **Selected Kernel:** `loop_ikj` (native Conv2D with compile-time row register accumulator arrays `acc0[W_out]` ... `acc3[W_out]`, `FORGETUNE_RESTRICT` pointers, direct vector-friendly padding copy, and zero steady-state arena allocations).
    * **Audit Verdict:** ForgeTune passed the specified non-inferiority criterion and demonstrated a substantial mean performance improvement over the single-threaded PyTorch baseline in the evaluated workload. Strict two-sided equivalence within the specified margin was not established due to genuine performance superiority, placing the upper confidence bound above the equivalence threshold. While the aggregate mean difference is substantially positive, individual paired blocks can exhibit varying differences. **Gate 7 is certified PASS (PERFORMANCE NON-INFERIORITY AND PAIRED BENCHMARK VALIDATION)**.
 
@@ -286,7 +286,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 | **Gate 4** | **Mathematical Operator Breadth** | **PASS** | All required v2 operators (`MUL`, `SIGMOID`, `TANH`, `CONV2D`, `FLATTEN`) are verified in standalone and in-process tests matching PyTorch within float32 tolerance. |
 | **Gate 5** | **Operator Fusion Correctness** | **PASS** | Conv2d + ReLU and MatMul + Add + ReLU fusion patterns are verified with full boundary condition checks. |
 | **Gate 6** | **Memory Planning Efficiency** | **PASS** | Liveness-based buffer reuse achieves 38.5% to 58.6% calculated intermediate storage reduction across Models A, B, and C (`reports/V2_MEMORY_REPORT.md`). Zero steady-state arena allocations verified. |
-| **Gate 7** | **Performance Non-Inferiority & Paired Validation** | **PASS** | Non-inferiority is rigorously certified ($t = 14.56$, exact Student's t $p = 1.19 \times 10^{-26} \ll 0.0001$, $df = 99$). Mean difference is $+73.59\ \mu\text{s}$ (ForgeTune faster). Symmetric TOST interval limits documented ($90\%\ \text{CI} = [+63.16, +84.01]\ \mu\text{s}$). Non-inferiority certified under REQ-24 / Case 1. |
+| **Gate 7** | **Performance Non-Inferiority & Paired Validation** | **PASS** | Non-inferiority is rigorously certified ($t = 15.36$, exact Student's t $p = 3.01 \times 10^{-28} \ll 0.0001$, $df = 99$). Mean difference is $+64.14\ \mu\text{s}$ (ForgeTune faster). Symmetric TOST interval limits documented ($90\%\ \text{CI} = [+55.30, +72.99]\ \mu\text{s}$). Non-inferiority certified under REQ-24 / Case 1. |
 | **Gate 8** | **Deterministic Compilation & Codegen** | **PASS** | Direct empirical evidence of independent deterministic code generation established in `tests/unit/test_v2_independent_determinism.py`: separate subprocesses, isolated directories, bypassed caches, identical SHA-256 byte comparisons (100% bitwise identity), and negative mutation tests detecting intentional discrepancies. |
 | **Gate 9** | **Clean C++ Architecture & Quality** | **PASS** | Native C++ codebase builds with **0 warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2` across all core translation units (`interpreter.cpp`, `codegen.cpp`, etc.), executables, and `_forgetune_cpp.pyd`. RAII, 64-byte aligned arena allocation, and strict contract validation verified. |
 | **Gate 10** | **Export Frontend Robustness** | **PASS** | `torch.export.export()` with dynamic shape constraints successfully extracts, normalizes, and lowers PyTorch workloads to ForgeTune IR. |
@@ -306,8 +306,8 @@ Status of all release milestones:
    * All 293 Python tests, 13 C++ tests (306 enumerated total), and 3 verification rounds passed cleanly.
    * **Gate 1** and **Gate 2** certified **PASS**.
 2. **Performance Non-Inferiority & Statistical Verification (Gate 7):** **COMPLETED**
-   * $N=100$ paired blocks verified. Non-inferiority certified with $t=14.56, p=1.19 \times 10^{-26} \ll 0.0001$.
-   * ForgeTune E2E latency outperforms PyTorch 1T by $+73.59\ \mu\text{s}$ on average ($+64.33\ \mu\text{s}$ median advantage).
+   * $N=100$ paired blocks verified. Non-inferiority certified with $t=15.36, p=3.01 \times 10^{-28} \ll 0.0001$.
+   * ForgeTune E2E latency outperforms PyTorch 1T by $+64.14\ \mu\text{s}$ on average ($+54.50\ \mu\text{s}$ median advantage).
    * **Gate 7** certified **PASS**.
 3. **Master Release Certification (Gate 12):** **COMPLETED**
    * All 12 gates certified **PASS**.

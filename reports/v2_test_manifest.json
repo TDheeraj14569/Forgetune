@@ -666,7 +666,7 @@
     "tests/correctness/test_audit_regressions.py::test_warning_parser_suppresses_external_toolchain_warnings": {
       "outcome": "passed"
     },
-    "tests/correctness/test_audit_regressions.py::test_warning_parser_fails_closed_on_unplaced_warning": {
+    "tests/correctness/test_audit_regressions.py::test_warning_parser_ignores_unplaced_toolchain_diagnostics": {
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_warning_parser_ignores_non_warning_lines": {

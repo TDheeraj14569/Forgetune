@@ -83,8 +83,10 @@ def main():
                 _compute_file_sha256(cpp_file) == rec_cpp_sha and
                 graph_hash == expected_graph_hash and
                 rec_platform == sys.platform and
-                (rec_fp is None or rec_fp == current_compiler_fp) and
-                rec_comp_info.get("type") == compiler_info.get("type")):
+                rec_fp is not None and rec_fp == current_compiler_fp and
+                rec_comp_info.get("type") == compiler_info.get("type") and
+                rec_comp_info.get("version") == compiler_info.get("version") and
+                rec_comp_info.get("path") == compiler_info.get("path")):
                 dll_path = os.path.abspath(cand_dll)
                 is_valid_provenance = True
         except Exception:
@@ -203,18 +205,21 @@ def main():
 
         pt_median = float(np.median(pt_vals))
         ft_median = float(np.median(ft_vals))
-        equiv_margin = round(0.05 * pt_median, 2)
+        equiv_margin_raw = 0.05 * pt_median
+        equiv_margin = round(equiv_margin_raw, 2)
 
         from scipy import stats
         t_crit_90 = float(stats.t.ppf(0.95, df=df))
         t_crit_95 = float(stats.t.ppf(0.975, df=df))
         t_stat_zero = mean_diff / se_diff
-        t_stat_ni = (mean_diff - (-equiv_margin)) / se_diff
+        t_stat_ni = (mean_diff - (-equiv_margin_raw)) / se_diff
         p_val_zero = float(stats.t.sf(abs(t_stat_zero), df=df) * 2.0)
         p_val_ni = float(stats.t.sf(t_stat_ni, df=df))
 
-        ci_90 = [round(mean_diff - t_crit_90 * se_diff, 2), round(mean_diff + t_crit_90 * se_diff, 2)]
-        ci_95 = [round(mean_diff - t_crit_95 * se_diff, 2), round(mean_diff + t_crit_95 * se_diff, 2)]
+        ci_90_raw = [mean_diff - t_crit_90 * se_diff, mean_diff + t_crit_90 * se_diff]
+        ci_95_raw = [mean_diff - t_crit_95 * se_diff, mean_diff + t_crit_95 * se_diff]
+        ci_90 = [round(ci_90_raw[0], 2), round(ci_90_raw[1], 2)]
+        ci_95 = [round(ci_95_raw[0], 2), round(ci_95_raw[1], 2)]
 
         rng = np.random.default_rng(42)
         boot_means = []
@@ -230,8 +235,9 @@ def main():
         boot_median_ci_90 = [round(float(np.percentile(boot_medians, 5.0)), 2), round(float(np.percentile(boot_medians, 95.0)), 2)]
         boot_median_ci_95 = [round(float(np.percentile(boot_medians, 2.5)), 2), round(float(np.percentile(boot_medians, 97.5)), 2)]
 
-        non_inferior = (mean_diff - (-equiv_margin)) / se_diff > t_crit_90
-        tost_equivalent = (ci_90[0] >= -equiv_margin) and (ci_90[1] <= equiv_margin)
+        # Decisions based on unrounded full-precision arithmetic to prevent boundary distortion
+        non_inferior = t_stat_ni > t_crit_90
+        tost_equivalent = (ci_90_raw[0] >= -equiv_margin_raw) and (ci_90_raw[1] <= equiv_margin_raw)
 
         return {
             "n": n, "df": df, "mean_diff": mean_diff, "median_diff": median_diff,
@@ -248,13 +254,9 @@ def main():
     blocks = []
     st = {}
     try:
+        # Execute the predeclared 100-block experiment once with zero outcome-dependent selection bias
         blocks = run_paired_blocks()
         st = analyze_blocks(blocks)
-
-        if args.enforce_non_inferiority and not st["non_inferior"]:
-            print("\nNotice: Non-inferiority margin not met on initial run (likely runner hypervisor contention). Retrying benchmark...")
-            blocks = run_paired_blocks()
-            st = analyze_blocks(blocks)
     finally:
         torch.set_num_threads(orig_threads)
         if hasattr(rt, "close"):
@@ -313,8 +315,15 @@ def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     rel_dll_path = os.path.relpath(dll_path, repo_root).replace("\\", "/") if os.path.isabs(dll_path) else dll_path.replace("\\", "/")
 
+    import uuid
+    import platform as sys_platform
+    cpp_path = manifest_data.get("artifacts", {}).get("cpp_source") if manifest_data else None
+    rel_cpp_path = (os.path.relpath(cpp_path, repo_root).replace("\\", "/") if cpp_path and os.path.isabs(cpp_path) else str(cpp_path).replace("\\", "/")) if cpp_path else "unknown"
+    cpp_sha = _compute_file_sha256(cpp_path) if (cpp_path and os.path.isfile(cpp_path)) else (manifest_data.get("artifacts", {}).get("cpp_sha256", "unknown") if manifest_data else "unknown")
+
     res_data = {
         "metadata": {
+            "run_id": str(uuid.uuid4()),
             "experiment": "model_c_batch64_paired_100_blocks",
             "date": time.strftime("%Y-%m-%d %H:%M:%S"),
             "model": "Model C (Small CNN)",
@@ -329,11 +338,21 @@ def main():
             "equivalence_margin_us": equiv_margin,
             "pytorch_threads": 1,
             "native_kernel_path": rel_dll_path,
+            "cpp_source_path": rel_cpp_path,
             "candidate_id": manifest_data.get("kernel_config", {}).get("candidate_id") if manifest_data else "unknown",
             "opt_level": manifest_data.get("kernel_config", {}).get("opt_level") if manifest_data else "unknown",
+            "candidate_config": manifest_data.get("kernel_config", {}) if manifest_data else {},
             "kernel_sha256": _compute_file_sha256(dll_path) if os.path.isfile(dll_path) else "unknown",
+            "cpp_sha256": cpp_sha,
+            "graph_hash": expected_graph_hash,
+            "compiler_fingerprint": current_compiler_fp,
+            "compiler_info": compiler_info,
             "git_commit": git_sha,
-            "platform": sys.platform
+            "platform": sys.platform,
+            "os_name": sys_platform.system(),
+            "os_release": sys_platform.release(),
+            "machine": sys_platform.machine(),
+            "processor": sys_platform.processor()
         },
         "summary_statistics": {
             "pytorch_1thread_median_us": pt_median,

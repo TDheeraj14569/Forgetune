@@ -3015,6 +3015,8 @@ def test_regression_signed_zero_numerical_execution(tmp_path):
     P1 Regression (Finding 7): Signed-zero numerical execution under -fno-signed-zeros / /fp:precise.
     Verifies that ADD(x, 0.0) executes properly with both positive and negative zeros,
     and positive and negative values, with exact numerical fidelity.
+    Under IEEE 754 float32 semantics with -fno-signed-zeros, +0.0 and -0.0 compare equal
+    and fold as numerical zeros without disturbing magnitude precision or arithmetic fidelity.
     """
     import forgetune
 
@@ -3096,58 +3098,80 @@ def test_regression_cli_workspace_fallback(tmp_path, monkeypatch):
 
 
 def test_warning_parser_relative_path_clang():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
+    assert classify_diagnostic("src/codegen.cpp:45:12: warning: unused variable 'x'") == "project_warning"
     assert is_codebase_warning("src/codegen.cpp:45:12: warning: unused variable 'x'")
+    assert classify_diagnostic("include/forgetune/ir.hpp:100: warning: comparison between signed and unsigned") == "project_warning"
     assert is_codebase_warning("include/forgetune/ir.hpp:100: warning: comparison between signed and unsigned")
+    assert classify_diagnostic("tests/cpp/test_main.cpp:25: warning: implicit conversion") == "project_warning"
     assert is_codebase_warning("tests/cpp/test_main.cpp:25: warning: implicit conversion")
 
 
 def test_warning_parser_windows_drive_letter_clang():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
     line = r"D:\a\Forgetune\Forgetune\src\codegen.cpp:45:10: warning: overflow in arithmetic"
+    assert classify_diagnostic(line) == "project_warning"
     assert is_codebase_warning(line)
 
     line2 = r"C:\Users\runner\Desktop\Forgetune\include\forgetune\memory_planner.hpp:20: warning: uninitialized"
+    assert classify_diagnostic(line2) == "project_warning"
     assert is_codebase_warning(line2)
 
 
 def test_warning_parser_windows_msvc_format():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
     line_msvc = r"D:\a\Forgetune\src\codegen.cpp(42): warning C4244: 'conversion' from 'int' to 'float'"
+    assert classify_diagnostic(line_msvc) == "project_warning"
     assert is_codebase_warning(line_msvc)
 
     line_rel = r"src\fusion.cpp(88): warning C4018: '<': signed/unsigned mismatch"
+    assert classify_diagnostic(line_rel) == "project_warning"
     assert is_codebase_warning(line_rel)
 
 
 def test_warning_parser_posix_absolute_path():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
     line = "/home/runner/work/Forgetune/src/pass_manager.cpp:120: warning: unused parameter"
+    assert classify_diagnostic(line) == "project_warning"
     assert is_codebase_warning(line)
 
 
 def test_warning_parser_suppresses_external_toolchain_warnings():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
     # Zig libcxx internal headers
+    assert classify_diagnostic(r"C:\hostedtoolcache\zig\libcxx\include\memory:12: warning: nullability") == "toolchain_warning"
     assert not is_codebase_warning(r"C:\hostedtoolcache\zig\libcxx\include\memory:12: warning: nullability")
+    assert classify_diagnostic("/opt/hostedtoolcache/zig/libcxx/include/string:5: warning: nullability") == "toolchain_warning"
     assert not is_codebase_warning("/opt/hostedtoolcache/zig/libcxx/include/string:5: warning: nullability")
     # Python/Torch site-packages headers
+    assert classify_diagnostic(r"D:\a\Forgetune\.venv\Lib\site-packages\torch\include\c10\api.h(10): warning C4000: deprecated") == "toolchain_warning"
     assert not is_codebase_warning(r"D:\a\Forgetune\.venv\Lib\site-packages\torch\include\c10\api.h(10): warning C4000: deprecated")
+    assert classify_diagnostic("/usr/include/python3.12/pyport.h:10: warning: nullability") == "toolchain_warning"
     assert not is_codebase_warning("/usr/include/python3.12/pyport.h:10: warning: nullability")
+    # Third-party code with loose /src/ outside forgetune repository (unknown warning)
+    line_ext = "/opt/external_pkg/src/third_party.cpp:10: warning: deprecated function"
+    assert classify_diagnostic(line_ext) == "unknown_warning"
+    assert not is_codebase_warning(line_ext)
 
 
 def test_warning_parser_ignores_unplaced_toolchain_diagnostics():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
     # Toolchain or compiler notices without a codebase file path should not fail the build
+    assert classify_diagnostic("warning: argument unused during compilation: '-fno-signed-zeros'") == "toolchain_warning"
     assert not is_codebase_warning("warning: argument unused during compilation: '-fno-signed-zeros'")
+    assert classify_diagnostic("clang: warning: argument unused during compilation") == "toolchain_warning"
     assert not is_codebase_warning("clang: warning: argument unused during compilation")
+    assert classify_diagnostic("warning C9999: internal toolchain state unknown") == "toolchain_warning"
     assert not is_codebase_warning("warning C9999: internal toolchain state unknown")
 
 
 def test_warning_parser_ignores_non_warning_lines():
-    from scripts.build_native import is_codebase_warning
+    from scripts.build_native import is_codebase_warning, classify_diagnostic
+    assert classify_diagnostic("Compiling src/codegen.cpp...") == "not_a_warning"
     assert not is_codebase_warning("Compiling src/codegen.cpp...")
+    assert classify_diagnostic("Generated 133 files successfully.") == "not_a_warning"
     assert not is_codebase_warning("Generated 133 files successfully.")
+    assert classify_diagnostic("note: see previous declaration of 'foo'") == "not_a_warning"
     assert not is_codebase_warning("note: see previous declaration of 'foo'")
 
 

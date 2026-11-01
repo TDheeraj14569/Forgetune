@@ -7,15 +7,23 @@ import os
 import sys
 import ctypes
 import time
+import operator
 import numpy as np
 from typing import Tuple, Optional
-from .errors import RuntimeError, InvalidShapeError
+from .errors import ForgeTuneRuntimeError, InvalidShapeError
 
 class NativeRuntime:
     def __init__(self, dll_path: str, expected_input_shape: Tuple[int, ...], expected_output_shape: Tuple[int, ...], max_batch_size: Optional[int] = None):
         if max_batch_size is not None:
-            if type(max_batch_size) is not int or isinstance(max_batch_size, bool) or max_batch_size <= 0:
+            if isinstance(max_batch_size, bool):
+                raise TypeError(f"max_batch_size must be a strictly positive non-boolean integer, got {max_batch_size} (bool)")
+            try:
+                max_batch_val = operator.index(max_batch_size)
+            except (TypeError, ValueError):
                 raise TypeError(f"max_batch_size must be a strictly positive non-boolean integer, got {max_batch_size} ({type(max_batch_size).__name__})")
+            if max_batch_val <= 0:
+                raise TypeError(f"max_batch_size must be a strictly positive non-boolean integer, got {max_batch_val}")
+            max_batch_size = max_batch_val
         self._configured_max_batch_size = max_batch_size
         self.original_dll_path = os.path.abspath(dll_path)
         self.expected_input_shape = tuple(expected_input_shape)
@@ -111,6 +119,9 @@ class NativeRuntime:
         elif native_limit is not None:
             self.max_batch_size = native_limit
         else:
+            # When legacy libraries lack the forgetune_max_batch export:
+            # Dynamic models fall back to the standard v2 reference ceiling (128),
+            # while static models use the fixed leading dimension of expected_input_shape.
             self.max_batch_size = 128 if self.is_dynamic else (self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1)
 
         self.is_output_dynamic = (len(self.expected_output_shape) > 0 and self.expected_output_shape[0] == -1)
@@ -257,13 +268,17 @@ class NativeRuntime:
 
             actual_batch = input_tensor.shape[0]
             if batch_size is not None:
-                if type(batch_size) is not int or isinstance(batch_size, bool) or batch_size <= 0:
+                if isinstance(batch_size, bool):
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b_val = operator.index(batch_size)
+                except (TypeError, ValueError):
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {batch_size} ({type(batch_size).__name__})")
+                if b_val <= 0:
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {b_val}")
+                if b_val != actual_batch:
                     raise InvalidShapeError(
-                        f"batch_size must be a strictly positive non-boolean integer, got {batch_size} ({type(batch_size).__name__})"
-                    )
-                if batch_size != actual_batch:
-                    raise InvalidShapeError(
-                        f"Explicit batch_size {batch_size} does not match input leading dimension {actual_batch}"
+                        f"Explicit batch_size {b_val} does not match input leading dimension {actual_batch}"
                     )
             if actual_batch <= 0 or actual_batch > self.max_batch_size:
                 raise InvalidShapeError(

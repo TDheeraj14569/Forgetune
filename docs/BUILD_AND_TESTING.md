@@ -52,7 +52,7 @@ This automatically compiles:
 # or .\bin\forgetune_test_suite.exe on Windows
 ```
 
-### 4.2 Full Python Test Suite (282 Tests)
+### 4.2 Full Python Test Suite (293 Tests)
 ```bash
 python -m pytest -v tests/
 ```

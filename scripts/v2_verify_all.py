@@ -72,6 +72,7 @@ def check_non_report_dirty(root_dir: str):
         "reports/junit_report.xml",
         "reports/v2_benchmark_report.json",
         "reports/V2_BENCHMARK_REPORT.md",
+        "reports/V2_FINAL_CLOSURE_AUDIT.md",
     }
     for line in res.stdout.splitlines():
         line = line.strip()
@@ -101,7 +102,11 @@ def extract_pytest_counts(stdout: str) -> dict:
     res["total"] = res["passed"] + res["failed"] + res["skipped"]
     return res
 
-APPROVED_LINUX_SKIP_NAME = "test_regression_locked_dll_raises_informative_compilation_error"
+APPROVED_LINUX_SKIP_NODE = "tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error"
+
+def is_approved_linux_skip(node_id: str) -> bool:
+    norm = node_id.replace("\\", "/").strip()
+    return norm == APPROVED_LINUX_SKIP_NODE or norm.endswith(APPROVED_LINUX_SKIP_NODE)
 
 def extract_pytest_skipped_nodes(stdout: str) -> list:
     """Extracts node IDs of skipped tests from pytest verbose stdout."""
@@ -266,7 +271,7 @@ def main():
                 reason = f"{counts['failed']} tests failed"
             allowed_skips = 1 if sys.platform != "win32" else 0
             skipped_nodes = extract_pytest_skipped_nodes(stdout)
-            unapproved = [n for n in skipped_nodes if APPROVED_LINUX_SKIP_NAME not in n]
+            unapproved = [n for n in skipped_nodes if not is_approved_linux_skip(n)]
             if counts["skipped"] > allowed_skips or (counts["skipped"] > 0 and (sys.platform == "win32" or len(unapproved) > 0)):
                 success = False
                 cat = "unexpected_skip"
@@ -477,7 +482,7 @@ def main():
     # On Linux, 1 platform-specific skip is approved (Windows-only DLL locking test)
     allowed_final_skips = 1 if sys.platform != "win32" else 0
     r1_skips = extract_pytest_skipped_nodes(r1_pytest["stdout"]) if (r1_pytest and r1_pytest.get("stdout")) else []
-    unapproved_r1_skips = [s for s in r1_skips if APPROVED_LINUX_SKIP_NAME not in s]
+    unapproved_r1_skips = [s for s in r1_skips if not is_approved_linux_skip(s)]
 
     if non_report_dirty:
         final_status = "**FAILED CERTIFICATION (DIRTY WORKING TREE DETECTED)**"
@@ -574,7 +579,7 @@ def main():
     branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
     detected_branch = branch_res.stdout.strip() if branch_res.returncode == 0 else ""
     if not detected_branch or detected_branch == "HEAD":
-        detected_branch = os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_HEAD_REF") or "v2.0-dev"
+        detected_branch = os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_HEAD_REF") or "UNKNOWN / NOT AVAILABLE"
 
     ver_md = [
         "# FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT",

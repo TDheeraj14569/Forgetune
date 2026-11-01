@@ -138,13 +138,11 @@ def main():
     has_error = any(r.get("outcome") == "error" for r in collector.results.values())
     has_failed = any(r.get("outcome") == "failed" for r in collector.results.values())
 
-    allowed_skips = (
-        {"tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error"}
-        if sys.platform != "win32" else set()
-    )
+    APPROVED_LINUX_SKIP_NODE = "tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error"
+    allowed_skips = {APPROVED_LINUX_SKIP_NODE} if sys.platform != "win32" else set()
     unapproved_skips = [
         nid for nid, r in collector.results.items()
-        if r.get("outcome") == "skipped" and not any(allowed in nid for allowed in allowed_skips)
+        if r.get("outcome") == "skipped" and not any(nid.replace("\\", "/").strip() == allowed or nid.replace("\\", "/").strip().endswith(allowed) for allowed in allowed_skips)
     ]
     has_unapproved_skip = len(unapproved_skips) > 0
     if has_unapproved_skip:
