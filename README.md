@@ -19,7 +19,7 @@
 [![Tests](https://img.shields.io/badge/Tests-306%20Pass%20(Win)%20%7C%201%20Skip%20(Linux)-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 [![Memory Savings](https://img.shields.io/badge/Memory%20Savings-38.5%25%20--%2058.6%25-brightgreen.svg)](reports/V2_MEMORY_REPORT.md)
-[![E2E Speedup](https://img.shields.io/badge/E2E%20Speedup-Up%20to%209.49x-brightgreen.svg)](reports/V2_BENCHMARK_REPORT.md)
+[![E2E Speedup](https://img.shields.io/badge/E2E%20Speedup-Up%20to%2011.63x-brightgreen.svg)](reports/V2_BENCHMARK_REPORT.md)
 
 **High-Performance Ahead-of-Time C++17 Inference Compiler & Native Runtime for CPU Workloads**
 
@@ -60,12 +60,12 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 **ForgeTune v2.0** is an independent, ahead-of-time (AOT) C++17 inference compiler and zero-dependency native runtime. It ingests PyTorch models, lowers them into a strongly typed Intermediate Representation (IR Schema 2.0), applies graph optimizations (constant folding, algebraic simplification, multi-operator loop fusion), plans intermediate memory using topological interval coloring, and emits pure C++17 shared libraries (`.dll` on Windows, `.so` on Linux) with a versioned C ABI.
 
 ### Key Architectural Achievements:
-* **Genuine End-to-End Acceleration:** Delivers up to **$9.49\times$ E2E speedup** over PyTorch eager execution in real-world Python caller benchmarks and up to **$8.48\times$** in controlled single-threaded comparisons.
+* **Genuine End-to-End Acceleration:** Delivers up to **$11.63\times$ E2E speedup** over PyTorch eager execution in real-world Python caller benchmarks and up to **$7.81\times$** in controlled single-threaded comparisons.
 * **Zero Steady-State Native Heap Allocations:** All intermediate tensor storage is packed into a single, pre-allocated, 64-byte SIMD cache-aligned memory arena (`AlignedArenaPool`). Inference runs with **zero additional native intermediate-arena allocations after warm-up** for tested workloads.
 * **38.5% to 58.6% Intermediate Buffer Reduction:** Topological interval coloring computes tensor birth and death lifetimes, overlaying mutually disjoint intermediate buffers in time.
 * **True Dynamic Batching:** Inner loops are parameterized on batch size $B$ (tested by default for $B \in [1, 128]$, configurable up to $1,000,000$ via `max_batch_size`). A single compiled native artifact executes variable-batch requests without recompilation or runtime dispatch guards.
 * **Pure C ABI Independence:** Compiled artifacts execute with **zero PyTorch and zero Python dependencies**. They can be linked directly into C, C++, or Rust native binaries.
-* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 12.18$, $p = 1.06 \times 10^{-21} \ll 0.0001$) with a mean latency reduction of $+59.82\ \mu\text{s}$.
+* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 16.71$, $p = 7.04 \times 10^{-31} \ll 0.0001$) with a mean latency reduction of $+70.48\ \mu\text{s}$.
 * **100% Bitwise Reproducibility:** Three-round independent clean rebuild protocol demonstrates **0 bit divergences across 65,536 float32 outputs** (0/2,097,152 bits mismatched) on Model A (Dynamic TinyMLP).
 * **Zero Project-Source Warnings:** Native engine CLI, pybind11 extension, and standalone unit test binaries compile with **0 project-source warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2`.
 
@@ -81,7 +81,7 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 | **Steady-State Heap Allocations** | Recurring heap churn during inference passes | **Zero additional intermediate-arena allocations after warm-up** |
 | **Dynamic Batch Flexibility** | Dynamic shapes with framework dispatch overhead | **Static loop parametrization (default $B \in [1, 128]$, configurable up to $1,000,000$)** |
 | **Operator & Activation Fusion** | Separate kernel launches with intermediate memory traffic | **`CONV2D + RELU` & `MATMUL + ADD + RELU` cache-resident loops** |
-| **Python Call Latency (P50)** | 33.6 μs – 394.7 μs (Model dependent, measured across Models A–C) | **7.0 μs – 385.8 μs (Up to 9.49x E2E acceleration)** |
+| **Python Call Latency (P50)** | 41.2 μs – 441.9 μs (Model dependent, measured across Models A–C) | **9.3 μs – 384.6 μs (Up to 11.63x E2E acceleration)** |
 | **Numerical Bitwise Reproducibility** | Non-deterministic across minor builds / thread schedulers | **Bit-exact reproducibility verified on Model A (0/2,097,152 bits)** |
 
 ---
@@ -276,9 +276,9 @@ The ForgeTune autotuning engine (`python/forgetune/autotuner.py`) automatically 
 
 ### Autotuner Execution & Candidate Isolation:
 Every candidate variant is compiled into an isolated subdirectory to prevent object file pollution or cross-pollination. The autotuner runs a 10-iteration warm-up followed by repeated micro-benchmarking using hardware high-resolution timers (`std::chrono::steady_clock`), selecting the lowest-latency variant:
-- **Model A Selected:** `loop_ikj` (1.96x kernel opt speedup, 10.24s search cost).
-- **Model B Selected:** `fused_ikj` (1.11x kernel opt speedup, 5.73s search cost).
-- **Model C Selected:** `tiled_16` (1.48x kernel opt speedup, 78.74s search cost).
+- **Model A Selected:** `tiled_16` (1.77x kernel opt speedup, 9.23s search cost).
+- **Model B Selected:** `fused_ikj` (1.12x kernel opt speedup, 5.3s search cost).
+- **Model C Selected:** `loop_ikj` (1.68x kernel opt speedup, 77.33s search cost).
 
 *Tie-Break Policy:* When candidate variants perform within a $\pm 5\%$ empirical measurement noise window, the autotuner applies a deterministic tie-break policy preferring structural simplicity (untiled over tiled, -O2 over -O3).
 
@@ -299,27 +299,27 @@ To prevent misleading comparisons, ForgeTune strictly disambiguates timing bound
 
 ---
 
-### 7.2 Multi-Model Benchmark Table (Dataset: `v2-bench-1793566051-3743367c`)
+### 7.2 Multi-Model Benchmark Table (Dataset: `v2-bench-1793606750-6921052d`)
 
 | Workload Model | Batch Size ($B$) | PyTorch 8T (μs) | PyTorch 1T (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8T)** | **Controlled E2E Speedup (1T)** | Baseline C++ Kernel (μs) | Selected C++ Kernel (μs) | **Kernel Opt Speedup** | E2E - Kernel Residual (μs) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Model A: Dynamic TinyMLP** | $B=1$ | 35.60 | 35.90 | 9.20 | **3.87x** | **3.90x** | 0.311 | 0.185 | **1.68x** | 9.01 |
-| *Linear(16 $\to$ 32) $\to$ ReLU $\to$ Linear(32 $\to$ 8)* | $B=4$ | 43.35 | 38.10 | 9.60 | **4.52x** | **3.97x** | 1.139 | 0.622 | **1.83x** | 8.98 |
-| *(Selected: `loop_ikj`, Cost: 10.24s)* | $B=16$ | 33.60 | 28.50 | 7.80 | **4.31x** | **3.65x** | 3.393 | 1.734 | **1.96x** | 6.07 |
-| | $B=64$ | 51.90 | 49.90 | 21.80 | **2.38x** | **2.29x** | 17.672 | 9.638 | **1.83x** | 12.16 |
-| **Model B: Residual MLP** | $B=1$ | 60.15 | 60.10 | 10.80 | **5.57x** | **5.56x** | 0.100 | 0.090 | **1.11x** | 10.71 |
-| *Linear + Residual Skip + ReLU* | $B=4$ | 44.70 | 44.80 | 9.30 | **4.81x** | **4.82x** | 0.388 | 0.353 | **1.10x** | 8.95 |
-| *(Selected: `fused_ikj`, Cost: 5.73s)* | $B=16$ | 65.80 | 46.00 | 7.00 | **9.40x** | **6.57x** | 1.456 | 1.321 | **1.10x** | 5.68 |
-| | $B=64$ | 83.45 | 69.20 | 16.50 | **5.06x** | **4.19x** | 5.763 | 5.232 | **1.10x** | 11.27 |
-| **Model C: Small CNN** | $B=1$ | 110.05 | 90.25 | 11.60 | **9.49x** | **7.78x** | 9.378 | 6.988 | **1.34x** | 4.61 |
-| *Conv2D $\to$ ReLU $\to$ Conv2D $\to$ ReLU $\to$ FC* | $B=4$ | 322.80 | 294.40 | 34.70 | **9.30x** | **8.48x** | 34.233 | 24.262 | **1.41x** | 10.44 |
-| *(Selected: `tiled_16`, Cost: 78.74s)* | $B=16$ | 341.30 | 341.60 | 104.40 | **3.27x** | **3.27x** | 114.662 | 77.403 | **1.48x** | 27.00 |
-| | $B=64$ | 394.68 | 451.90 | 385.75 | **1.02x** | **1.17x** | 468.950 | 368.340 | **1.27x** | 17.41 |
+| **Model A: Dynamic TinyMLP** | $B=1$ | 41.15 | 35.65 | 9.30 | **4.42x** | **3.83x** | 0.311 | 0.196 | **1.59x** | 9.10 |
+| *Linear(16 $\to$ 32) $\to$ ReLU $\to$ Linear(32 $\to$ 8)* | $B=4$ | 53.90 | 47.45 | 11.45 | **4.71x** | **4.14x** | 0.955 | 0.663 | **1.44x** | 10.79 |
+| *(Selected: `tiled_16`, Cost: 9.23s)* | $B=16$ | 45.20 | 39.70 | 11.70 | **3.86x** | **3.39x** | 4.436 | 2.505 | **1.77x** | 9.20 |
+| | $B=64$ | 60.40 | 53.45 | 19.50 | **3.10x** | **2.74x** | 17.697 | 10.028 | **1.76x** | 9.47 |
+| **Model B: Residual MLP** | $B=1$ | 59.95 | 60.50 | 9.30 | **6.45x** | **6.51x** | 0.131 | 0.117 | **1.12x** | 9.18 |
+| *Linear + Residual Skip + ReLU* | $B=4$ | 63.40 | 62.80 | 9.45 | **6.71x** | **6.65x** | 0.279 | 0.290 | **0.96x** | 9.16 |
+| *(Selected: `fused_ikj`, Cost: 5.3s)* | $B=16$ | 45.70 | 64.40 | 10.60 | **4.31x** | **6.08x** | 1.452 | 1.300 | **1.12x** | 9.30 |
+| | $B=64$ | 79.20 | 69.50 | 14.50 | **5.46x** | **4.79x** | 5.195 | 5.104 | **1.02x** | 9.40 |
+| **Model C: Small CNN** | $B=1$ | 101.35 | 87.40 | 16.80 | **6.03x** | **5.20x** | 9.377 | 7.004 | **1.34x** | 9.80 |
+| *Conv2D $\to$ ReLU $\to$ Conv2D $\to$ ReLU $\to$ FC* | $B=4$ | 441.85 | 296.95 | 38.00 | **11.63x** | **7.81x** | 33.724 | 24.481 | **1.38x** | 13.52 |
+| *(Selected: `loop_ikj`, Cost: 77.33s)* | $B=16$ | 241.80 | 238.05 | 77.80 | **3.11x** | **3.06x** | 122.554 | 73.071 | **1.68x** | 4.73 |
+| | $B=64$ | 384.02 | 440.38 | 384.60 | **1.00x** | **1.15x** | 467.310 | 371.680 | **1.26x** | 12.92 |
 
 > [!NOTE]
 > **Architectural Insights on Benchmark Data:**
-> - **Framework Overhead Elimination:** Across all three models, ForgeTune delivers substantial E2E speedups (up to **$9.49\times$** on Model C $B=1$, **$9.40\times$** on Model B $B=16$, and **$4.52\times$** on Model A $B=4$) primarily by eliminating Python interpreter dispatch, dynamic shape memory allocations, and tensor abstraction layers.
-> - **Autotuning & Kernel Optimization:** Model A achieves up to **$1.96\times$** in-kernel speedup via `loop_ikj`. Model B's operator fusion (`fused_ikj`) provides consistent **$1.10\times$–$1.11\times$** in-kernel speedup across all evaluated batch sizes while achieving a **$4.19\times$–$5.06\times$ E2E speedup** at $B=64$. Model C's cache-tiled convolution kernel (`tiled_16`) yields **$1.27\times$–$1.48\times$** kernel acceleration.
+> - **Framework Overhead Elimination:** Across all three models, ForgeTune delivers substantial E2E speedups (up to **$11.63\times$** on Model C $B=4$, **$6.71\times$** on Model B $B=4$, and **$4.71\times$** on Model A $B=4$) primarily by eliminating Python interpreter dispatch, dynamic shape memory allocations, and tensor abstraction layers.
+> - **Autotuning & Kernel Optimization:** Model A achieves up to **$1.77\times$** in-kernel speedup via `tiled_16`. Model B's operator fusion (`fused_ikj`) provides consistent native kernel performance while achieving a **$4.79\times$–$5.46\times$ E2E speedup** at $B=64$. Model C's cache-friendly convolution kernel (`loop_ikj`) yields **$1.26\times$–$1.68\times$** kernel acceleration.
 
 ---
 
@@ -329,22 +329,22 @@ To examine measurement variance, 30 independent sample batches were measured und
 
 | Execution Boundary | Median (μs) | Mean (μs) | Std Dev (μs) | IQR (μs) | Min (μs) | Max (μs) | 5th Pct (μs) | 95th Pct (μs) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **PyTorch Eager (8 threads)** | 394.68 | 430.09 | 102.96 | 35.01 | 320.95 | 843.75 | 350.53 | 640.02 |
-| **PyTorch Eager (1 thread)** | 451.90 | 461.83 | 56.30 | 50.04 | 339.70 | 568.30 | 349.56 | 564.13 |
-| **ForgeTune Python E2E** | 385.75 | 381.92 | 33.38 | 7.66 | 287.30 | 429.85 | 292.83 | 421.84 |
-| **ForgeTune Baseline C++ Kernel** | 468.95 | 470.91 | 14.42 | 14.60 | 444.21 | 520.66 | 446.97 | 487.41 |
-| **ForgeTune Selected C++ Kernel (`tiled_16`)** | 368.34 | 370.20 | 16.98 | 13.21 | 325.98 | 409.70 | 349.24 | 401.02 |
-| **E2E - Kernel Residual** | 15.94 | 11.72 | 24.62 | 14.41 | -59.47 | 57.91 | -46.61 | 37.53 |
+| **PyTorch Eager (8 threads)** | 384.02 | 436.32 | 91.48 | 60.45 | 304.90 | 636.40 | 375.53 | 613.10 |
+| **PyTorch Eager (1 thread)** | 440.38 | 456.79 | 36.30 | 54.90 | 377.55 | 557.30 | 420.29 | 508.49 |
+| **ForgeTune Python E2E** | 384.60 | 395.76 | 46.27 | 38.13 | 292.85 | 572.45 | 318.04 | 434.94 |
+| **ForgeTune Baseline C++ Kernel** | 467.31 | 471.52 | 25.68 | 14.11 | 427.04 | 547.16 | 440.80 | 529.49 |
+| **ForgeTune Selected C++ Kernel (`loop_ikj`)** | 371.68 | 377.38 | 35.17 | 31.91 | 281.39 | 457.71 | 330.61 | 438.60 |
+| **E2E - Kernel Residual** | 15.37 | 18.38 | 39.45 | 13.93 | -77.92 | 134.52 | -53.96 | 79.86 |
 
 > [!NOTE]
-> **Statistical Variance Note on Model C at $B=64$:** In the multi-model benchmark, Model C at $B=64$ yields an E2E latency of $385.75\ \mu\text{s}$ vs $394.68\ \mu\text{s}$ for PyTorch 8 threads ($1.02\times$). Given the observed PyTorch 8T standard deviation of $102.96\ \mu\text{s}$ and residual spread, this $1.02\times$ difference is within system measurement variance and noise. In contrast, against single-threaded PyTorch ($451.90\ \mu\text{s}$), ForgeTune achieves a statistically certified $1.17\times$ speedup ($p \ll 0.0001$).
+> **Statistical Variance Note on Model C at $B=64$:** In the multi-model benchmark, Model C at $B=64$ yields an E2E latency of $384.60\ \mu\text{s}$ vs $384.02\ \mu\text{s}$ for PyTorch 8 threads ($1.00\times$). Given the observed PyTorch 8T standard deviation of $91.48\ \mu\text{s}$ and residual spread, this $1.00\times$ difference is within system measurement variance and noise. In contrast, against single-threaded PyTorch ($440.38\ \mu\text{s}$), ForgeTune achieves a statistically certified $1.15\times$ speedup ($p \ll 0.0001$). Pure native in-kernel execution (`loop_ikj` at $371.68\ \mu\text{s}$) achieves $1.18\times$ speedup over single-threaded PyTorch E2E and $1.26\times$ over baseline native kernel ($467.31\ \mu\text{s}$).
 
 ---
 
 ### 7.4 Statistically Rigorous Paired Hypothesis Testing ($N=100$ Interleaved Blocks)
 
 To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first; `reports/v2_paired_b64_benchmark_data.json`):
-- **Evaluated Kernel Candidate:** Model C autotuned candidate `tiled_16` (`-O2`).
+- **Evaluated Kernel Candidate:** Model C autotuned candidate `loop_ikj` (`-O2`).
 - **Timing Boundary:** Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.
 
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
@@ -353,29 +353,29 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 ========================================================================================
  STATISTICAL HYPOTHESIS EVALUATION RESULTS (N=100 Paired Blocks, Model C B=64)
 ========================================================================================
-  PyTorch 1-Thread E2E Median:         352.38 μs
-  ForgeTune E2E Median:                290.73 μs
-  Sample Mean Difference (d_bar):      +59.82 μs   (Positive => ForgeTune is faster)
-  Sample Median Difference:            +56.85 μs
-  Sample Standard Deviation (s_d):      63.58 μs
-  Standard Error (SE = s_d / sqrt(N)):   6.36 μs
-  Difference Autocorrelation (Lag-1):  -0.1801     (Diagnostic lag-1 measurement)
+  PyTorch 1-Thread E2E Median:         344.10 μs
+  ForgeTune E2E Median:                287.57 μs
+  Sample Mean Difference (d_bar):      +70.48 μs   (Positive => ForgeTune is faster)
+  Sample Median Difference:            +55.08 μs
+  Sample Standard Deviation (s_d):      52.47 μs
+  Standard Error (SE = s_d / sqrt(N)):   5.25 μs
+  Difference Autocorrelation (Lag-1):  +0.6656     (Diagnostic lag-1 measurement)
   Degrees of Freedom (df):              99
-  90% Paired Student's t-CI:           [+49.26, +70.38] μs
-  95% Paired Student's t-CI:           [+47.21, +72.44] μs
-  90% Bootstrap Mean CI (10,000 rep):  [+49.48, +70.49] μs
-  90% Bootstrap Median CI (10,000 rep):[+53.47, +60.35] μs
-  Pre-declared Equivalence Margin (5%):+/- 17.62 μs
+  90% Paired Student's t-CI:           [+61.77, +79.20] μs
+  95% Paired Student's t-CI:           [+60.07, +80.90] μs
+  90% Bootstrap Mean CI (10,000 rep):  [+62.51, +79.54] μs
+  90% Bootstrap Median CI (10,000 rep):[+52.80, +57.80] μs
+  Pre-declared Equivalence Margin (5%):+/- 17.21 μs
 ----------------------------------------------------------------------------------------
-  Null Hypothesis (Zero Difference):   t = 9.41,   p = 2.14e-15 (Decisively Rejected)
-  One-Sided Non-Inferiority Test:      t = 12.18,  p = 1.06e-21 << 0.0001 (PASS)
-  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.62 μs)
+  Null Hypothesis (Zero Difference):   t = 13.43,  p = 4.87e-24 (Decisively Rejected)
+  One-Sided Non-Inferiority Test:      t = 16.71,  p = 7.04e-31 << 0.0001 (PASS)
+  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.21 μs)
 ========================================================================================
 ```
 
 > [!IMPORTANT]
 > **Interpretation of Statistical TOST Equivalence:**
-> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.62\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+49.26, +70.38]\ \mu\text{s}$ far above the upper equivalence bound ($+17.62\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 1.06 \times 10^{-21}$).
+> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.21\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+61.77, +79.20]\ \mu\text{s}$ far above the upper equivalence bound ($+17.21\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 7.04 \times 10^{-31}$).
 
 ---
 

@@ -1,11 +1,23 @@
 {
   "metadata": {
-    "timestamp": "2026-11-02 08:49:45",
+    "timestamp": "2026-11-02T09:24:03Z",
     "os_platform": "win32",
     "python_version": "3.12.14 (main, Aug 14 2026, 15:40:22) [MSC v.1944 64 bit (AMD64)]",
-    "git_commit": "d7f87f71b9e5356c4a59bda1ca093c1e52facad6",
+    "git_commit": "6921052dadfca4300aebf5e2012fbd577ddd545c",
     "git_branch": "v2.0-dev",
-    "working_tree_clean": true,
+    "working_tree_clean": false,
+    "source_files_clean": false,
+    "dirty_files": [
+      "README.md",
+      "reports/V2_BENCHMARK_REPORT.md",
+      "reports/V2_FINAL_CLOSURE_AUDIT.md",
+      "reports/V2_FINAL_VERIFICATION.md",
+      "reports/V2_MEMORY_REPORT.md",
+      "reports/v2_benchmark_report.json",
+      "reports/v2_paired_b64_benchmark_data.json",
+      "reports/v2_test_manifest.json",
+      "scripts/build_native.py"
+    ],
     "harness_description": "ForgeTune Authoritative Test Manifest (293 collected pytest items + 13 native C++ unit tests)"
   },
   "summary": {

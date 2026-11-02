@@ -294,12 +294,23 @@ def main():
                 zig_version = p_v.stdout.strip()
         except Exception:
             pass
+        clean_zig_path = zig_exe
+        try:
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            rel = os.path.relpath(zig_exe, repo_root).replace("\\", "/")
+            if not rel.startswith("../") and not rel.startswith("..\\"):
+                clean_zig_path = rel
+            else:
+                clean_zig_path = os.path.basename(zig_exe)
+        except Exception:
+            clean_zig_path = os.path.basename(zig_exe)
+
         meta_data = {
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "python_abi": sysconfig.get_config_var("SOABI") or f"{sys.version_info.major}.{sys.version_info.minor}",
             "platform": sys.platform,
             "machine": platform.machine(),
-            "compiler_path": zig_exe,
+            "compiler_path": clean_zig_path,
             "compiler_version": zig_version,
             "build_flags": ["-std=c++17", "-O2", "-Wall", "-Wextra", "-fno-signed-zeros"],
             "pybind11_version": getattr(pybind11, "__version__", "unknown")
