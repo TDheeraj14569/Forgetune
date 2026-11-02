@@ -132,9 +132,10 @@ class Graph:
 
         for nid, node in active_nodes.items():
             for inp_id in node.inputs:
-                if inp_id in active_nodes:
-                    adj[inp_id].append(nid)
-                    in_degrees[nid] += 1
+                if inp_id not in active_nodes:
+                    raise InvalidGraphError(f"Node {nid} ({node.op}) depends on missing or deleted node {inp_id}")
+                adj[inp_id].append(nid)
+                in_degrees[nid] += 1
 
         import collections
         queue = collections.deque([nid for nid in sorted(active_nodes.keys()) if in_degrees[nid] == 0])
@@ -153,6 +154,66 @@ class Graph:
             raise InvalidGraphError(f"Cycle detected at node {cycle_nodes[0] if cycle_nodes else 'unknown'}")
 
         return order
+
+    def validate(self) -> None:
+        """
+        Validates internal consistency of the graph representation:
+        - Every static shape dimension must be positive.
+        - -1 is only permitted as the leading dynamic batch dimension.
+        - Every operand must refer to an existing, non-deleted node.
+        - Input IDs and output IDs must exist and have the appropriate operators.
+        - Input IDs and output IDs must not contain duplicates.
+        - Operator arity must match the operator definition.
+        - Node IDs must be valid and unique.
+        - Cycles and disconnected invalid references must be detected.
+        """
+        active_nodes = {nid: node for nid, node in self.nodes.items() if not node.deleted}
+
+        if len(self.inputs) != len(set(self.inputs)):
+            raise InvalidGraphError("Graph inputs contains duplicate node IDs")
+        for inp_id in self.inputs:
+            if inp_id not in active_nodes:
+                raise InvalidGraphError(f"Graph input node {inp_id} does not exist in graph")
+            if active_nodes[inp_id].op != "INPUT":
+                raise InvalidGraphError(f"Graph input node {inp_id} has operator '{active_nodes[inp_id].op}', expected 'INPUT'")
+
+        if len(self.outputs) != len(set(self.outputs)):
+            raise InvalidGraphError("Graph outputs contains duplicate node IDs")
+        for out_id in self.outputs:
+            if out_id not in active_nodes:
+                raise InvalidGraphError(f"Graph output node {out_id} does not exist in graph")
+
+        OP_ARITY = {
+            "INPUT": (0, 0),
+            "CONST": (0, 0),
+            "RELU": (1, 1),
+            "SIGMOID": (1, 1),
+            "TANH": (1, 1),
+            "FLATTEN": (1, 1),
+            "MATMUL": (2, 2),
+            "ADD": (2, 2),
+            "MUL": (2, 2),
+            "CONV2D": (2, 3),
+            "FUSED_CONV2D_RELU": (2, 3),
+        }
+
+        for nid, node in active_nodes.items():
+            for idx, dim in enumerate(node.shape):
+                if dim < -1 or dim == 0:
+                    raise InvalidGraphError(f"Node {nid} has invalid shape dimension {dim}")
+                if dim == -1 and idx != 0:
+                    raise InvalidGraphError(f"Node {nid} has dynamic dimension -1 at non-leading index {idx}")
+
+            for inp_id in node.inputs:
+                if inp_id not in active_nodes:
+                    raise InvalidGraphError(f"Node {nid} ({node.op}) depends on non-existent or deleted node {inp_id}")
+
+            if node.op in OP_ARITY:
+                min_a, max_a = OP_ARITY[node.op]
+                if not (min_a <= len(node.inputs) <= max_a):
+                    raise InvalidGraphError(f"Node {nid} ({node.op}) expected between {min_a} and {max_a} inputs, got {len(node.inputs)}")
+
+        self.topological_order()
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -402,6 +463,7 @@ class Graph:
         """
         Pure-Python reference interpreter for differential correctness testing.
         """
+        self.validate()
         env: Dict[int, np.ndarray] = {}
 
         # Load inputs

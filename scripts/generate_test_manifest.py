@@ -97,23 +97,17 @@ def main():
 
     # Run native C++ test suite dynamically in-process via _forgetune_cpp
     from forgetune import _forgetune_cpp as cpp
-    if hasattr(cpp, "run_cpp_test_suite_detailed"):
-        cpp_results = cpp.run_cpp_test_suite_detailed()
-        cpp_tests_count = len(cpp_results)
-        cpp_passed_count = sum(1 for _, passed in cpp_results if passed)
-        cpp_test_cases = [
-            {"name": name, "status": "passed" if passed else "failed"}
-            for name, passed in cpp_results
-        ]
-        cpp_res = 0 if cpp_passed_count == cpp_tests_count else 1
-    else:
-        cpp_res = cpp.run_cpp_test_suite()
-        cpp_tests_count = 13
-        cpp_passed_count = 13 if cpp_res == 0 else 0
-        cpp_test_cases = [
-            {"name": f"test_cpp_{i+1}", "status": "passed" if cpp_res == 0 else "failed"}
-            for i in range(13)
-        ]
+    if not hasattr(cpp, "run_cpp_test_suite_detailed"):
+        raise RuntimeError("Detailed native test registry unavailable. Rebuild the native extension before generating the manifest.")
+
+    cpp_results = cpp.run_cpp_test_suite_detailed()
+    cpp_tests_count = len(cpp_results)
+    cpp_passed_count = sum(1 for _, passed in cpp_results if passed)
+    cpp_test_cases = [
+        {"name": name, "status": "passed" if passed else "failed"}
+        for name, passed in cpp_results
+    ]
+    cpp_res = 0 if cpp_passed_count == cpp_tests_count else 1
 
     # Reconciled execution accounting: executed includes passed, failed, and errors
     executed_py_tests = sum(1 for r in collector.results.values() if r["outcome"] in ("passed", "failed", "error"))
@@ -124,13 +118,25 @@ def main():
     error_py = sum(1 for r in collector.results.values() if r["outcome"] == "error")
     coll_err_py = sum(1 for r in collector.results.values() if r["outcome"] == "collection_error")
 
-    # Reconciliation check: collected = passed + failed + skipped + errors + collection_errors
-    assert total_py_collected == (passed_py + skipped_py + failed_py + error_py + coll_err_py), \
-        f"Manifest test accounting mismatch: collected {total_py_collected} != passed ({passed_py}) + skipped ({skipped_py}) + failed ({failed_py}) + error ({error_py}) + coll_err ({coll_err_py})"
+    # Reconciliation check: collected items = passed + failed + skipped + errors (collection errors recorded separately)
+    assert total_py_collected == (passed_py + skipped_py + failed_py + error_py), \
+        f"Manifest test accounting mismatch: collected {total_py_collected} != passed ({passed_py}) + skipped ({skipped_py}) + failed ({failed_py}) + error ({error_py})"
 
     git_sha = "unknown"
     git_branch = "unknown"
     git_clean = False
+    source_clean = True
+    dirty_files = []
+    generated_report_files = {
+        "reports/v2_test_manifest.json",
+        "reports/v2_paired_b64_benchmark_data.json",
+        "reports/v2_benchmark_report.json",
+        "reports/V2_BENCHMARK_REPORT.md",
+        "reports/V2_FINAL_VERIFICATION.md",
+        "reports/V2_MEMORY_REPORT.md",
+        "reports/V2_FINAL_CLOSURE_AUDIT.md",
+        "reports/junit_report.xml",
+    }
     try:
         r_sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
         if r_sha.returncode == 0:
@@ -140,19 +146,30 @@ def main():
             git_branch = r_br.stdout.strip()
         r_st = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
         if r_st.returncode == 0:
-            git_clean = (len(r_st.stdout.strip()) == 0)
+            for line in r_st.stdout.splitlines():
+                line = line.strip()
+                if line:
+                    parts = line.split(maxsplit=1)
+                    if len(parts) == 2:
+                        fn = parts[1].replace("\\", "/")
+                        dirty_files.append(fn)
+                        if fn not in generated_report_files and not any(fn.startswith(p) for p in ("build/", ".pytest_cache/", ".venv/", "bin/")):
+                            source_clean = False
+            git_clean = (len(dirty_files) == 0)
     except Exception:
         pass
 
     manifest = {
         "metadata": {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "os_platform": sys.platform,
             "python_version": sys.version,
             "git_commit": git_sha,
             "git_branch": git_branch,
             "working_tree_clean": git_clean,
-            "harness_description": "ForgeTune Authoritative Test Manifest (293 collected pytest items + 13 native C++ unit tests)"
+            "source_files_clean": source_clean,
+            "dirty_files": dirty_files,
+            "harness_description": f"ForgeTune Authoritative Test Manifest ({total_py_collected} collected pytest items + {cpp_tests_count} native C++ unit tests)"
         },
         "summary": {
             "total_python_tests_collected": total_py_collected,

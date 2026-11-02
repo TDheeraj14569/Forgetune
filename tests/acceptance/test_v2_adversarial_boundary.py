@@ -54,7 +54,7 @@ def compiled_static_model(tmp_path_factory):
     compiled = compile_model(m, (x,), output_dir=out_dir, autotune=False, dynamic_batch=False)
     return compiled, m
 
-def test_boundary_batch_sizes(compiled_dynamic_model):
+def test_boundary_batch_sizes(compiled_dynamic_model, tmp_path_factory):
     compiled, pt_model = compiled_dynamic_model
     for b in [1, 2, 7, 16, 32, 64, 128]:
         x = torch.randn(b, 8)
@@ -63,6 +63,23 @@ def test_boundary_batch_sizes(compiled_dynamic_model):
         act = compiled.run(x)
         assert act.shape == (b, 4)
         np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+
+    # Test configured large dynamic batch boundary > 256 (max_batch_size=300)
+    # Verifies boundaries: 1, 2, 150, 255, 256, 257, 300, and rejection at 301
+    m300 = DynamicLinearReLU().eval()
+    x300 = torch.randn(2, 8)
+    out_dir300 = str(tmp_path_factory.mktemp("v2_adv_300"))
+    comp300 = compile_model(m300, (x300,), output_dir=out_dir300, autotune=False, dynamic_batch=True, max_batch_size=300)
+    for b in [1, 2, 150, 255, 256, 257, 300]:
+        xb = torch.randn(b, 8)
+        with torch.no_grad():
+            ref = m300(xb).numpy()
+        act = comp300.run(xb)
+        assert act.shape == (b, 4)
+        np.testing.assert_allclose(act, ref, atol=1e-4, rtol=1e-4)
+    with pytest.raises(InvalidShapeError):
+        comp300.run(np.ones((301, 8), dtype=np.float32))
+    comp300.close()
 
 def test_rejection_boundary_violations(compiled_dynamic_model):
     compiled, _ = compiled_dynamic_model

@@ -2,6 +2,7 @@
 #include "forgetune/memory_planner.hpp"
 #include "forgetune/forgetune_abi.h"
 #include <iostream>
+#include <sstream>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -1021,7 +1022,15 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (arg == "--json") {
+            // Divert test diagnostics away from stdout so stdout contains exclusively valid JSON.
+            std::streambuf* old_cout_buf = std::cout.rdbuf();
+            std::stringstream diag_sink;
+            std::cout.rdbuf(diag_sink.rdbuf());
+
             auto detailed = run_cpp_test_suite_detailed();
+
+            std::cout.rdbuf(old_cout_buf);
+
             std::cout << "[\n";
             for (size_t i = 0; i < detailed.size(); ++i) {
                 std::cout << "  {\"name\": \"" << detailed[i].first << "\", \"status\": \""

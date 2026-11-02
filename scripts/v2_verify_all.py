@@ -73,6 +73,7 @@ def check_non_report_dirty(root_dir: str):
         "reports/v2_benchmark_report.json",
         "reports/V2_BENCHMARK_REPORT.md",
         "reports/V2_FINAL_CLOSURE_AUDIT.md",
+        "reports/V2_REQUIREMENTS_MATRIX.md",
     }
     for line in res.stdout.splitlines():
         line = line.strip()

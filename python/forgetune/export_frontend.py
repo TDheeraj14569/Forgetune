@@ -474,6 +474,15 @@ def export_to_forgetune_ir(
                     target_graph.add_node(tanh_node)
                     node_mapping[node.name] = tanh_id
     
+                elif "aten.sym_size" in target_str:
+                    in_node = node.args[0]
+                    dim_idx = node.args[1] if len(node.args) > 1 else 0
+                    in_id = node_mapping[in_node.name]
+                    in_shape = target_graph.nodes[in_id].shape
+                    dim_val = in_shape[dim_idx]
+                    node_mapping[node.name] = dim_val
+                    continue
+
                 elif "aten.flatten" in target_str:
                     in_node = node.args[0]
                     in_id = node_mapping[in_node.name]
@@ -528,12 +537,17 @@ def export_to_forgetune_ir(
                     neg_idx = -1
     
                     for idx, d in enumerate(t_list):
+                        if hasattr(d, 'name') and d.name in node_mapping:
+                            d = node_mapping[d.name]
                         if isinstance(d, int):
                             if d == -1:
-                                if neg_idx != -1:
-                                    raise InvalidShapeError(f"Multiple -1 in reshape target shape: {t_list}")
-                                neg_idx = idx
-                                resolved_target.append(-1)
+                                if idx == 0 and in_shape[0] == -1:
+                                    resolved_target.append(-1)
+                                else:
+                                    if neg_idx != -1:
+                                        raise InvalidShapeError(f"Multiple -1 in reshape target shape: {t_list}")
+                                    neg_idx = idx
+                                    resolved_target.append(-1)
                             elif d > 0:
                                 if idx == 0 and in_shape[0] == -1:
                                     raise UnsupportedOpError(

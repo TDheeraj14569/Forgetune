@@ -6,11 +6,15 @@ This guide describes how to build, run tests, and execute verification suites fo
 
 ## 1. Environment & Prerequisites
 
-- **Operating System:** Windows 10/11 (x86_64) or Linux (x86_64)
-- **Python:** Python 3.11 or 3.12 (tested with Python 3.12.14)
+- **Operating System:** Windows 10/11 (x86_64) or Linux (Ubuntu 22.04+, x86_64)
+- **Python Support & CI Verification Scope:**
+  - **Python 3.12:** Full test suite (293 pytest items + 13 native C++ tests) and three-round master verification protocol in the primary CI workflow (tested with Python 3.12.14).
+  - **Python 3.11:** Core acceptance suite and native C++ compatibility smoke verification in CI (tested with Python 3.11).
 - **PyTorch:** PyTorch >= 2.1 (tested with PyTorch 2.14.1+cpu)
-- **Native Compiler:** Zig C++ toolchain (`ziglang` package, Zig 0.16.0 targeting `x86_64-windows-gnu`)
-- **Key Python Packages:** `torch`, `numpy`, `pytest`, `pybind11`, `ziglang`
+- **Native Toolchain:**
+  - Zig C++ toolchain (`ziglang` package, Zig 0.16.0 targeting `x86_64-windows-gnu` or `x86_64-linux-gnu`)
+  - Pure CMake 3.20+ with host compiler (Clang/GCC/MSVC) and CTest (verified in Linux CI)
+- **Key Python Packages:** `torch`, `numpy`, `pytest`, `pybind11`, `ziglang`, `scipy`
 
 ---
 

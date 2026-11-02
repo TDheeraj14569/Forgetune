@@ -18,7 +18,8 @@ from typing import Optional
 
 def find_zig():
     # 1. PATH
-    on_path = shutil.which("zig")
+    exe_name = "zig.exe" if sys.platform == "win32" else "zig"
+    on_path = shutil.which(exe_name) or shutil.which("zig")
     if on_path:
         return on_path
 
@@ -26,27 +27,40 @@ def find_zig():
     try:
         import ziglang
         zig_dir = os.path.dirname(ziglang.__file__)
-        exe_name = "zig.exe" if sys.platform == "win32" else "zig"
         cand = os.path.join(zig_dir, exe_name)
         if os.path.isfile(cand):
             return cand
     except ImportError:
         pass
 
-    # 3. repo root .venv or common virtualenv locations
+    # 3. Portable discovery across Linux, macOS, and Windows
+    search_dirs = [
+        sys.prefix,
+        os.path.join(sys.prefix, "bin" if sys.platform != "win32" else "Scripts"),
+        sysconfig.get_path("scripts"),
+        sysconfig.get_path("purelib"),
+        sysconfig.get_path("platlib"),
+    ]
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    for base in [sys.prefix, repo_root, os.path.join(repo_root, ".venv")]:
-        for sub in [
-            ("Lib", "site-packages", "ziglang", "zig.exe"),
-            ("lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "ziglang", "zig"),
-            ("Scripts", "zig.exe"),
-            ("bin", "zig")
-        ]:
-            cand = os.path.join(base, *sub)
-            if os.path.isfile(cand):
-                return cand
+    for venv_path in [os.path.join(repo_root, ".venv"), os.path.join(repo_root, "venv")]:
+        search_dirs.extend([
+            venv_path,
+            os.path.join(venv_path, "bin" if sys.platform != "win32" else "Scripts"),
+            os.path.join(venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"),
+            os.path.join(venv_path, "Lib", "site-packages")
+        ])
 
-    return "zig"
+    for base in search_dirs:
+        if not base or not os.path.isdir(base):
+            continue
+        cand = os.path.join(base, exe_name)
+        if os.path.isfile(cand):
+            return cand
+        cand = os.path.join(base, "ziglang", exe_name)
+        if os.path.isfile(cand):
+            return cand
+
+    return exe_name
 
 def classify_diagnostic(line_str: str, repo_root: Optional[str] = None) -> str:
     """
@@ -116,7 +130,8 @@ def is_codebase_warning(line_str: str, repo_root: Optional[str] = None) -> bool:
     """
     Parses a compiler diagnostic line and returns True if it represents a warning
     originating from our project codebase (src/, include/forgetune/, tests/cpp/),
-    and False if it is a toolchain, unknown, or non-warning diagnostic.
+    and False if it is a toolchain/SDK warning (including unplaced CLI-flag diagnostics),
+    unknown path warning, or non-warning diagnostic.
     """
     return classify_diagnostic(line_str, repo_root) == "project_warning"
 
@@ -172,20 +187,23 @@ def main():
         import pybind11
         pybind_inc = pybind11.get_include()
     except ImportError:
-        cand_subdirs = [
-            ("Lib", "site-packages", "pybind11", "include"),
-            ("lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "pybind11", "include"),
-            ("lib", "site-packages", "pybind11", "include"),
-            ("include", "pybind11"),
-        ]
         pybind_inc = ""
-        for base in [sys.prefix, repo_root, os.path.join(repo_root, ".venv")]:
-            for sub in cand_subdirs:
-                c = os.path.join(base, *sub)
-                if os.path.isdir(c):
-                    pybind_inc = c
-                    break
-            if pybind_inc:
+        cand_dirs = [
+            sysconfig.get_path("include"),
+            os.path.join(sysconfig.get_path("purelib") or "", "pybind11", "include"),
+            os.path.join(sysconfig.get_path("platlib") or "", "pybind11", "include"),
+        ]
+        for base in [sys.prefix, repo_root, os.path.join(repo_root, ".venv"), os.path.join(repo_root, "venv")]:
+            cand_dirs.extend([
+                os.path.join(base, "include", "pybind11"),
+                os.path.join(base, "include"),
+                os.path.join(base, "Lib", "site-packages", "pybind11", "include"),
+                os.path.join(base, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "pybind11", "include"),
+                os.path.join(base, "lib", "site-packages", "pybind11", "include"),
+            ])
+        for c in cand_dirs:
+            if c and os.path.isdir(c):
+                pybind_inc = c
                 break
 
     is_win = sys.platform == "win32"

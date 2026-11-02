@@ -127,3 +127,20 @@ def test_export_preserves_static_batch_default():
     # dynamic_batch defaults to False for backward compatibility
     ir_graph = export_to_forgetune_ir(model, (example_input,))
     assert ir_graph.nodes[ir_graph.inputs[0]].shape == [4, 16]
+
+    # Test dynamic reshape pattern x.reshape(x.shape[0], -1) with aten.sym_size support
+    class DynamicReshapeModel(nn.Module):
+        def forward(self, x):
+            return x.reshape(x.shape[0], -1)
+
+    rmodel = DynamicReshapeModel()
+    rex_in = torch.randn(2, 1, 4, 4, dtype=torch.float32)
+    rir_graph = export_to_forgetune_ir(rmodel, (rex_in,), dynamic_batch=True)
+    assert rir_graph.nodes[rir_graph.inputs[0]].shape == [-1, 1, 4, 4]
+    # Check that FLATTEN was produced
+    assert any(n.op == "FLATTEN" and n.shape == [-1, 16] for n in rir_graph.nodes.values())
+    for tb in [1, 5]:
+        tx = torch.randn(tb, 1, 4, 4, dtype=torch.float32)
+        exp = rmodel(tx).detach().numpy()
+        pout = list(rir_graph.evaluate({rir_graph.inputs[0]: tx.numpy()}).values())[0]
+        np.testing.assert_allclose(pout, exp)

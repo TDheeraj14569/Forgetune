@@ -30,5 +30,5 @@ dev = [
 where = ["python"]
 
 [tool.pytest.ini_options]
-pythonpath = ["python"]
+pythonpath = ["python", "."]
 testpaths = ["tests"]

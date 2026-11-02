@@ -94,11 +94,26 @@ def test_pybind11_json_roundtrip():
 
 def test_pybind11_native_cpp_test_suite():
     """
-    Executes the 13 native C++ unit tests in-process via pybind11.
+    Executes the 13 native C++ unit tests in-process via pybind11 and verifies CLI --json output.
     Verifies that all native C++ tests pass with returncode 0.
     """
     res = _forgetune_cpp.run_cpp_test_suite()
     assert res == 0, f"Native C++ test suite failed with exit code {res}"
+
+    detailed = _forgetune_cpp.run_cpp_test_suite_detailed()
+    assert len(detailed) == 13
+    assert all(d[1] for d in detailed)
+
+    import subprocess
+    import json
+    import os
+    exe_name = "forgetune_test_suite.exe" if os.name == "nt" else "forgetune_test_suite"
+    exe_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bin", exe_name))
+    if os.path.isfile(exe_path):
+        proc = subprocess.run([exe_path, "--json"], capture_output=True, text=True, check=True)
+        data = json.loads(proc.stdout)
+        assert len(data) == 13
+        assert all(item["status"] == "passed" for item in data)
 
 def test_pybind11_compiler_and_codegen():
     """

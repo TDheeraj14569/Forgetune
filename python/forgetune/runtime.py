@@ -5,12 +5,13 @@ Binds to compiled C++ kernels using ctypes with contract validation and direct a
 
 import os
 import sys
+import math
 import ctypes
 import time
 import operator
 import numpy as np
 from typing import Tuple, Optional
-from .errors import ForgeTuneRuntimeError, InvalidShapeError, RuntimeError
+from .errors import ForgeTuneRuntimeError, InvalidShapeError
 
 class NativeRuntime:
     def __init__(self, dll_path: str, expected_input_shape: Tuple[int, ...], expected_output_shape: Tuple[int, ...], max_batch_size: Optional[int] = None):
@@ -34,8 +35,8 @@ class NativeRuntime:
             self.total_input_count = -1
             self.total_output_count = -1
         else:
-            self.total_input_count = int(np.prod(self.expected_input_shape))
-            self.total_output_count = int(np.prod(self.expected_output_shape))
+            self.total_input_count = int(math.prod(self.expected_input_shape))
+            self.total_output_count = int(math.prod(self.expected_output_shape))
 
         self.lib = self._load_library()
         self._init_entry_point()
@@ -416,8 +417,8 @@ class NativeRuntime:
             int(output_tensor.size),
             iters
         )
-        if lat_us < 0:
-            raise ForgeTuneRuntimeError(f"Native benchmark returned error code: {lat_us}")
+        if not math.isfinite(lat_us) or lat_us < 0:
+            raise ForgeTuneRuntimeError(f"Native benchmark returned invalid latency: {lat_us}")
         return float(lat_us)
 
     def get_arena_alloc_count(self) -> int:

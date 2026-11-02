@@ -995,6 +995,9 @@ def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
     Audit P2: Recompiling a locked shared library must raise an informative CompilationError.
     Also verifies that the Linux verifier correctly recognizes only this approved skip node.
     """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     from scripts.v2_verify_all import is_approved_linux_skip, APPROVED_LINUX_SKIP_NODE
     # 1. Exact approved Linux skip node must be accepted
     assert is_approved_linux_skip(APPROVED_LINUX_SKIP_NODE)
@@ -1036,11 +1039,9 @@ def test_regression_closed_runtime_lifecycle(tmp_path):
     Audit P2: Executing NativeRuntime after close() must raise ForgeTuneRuntimeError (and ForgeTuneError).
     """
     from forgetune import ForgeTuneError, ForgeTuneRuntimeError
-    from forgetune.errors import RuntimeError as CompatibleRuntimeError
 
     assert issubclass(ForgeTuneRuntimeError, ForgeTuneError)
     assert issubclass(ForgeTuneRuntimeError, RuntimeError)
-    assert CompatibleRuntimeError is ForgeTuneRuntimeError
 
     class SimpleModel(nn.Module):
         def forward(self, x):
@@ -1058,7 +1059,7 @@ def test_regression_closed_runtime_lifecycle(tmp_path):
     assert "after it has been closed" in str(exc_info.value)
     with pytest.raises(ForgeTuneError):
         compiled.run(x)
-    with pytest.raises(CompatibleRuntimeError):
+    with pytest.raises(RuntimeError):
         compiled.run(x)
 
     # 2. Context manager __enter__ / __exit__

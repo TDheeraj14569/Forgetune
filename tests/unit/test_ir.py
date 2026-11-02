@@ -19,6 +19,8 @@ def test_cyclic_graph_rejected():
     g.add_node(Node(1, "RELU", inputs=[0], shape=[2, 2]))
     with pytest.raises(InvalidGraphError):
         g.topological_order()
+    with pytest.raises(InvalidGraphError):
+        g.validate()
 
 def test_topological_sort_order():
     g = Graph()
@@ -30,6 +32,25 @@ def test_topological_sort_order():
 
     order = g.topological_order()
     assert order == [0, 1, 2]
+    # Verify central validate() method succeeds for valid graph
+    g.validate()
+
+    # Verify validate() rejects invalid operand dependency
+    g_bad = Graph()
+    in_bad = g_bad.add_node(Node(10, "INPUT", shape=[2, 2]))
+    g_bad.add_node(Node(11, "RELU", inputs=[999], shape=[2, 2]))
+    g_bad.set_inputs([in_bad])
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g_bad.validate()
+    assert "depends on non-existent or deleted node" in str(exc_info.value)
+
+    # Verify validate() rejects non-positive static dimension
+    g_bad_dim = Graph()
+    g_bad_dim.add_node(Node(20, "INPUT", shape=[-2, 4]))
+    g_bad_dim.set_inputs([20])
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g_bad_dim.validate()
+    assert "invalid shape dimension" in str(exc_info.value)
 
 def test_json_serialization_and_deserialization():
     g = Graph()

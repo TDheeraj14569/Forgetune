@@ -93,7 +93,7 @@ This document provides mathematical definitions, broadcasting rules, and impleme
 - **Semantics:** Reshapes a multi-dimensional activation tensor into a 2D matrix while strictly preserving the leading batch dimension.
 - **Contract:**
   - Rank-4 input $[B, C, H, W]$ flattens to Rank-2 $[B, C \cdot H \cdot W]$.
-  - Zero-copy / pointer reuse in intermediate memory arena.
+  - Intermediate memory arena allocation with buffer copy (safeguards intermediate activation lifetime across downstream consumers; in-place pointer aliasing occurs when input and destination buffers share identical base pointers).
 
 ---
 

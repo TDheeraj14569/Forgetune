@@ -333,18 +333,52 @@ def main():
 
     git_sha = "unknown"
     git_clean = False
+    dirty_files = []
+    source_clean = True
     try:
         git_res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
         if git_res.returncode == 0:
             git_sha = git_res.stdout.strip()
         git_st = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
         if git_st.returncode == 0:
-            git_clean = (len(git_st.stdout.strip()) == 0)
+            raw_dirty = git_st.stdout.strip()
+            git_clean = (len(raw_dirty) == 0)
+            if not git_clean:
+                for line in raw_dirty.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(maxsplit=1)
+                    fpath = parts[1] if len(parts) > 1 else parts[0]
+                    dirty_files.append(fpath.replace("\\", "/"))
+                    norm_f = fpath.replace("\\", "/")
+                    if not (norm_f.startswith("reports/") or norm_f.startswith("build/")):
+                        source_clean = False
     except Exception:
         pass
 
-    # Write output JSON
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    repo_tree_sha = "unknown"
+    try:
+        ls_res = subprocess.run(["git", "ls-files"], capture_output=True, text=True, cwd=repo_root)
+        if ls_res.returncode == 0:
+            h_tree = hashlib.sha256()
+            for fn in sorted(ls_res.stdout.splitlines()):
+                fn = fn.strip()
+                full_p = os.path.join(repo_root, fn)
+                if not fn or not os.path.isfile(full_p):
+                    continue
+                with open(full_p, "rb") as f_in:
+                    while chunk := f_in.read(65536):
+                        h_tree.update(chunk)
+            repo_tree_sha = h_tree.hexdigest()
+    except Exception:
+        pass
+
+    import scipy
+    cpu_count_logical = os.cpu_count() or 1
+
+    # Write output JSON
     rel_dll_path = os.path.relpath(dll_path, repo_root).replace("\\", "/") if os.path.isabs(dll_path) else dll_path.replace("\\", "/")
 
     import uuid
@@ -355,13 +389,17 @@ def main():
     harness_path = os.path.abspath(__file__)
     harness_sha = _compute_file_sha256(harness_path) if os.path.isfile(harness_path) else "unknown"
     paired_run_id = str(uuid.uuid4())
-    paired_date = time.strftime("%Y-%m-%d %H:%M:%S")
+    paired_date_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    cand_id = manifest_data.get("kernel_config", {}).get("candidate_id", "unknown") if manifest_data else "unknown"
+    cand_opt = manifest_data.get("kernel_config", {}).get("opt_level", "unknown") if manifest_data else "unknown"
 
     res_data = {
         "metadata": {
             "run_id": paired_run_id,
             "experiment": "model_c_batch64_paired_100_blocks",
-            "date": paired_date,
+            "date_utc": paired_date_utc,
+            "date": paired_date_utc,
             "model": "Model C (Small CNN)",
             "batch_size": 64,
             "paired_blocks_count": n,
@@ -374,23 +412,31 @@ def main():
             "equivalence_margin_us": equiv_margin,
             "equivalence_margin_raw_us": equiv_margin_raw,
             "pytorch_threads": 1,
+            "timing_boundary": "Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.",
+            "autocorrelation_interpretation": "Diagnostic lag-1 measurement; does not independently establish absence of temporal drift or thermal skew.",
             "native_kernel_path": rel_dll_path,
             "cpp_source_path": rel_cpp_path,
-            "candidate_id": manifest_data.get("kernel_config", {}).get("candidate_id") if manifest_data else "unknown",
-            "opt_level": manifest_data.get("kernel_config", {}).get("opt_level") if manifest_data else "unknown",
+            "candidate_id": cand_id,
+            "opt_level": cand_opt,
             "candidate_config": manifest_data.get("kernel_config", {}) if manifest_data else {},
             "kernel_sha256": _compute_file_sha256(dll_path) if os.path.isfile(dll_path) else "unknown",
             "cpp_sha256": cpp_sha,
             "graph_hash": expected_graph_hash,
-            "compiler_fingerprint": current_compiler_fp,
+            "compiler_sources_fingerprint": current_compiler_fp,
             "compiler_info": compiler_info,
             "git_commit": git_sha,
             "working_tree_clean": git_clean,
+            "source_files_clean": source_clean,
+            "dirty_files": dirty_files,
+            "repo_source_tree_sha256": repo_tree_sha,
             "benchmark_script_sha256": harness_sha,
-            "benchmark_script_version": "2.0.0",
-            "source_tree_fingerprint": current_compiler_fp,
             "artifact_manifest_sha256": _compute_file_sha256(manifest_path) if os.path.isfile(manifest_path) else "unknown",
             "execution_order_strategy": "deterministic_seeded_balanced_random_blocks (seed=42, 50 PT-first, 50 FT-first)",
+            "python_version": sys.version,
+            "torch_version": torch.__version__,
+            "numpy_version": np.__version__,
+            "scipy_version": scipy.__version__,
+            "cpu_count_logical": cpu_count_logical,
             "platform": sys.platform,
             "os_name": sys_platform.system(),
             "os_release": sys_platform.release(),
@@ -442,16 +488,17 @@ def main():
 
 To evaluate Model C at $B=64$ without sequential bias or hypervisor thermal pacing skew, an interleaved 100-block paired experiment was executed under a deterministic seeded balanced random order (seed=42, 50 PT-first, 50 FT-first):
 - **Experiment Run ID:** `{paired_run_id}`
-- **Execution Timestamp:** `{paired_date}`
+- **Execution Timestamp (UTC):** `{paired_date_utc}`
 - **Harness SHA-256:** `{harness_sha}`
-- **Harness Version:** `2.0.0`
-- **Working Tree Clean:** `{'True' if git_clean else 'False'}`
+- **Working Tree Clean:** `{'True' if git_clean else 'False'}` (Source clean: `{'True' if source_clean else 'False'}`)
+- **Evaluated Kernel Candidate:** Model C autotuned candidate `{cand_id}` (`{cand_opt}`)
+- **Timing Boundary:** Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.
 - **PyTorch 1-Thread E2E Median:** ${pt_median:.2f}\\ \\mu\\text{{s}}$
 - **ForgeTune E2E Median:** ${ft_median:.2f}\\ \\mu\\text{{s}}$
 - **Mean Paired Difference ($\\bar{{d}} = t_{{PT1}} - t_{{FT}}$):** ${mean_diff:+.2f}\\ \\mu\\text{{s}}$ paired latency reduction (ForgeTune faster)
 - **Median Paired Difference:** ${median_diff:+.2f}\\ \\mu\\text{{s}}$
 - **Standard Error ($SE$):** ${se_diff:.2f}\\ \\mu\\text{{s}}$ ($df = {df}$, sample standard deviation $s_d = {std_diff:.2f}\\ \\mu\\text{{s}}$)
-- **Difference Autocorrelation (Lag-1 $\\rho_1$):** ${autocorr_lag1:+.4f}$ (demonstrates absence of temporal drift or thermal skew)
+- **Difference Autocorrelation (Lag-1 $\\rho_1$):** ${autocorr_lag1:+.4f}$ (diagnostic lag-1 measurement; does not independently establish absence of temporal drift or thermal skew)
 - **One-Sided Non-Inferiority ($H_0: \\mu_d \\le -{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$):** $t = {t_stat_ni:.2f}$, exact Student's t $p = {p_val_ni:.2e} \\ll 0.0001$. Non-inferiority is certified.
 - **Two-Sided TOST Equivalence ($[-\\delta, +\\delta] = [-{equiv_margin_raw:.2f}, +{equiv_margin_raw:.2f}]\\ \\mu\\text{{s}}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\\%\\ \\text{{CI}} = [{ci_90[0]:+.2f}, {ci_90[1]:+.2f}]\\ \\mu\\text{{s}}$), placing the upper confidence bound above $+{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**

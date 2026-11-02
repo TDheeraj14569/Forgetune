@@ -57,8 +57,19 @@ class NativeCompiler:
         return "unknown"
 
     def get_compiler_info(self) -> Dict[str, Any]:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        safe_path = self.compiler_path
+        try:
+            rel = os.path.relpath(self.compiler_path, repo_root).replace("\\", "/")
+            if not rel.startswith(".."):
+                safe_path = rel
+            else:
+                safe_path = os.path.basename(self.compiler_path)
+        except Exception:
+            safe_path = os.path.basename(self.compiler_path)
+
         info = {
-            "path": self.compiler_path,
+            "path": safe_path,
             "type": self.compiler_type,
             "version": "unknown"
         }

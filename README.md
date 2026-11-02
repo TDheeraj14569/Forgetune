@@ -16,7 +16,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
 [![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
-[![Tests](https://img.shields.io/badge/Tests-306%2F306%20PASS-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-306%20Pass%20(Win)%20%7C%201%20Skip%20(Linux)-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 [![Memory Savings](https://img.shields.io/badge/Memory%20Savings-38.5%25%20--%2058.6%25-brightgreen.svg)](reports/V2_MEMORY_REPORT.md)
 [![E2E Speedup](https://img.shields.io/badge/E2E%20Speedup-Up%20to%209.49x-brightgreen.svg)](reports/V2_BENCHMARK_REPORT.md)
@@ -73,16 +73,16 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 
 ## 2. Comparative Systems Engineering Dashboard
 
-| Systems Engineering Dimension | PyTorch Eager Runtime | Traditional JIT (TorchScript / Inductor) | ForgeTune v2.0 Native Compiler |
-|---|---|---|---|
-| **Runtime Deployment Footprint** | > 500 MB (Full framework runtime) | > 500 MB (Requires PyTorch host runtime) | **< 1 MB** (Self-contained `.dll` / `.so`) |
-| **Execution Dependency** | Python interpreter + PyTorch C++ runtime | Python or `libtorch` C++ shared libraries | **Zero** (Pure C ABI; runs in C, C++, Rust, Python) |
-| **Intermediate Memory Strategy** | Dynamic per-layer allocation & free | JIT runtime buffer allocator | **Topological interval-colored arena (38.5%–58.6% buffer reduction)** |
-| **Steady-State Heap Allocations** | Recurring heap churn during inference | Managed pool allocations | **Zero additional intermediate-arena allocations after warm-up** |
-| **Dynamic Batch Flexibility** | Dynamic shapes with dispatch overhead | Re-tracing / dynamic guards overhead | **Static loop parametrization (default $B \in [1, 128]$, configurable up to $1,000,000$)** |
-| **Operator & Activation Fusion** | Separate kernel launches | Pointwise elementwise combinations | **`CONV2D + RELU` & `MATMUL + ADD + RELU` cache-resident loops** |
-| **Python Call Latency (P50)** | 35.6 μs – 394.7 μs (Model dependent) | 25.0 μs – 200.0 μs (Framework dispatch) | **7.0 μs – 385.8 μs (Up to 9.49x E2E acceleration)** |
-| **Numerical Bitwise Reproducibility** | Non-deterministic across minor builds | JIT cache sensitivity | **Bit-exact reproducibility verified on Model A (0/2,097,152 bits)** |
+| Systems Engineering Dimension | PyTorch Eager Runtime | ForgeTune v2.0 Native Compiler |
+|---|---|---|
+| **Runtime Deployment Footprint** | Full framework runtime (> 500 MB installed) | **< 1 MB** (Self-contained `.dll` / `.so`) |
+| **Execution Dependency** | Python interpreter + PyTorch C++ runtime (`libtorch`) | **Zero** (Pure C ABI; runs in C, C++, Rust, Python) |
+| **Intermediate Memory Strategy** | Dynamic per-layer allocation & free | **Topological interval-colored arena (38.5%–58.6% buffer reduction)** |
+| **Steady-State Heap Allocations** | Recurring heap churn during inference passes | **Zero additional intermediate-arena allocations after warm-up** |
+| **Dynamic Batch Flexibility** | Dynamic shapes with framework dispatch overhead | **Static loop parametrization (default $B \in [1, 128]$, configurable up to $1,000,000$)** |
+| **Operator & Activation Fusion** | Separate kernel launches with intermediate memory traffic | **`CONV2D + RELU` & `MATMUL + ADD + RELU` cache-resident loops** |
+| **Python Call Latency (P50)** | 33.6 μs – 394.7 μs (Model dependent, measured across Models A–C) | **7.0 μs – 385.8 μs (Up to 9.49x E2E acceleration)** |
+| **Numerical Bitwise Reproducibility** | Non-deterministic across minor builds / thread schedulers | **Bit-exact reproducibility verified on Model A (0/2,097,152 bits)** |
 
 ---
 
@@ -115,7 +115,7 @@ flowchart TD
         G --> H["C++17 Standalone Codegen<br/>(Dynamic Batch Inner Loop Indexing)"]
         H --> I["Zig C++ / Host Toolchain (Clang, GCC, MSVC)<br/>(-Wall -Wextra -std=c++17 -O2)"]
         I --> J["Native Shared Library (.dll on Windows, .so on Linux)<br/>(Dual Versioned C ABI)"]
-        J --> K["Zero-Copy Dispatch via NativeRuntime / ctypes<br/>(Strictly Zero Steady-State Native Allocations)"]
+        J --> K["Direct Native Dispatch via NativeRuntime / ctypes<br/>(Zero-copy for contiguous buffers; strictly zero steady-state native allocations)"]
     end
 ```
 
@@ -280,13 +280,15 @@ Every candidate variant is compiled into an isolated subdirectory to prevent obj
 - **Model B Selected:** `fused_ikj` (1.11x kernel opt speedup, 5.73s search cost).
 - **Model C Selected:** `tiled_16` (1.48x kernel opt speedup, 78.74s search cost).
 
+*Tie-Break Policy:* When candidate variants perform within a $\pm 5\%$ empirical measurement noise window, the autotuner applies a deterministic tie-break policy preferring structural simplicity (untiled over tiled, -O2 over -O3).
+
 ---
 
 ## 7. Empirical Benchmarks & Statistical Performance Proofs
 
 All benchmarks are measured on an AMD64 platform (AMD Ryzen 7 7730U, Windows 11, PyTorch 2.14.1+cpu). Measurements are backed by raw, authoritative on-disk artifacts:
-- Multi-Model Benchmark Dataset: `v2-bench-1793566051-3743367c` ([reports/v2_benchmark_report.json](file:///c:/Users/dheer/Desktop/Forgetune/reports/v2_benchmark_report.json))
-- Paired Hypothesis Dataset: $N=100$ Interleaved Blocks ([reports/v2_paired_b64_benchmark_data.json](file:///c:/Users/dheer/Desktop/Forgetune/reports/v2_paired_b64_benchmark_data.json))
+- Multi-Model Benchmark Dataset: [Multi-Model Benchmark Report](reports/v2_benchmark_report.json)
+- Paired Hypothesis Dataset ($N=100$ Interleaved Blocks): [Paired Benchmark Data](reports/v2_paired_b64_benchmark_data.json)
 
 ### 7.1 Latency Metric Disambiguation
 To prevent misleading comparisons, ForgeTune strictly disambiguates timing boundaries:
@@ -331,14 +333,19 @@ To examine measurement variance, 30 independent sample batches were measured und
 | **PyTorch Eager (1 thread)** | 451.90 | 461.83 | 56.30 | 50.04 | 339.70 | 568.30 | 349.56 | 564.13 |
 | **ForgeTune Python E2E** | 385.75 | 381.92 | 33.38 | 7.66 | 287.30 | 429.85 | 292.83 | 421.84 |
 | **ForgeTune Baseline C++ Kernel** | 468.95 | 470.91 | 14.42 | 14.60 | 444.21 | 520.66 | 446.97 | 487.41 |
-| **ForgeTune Selected C++ Kernel (`loop_ikj`)** | 368.34 | 370.20 | 16.98 | 13.21 | 325.98 | 409.70 | 349.24 | 401.02 |
+| **ForgeTune Selected C++ Kernel (`tiled_16`)** | 368.34 | 370.20 | 16.98 | 13.21 | 325.98 | 409.70 | 349.24 | 401.02 |
 | **E2E - Kernel Residual** | 15.94 | 11.72 | 24.62 | 14.41 | -59.47 | 57.91 | -46.61 | 37.53 |
+
+> [!NOTE]
+> **Statistical Variance Note on Model C at $B=64$:** In the multi-model benchmark, Model C at $B=64$ yields an E2E latency of $385.75\ \mu\text{s}$ vs $394.68\ \mu\text{s}$ for PyTorch 8 threads ($1.02\times$). Given the observed PyTorch 8T standard deviation of $102.96\ \mu\text{s}$ and residual spread, this $1.02\times$ difference is within system measurement variance and noise. In contrast, against single-threaded PyTorch ($451.90\ \mu\text{s}$), ForgeTune achieves a statistically certified $1.17\times$ speedup ($p \ll 0.0001$).
 
 ---
 
 ### 7.4 Statistically Rigorous Paired Hypothesis Testing ($N=100$ Interleaved Blocks)
 
 To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first; `reports/v2_paired_b64_benchmark_data.json`):
+- **Evaluated Kernel Candidate:** Model C autotuned candidate `tiled_16` (`-O2`).
+- **Timing Boundary:** Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.
 
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
 
@@ -352,7 +359,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
   Sample Median Difference:            +56.85 μs
   Sample Standard Deviation (s_d):      63.58 μs
   Standard Error (SE = s_d / sqrt(N)):   6.36 μs
-  Difference Autocorrelation (Lag-1):  -0.1801     (Absence of cyclic harmonics/thermal drift)
+  Difference Autocorrelation (Lag-1):  -0.1801     (Diagnostic lag-1 measurement)
   Degrees of Freedom (df):              99
   90% Paired Student's t-CI:           [+49.26, +70.38] μs
   95% Paired Student's t-CI:           [+47.21, +72.44] μs
@@ -469,7 +476,7 @@ ForgeTune includes a standalone C++ command-line engine (`bin/forgetune_engine` 
 
 ForgeTune compiled libraries require **zero Python dependencies** and can be deployed directly into standalone C, C++, or Rust applications.
 
-### Header: `include/forgetune/forgetune_abi.h`
+### Header Excerpt: `include/forgetune/forgetune_abi.h`
 ```c
 #ifndef FORGETUNE_ABI_H
 #define FORGETUNE_ABI_H
@@ -565,13 +572,13 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 #### Authoritative Test Inventory:
-* **Total Enumerated Test Identifiers:** Exactly **306 tests** (100% passing rate).
+* **Total Enumerated Test Identifiers:** Exactly **306 tests** (Windows: 293 Python + 13 Native C++ = 306 passed, 0 skipped; Linux: 292 Python + 13 Native C++ = 305 passed, 1 approved platform-specific skip).
   - **293 Python Test Items:** Executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 99 audit defect regressions.
   - **13 Standalone Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite`.
   - *Containment:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 * **Cross-Platform Test Outcomes:**
   - **Windows (Local & CI):** 293 passed, 0 skipped, 0 failed.
-  - **Linux (Ubuntu CI):** 292 passed, 1 approved skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking behavior), 0 failed.
+  - **Linux (Ubuntu CI):** 292 passed, 1 approved platform-specific skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking behavior), 0 failed.
 
 ---
 
@@ -641,7 +648,7 @@ Forgetune/
 │   ├── compiler.py             # High-level compile_model() user API
 │   ├── export_frontend.py      # PyTorch FX graph capture & lowering
 │   ├── native_compiler.py      # Host C++ toolchain discovery & build runner
-│   └── runtime.py              # Zero-copy NativeRuntime ctypes wrapper
+│   └── runtime.py              # Fast-path zero-copy NativeRuntime ctypes wrapper (direct pointer pass-through for contiguous arrays)
 ├── reports/                    # Authoritative audit reports & raw benchmark JSON
 │   ├── V2_BENCHMARK_REPORT.md  # Multi-model benchmarks & statistical proofs
 │   ├── V2_FINAL_CLOSURE_AUDIT.md # Authoritative 12-gate closure audit
@@ -681,7 +688,7 @@ For in-depth architectural proofs, mathematical derivations, and forensic verifi
 | [Intermediate-Buffer Storage Reduction Report](reports/V2_MEMORY_REPORT.md) | Topological interval-coloring derivations demonstrating 38.5% to 58.6% intermediate buffer reduction. |
 | [Master Three-Round Verification Report](reports/V2_FINAL_VERIFICATION.md) | Three-round protocol logs proving clean builds, dynamic boundaries, and 0-bit divergence bitwise reproducibility. |
 | [Authoritative 12-Gate Closure Audit](reports/V2_FINAL_CLOSURE_AUDIT.md) | Complete 12-gate release certification certifying functional correctness, ABI compatibility, and release readiness. |
-| [Windows Application Control Diagnostic](reports/V2_SAC_DIAGNOSTIC.md) | Forensic analysis of Win32 error 4551 (`ERROR_APP_CONTROL_BLOCKED`) and security-safe library loading. |
+| [Windows Application Control Diagnostic](reports/archive/V2_SAC_DIAGNOSTIC.md) | Forensic analysis of Win32 error 4551 (`ERROR_APP_CONTROL_BLOCKED`) and security-safe library loading. |
 
 ---
 
