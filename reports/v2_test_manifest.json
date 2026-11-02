@@ -1,32 +1,13 @@
 {
   "metadata": {
-    "timestamp": "2026-11-02T15:03:51Z",
+    "timestamp": "2026-11-02T15:29:43Z",
     "os_platform": "win32",
     "python_version": "3.12.14 (main, Aug 14 2026, 15:40:22) [MSC v.1944 64 bit (AMD64)]",
-    "git_commit": "a7f4881aee590d05d3924d0c91e8cb34a5fc8a6e",
+    "git_commit": "507513e53db5162251dc5c60e163d368ffaca0ef",
     "git_branch": "v2.0-dev",
-    "working_tree_clean": false,
-    "source_files_clean": false,
-    "dirty_files": [
-      ".github/workflows/linux_verification.yml",
-      "docs/ARCHITECTURE.md",
-      "python/forgetune/__init__.py",
-      "python/forgetune/compiler.py",
-      "python/forgetune/errors.py",
-      "python/forgetune/graph_adapter.py",
-      "reports/v2_paired_b64_benchmark_data.json",
-      "scripts/generate_test_manifest.py",
-      "scripts/run_v2_benchmarks.py",
-      "scripts/run_v2_paired_benchmark.py",
-      "scripts/v2_verify_all.py",
-      "tests/acceptance/test_mutation_resilience.py",
-      "tests/correctness/test_audit_regressions.py",
-      "tests/cpp/test_main.cpp",
-      "tests/unit/test_operators.py",
-      "tests/unit/test_v2_ir.py",
-      "tests/unit/test_v2_operators.py",
-      "requirements-ci-py311.txt"
-    ],
+    "working_tree_clean": true,
+    "source_files_clean": true,
+    "dirty_files": [],
     "harness_description": "ForgeTune Authoritative Test Manifest (303 collected pytest items + 13 native C++ unit tests)"
   },
   "summary": {
