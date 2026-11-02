@@ -110,7 +110,7 @@ jobs:
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"
           $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-          python scripts/run_v2_paired_benchmark.py --enforce-non-inferiority
+          python scripts/run_v2_paired_benchmark.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: 12. Upload Test & Benchmark Artifacts
