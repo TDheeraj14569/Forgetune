@@ -87,19 +87,19 @@ To rigorously verify Model C performance at batch size $B=64$, 30 independent sa
 ## 4. Statistically Rigorous Paired Hypothesis Testing ($N=100$ Blocks)
 
 To evaluate Model C at $B=64$ without sequential bias or hypervisor thermal pacing skew, an interleaved 100-block paired experiment was executed under a deterministic seeded balanced random order (seed=42, 50 PT-first, 50 FT-first):
-- **Experiment Run ID:** `07099183-7615-4677-8ed8-5762e61e4f73`
-- **Execution Timestamp:** `2026-11-02 08:42:13`
+- **Experiment Run ID:** `d1122bfb-2d5a-4115-bb08-612fcd15ff58`
+- **Execution Timestamp:** `2026-11-02 08:50:11`
 - **Harness SHA-256:** `9ba982a3070b24f0c325fe9cae05268c8225aee19f20e16f3e0bd63803fd6e10`
 - **Harness Version:** `2.0.0`
 - **Working Tree Clean:** `False`
-- **PyTorch 1-Thread E2E Median:** $353.95\ \mu\text{s}$
-- **ForgeTune E2E Median:** $292.05\ \mu\text{s}$
-- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+75.90\ \mu\text{s}$ paired latency reduction (ForgeTune faster)
-- **Median Paired Difference:** $+59.45\ \mu\text{s}$
-- **Standard Error ($SE$):** $6.92\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 69.18\ \mu\text{s}$)
-- **Difference Autocorrelation (Lag-1 $\rho_1$):** $+0.2185$ (demonstrates absence of temporal drift or thermal skew)
-- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.70\ \mu\text{s}$):** $t = 13.53$, exact Student's t $p = 1.53e-24 \ll 0.0001$. Non-inferiority is certified.
-- **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.70, +17.70]\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+64.42, +87.39]\ \mu\text{s}$), placing the upper confidence bound above $+17.70\ \mu\text{s}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
+- **PyTorch 1-Thread E2E Median:** $352.38\ \mu\text{s}$
+- **ForgeTune E2E Median:** $290.73\ \mu\text{s}$
+- **Mean Paired Difference ($\bar{d} = t_{PT1} - t_{FT}$):** $+59.82\ \mu\text{s}$ paired latency reduction (ForgeTune faster)
+- **Median Paired Difference:** $+56.85\ \mu\text{s}$
+- **Standard Error ($SE$):** $6.36\ \mu\text{s}$ ($df = 99$, sample standard deviation $s_d = 63.58\ \mu\text{s}$)
+- **Difference Autocorrelation (Lag-1 $\rho_1$):** $-0.1801$ (demonstrates absence of temporal drift or thermal skew)
+- **One-Sided Non-Inferiority ($H_0: \mu_d \le -17.62\ \mu\text{s}$):** $t = 12.18$, exact Student's t $p = 1.06e-21 \ll 0.0001$. Non-inferiority is certified.
+- **Two-Sided TOST Equivalence ($[-\delta, +\delta] = [-17.62, +17.62]\ \mu\text{s}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\%\ \text{CI} = [+49.26, +70.38]\ \mu\text{s}$), placing the upper confidence bound above $+17.62\ \mu\text{s}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
 - **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[+64.65\ \mu\text{s},\; +87.53\ \mu\text{s}]$
-  - Median Difference: $[+56.55\ \mu\text{s},\; +63.88\ \mu\text{s}]$
+  - Mean Difference: $[+49.48\ \mu\text{s},\; +70.49\ \mu\text{s}]$
+  - Median Difference: $[+53.47\ \mu\text{s},\; +60.35\ \mu\text{s}]$

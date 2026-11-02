@@ -65,7 +65,7 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 * **38.5% to 58.6% Intermediate Buffer Reduction:** Topological interval coloring computes tensor birth and death lifetimes, overlaying mutually disjoint intermediate buffers in time.
 * **True Dynamic Batching:** Inner loops are parameterized on batch size $B$ (tested by default for $B \in [1, 128]$, configurable up to $1,000,000$ via `max_batch_size`). A single compiled native artifact executes variable-batch requests without recompilation or runtime dispatch guards.
 * **Pure C ABI Independence:** Compiled artifacts execute with **zero PyTorch and zero Python dependencies**. They can be linked directly into C, C++, or Rust native binaries.
-* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 13.53$, $p = 1.53 \times 10^{-24} \ll 0.0001$) with a mean latency reduction of $+75.90\ \mu\text{s}$.
+* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 12.18$, $p = 1.06 \times 10^{-21} \ll 0.0001$) with a mean latency reduction of $+59.82\ \mu\text{s}$.
 * **100% Bitwise Reproducibility:** Three-round independent clean rebuild protocol demonstrates **0 bit divergences across 65,536 float32 outputs** (0/2,097,152 bits mismatched) on Model A (Dynamic TinyMLP).
 * **Zero Project-Source Warnings:** Native engine CLI, pybind11 extension, and standalone unit test binaries compile with **0 project-source warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2`.
 
@@ -346,29 +346,29 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 ========================================================================================
  STATISTICAL HYPOTHESIS EVALUATION RESULTS (N=100 Paired Blocks, Model C B=64)
 ========================================================================================
-  PyTorch 1-Thread E2E Median:         353.95 μs
-  ForgeTune E2E Median:                292.05 μs
-  Sample Mean Difference (d_bar):      +75.90 μs   (Positive => ForgeTune is faster)
-  Sample Median Difference:            +59.45 μs
-  Sample Standard Deviation (s_d):      69.18 μs
-  Standard Error (SE = s_d / sqrt(N)):   6.92 μs
-  Difference Autocorrelation (Lag-1):  +0.2185     (Absence of cyclic harmonics/thermal drift)
+  PyTorch 1-Thread E2E Median:         352.38 μs
+  ForgeTune E2E Median:                290.73 μs
+  Sample Mean Difference (d_bar):      +59.82 μs   (Positive => ForgeTune is faster)
+  Sample Median Difference:            +56.85 μs
+  Sample Standard Deviation (s_d):      63.58 μs
+  Standard Error (SE = s_d / sqrt(N)):   6.36 μs
+  Difference Autocorrelation (Lag-1):  -0.1801     (Absence of cyclic harmonics/thermal drift)
   Degrees of Freedom (df):              99
-  90% Paired Student's t-CI:           [+64.42, +87.39] μs
-  95% Paired Student's t-CI:           [+62.18, +89.63] μs
-  90% Bootstrap Mean CI (10,000 rep):  [+64.65, +87.53] μs
-  90% Bootstrap Median CI (10,000 rep):[+56.55, +63.88] μs
-  Pre-declared Equivalence Margin (5%):+/- 17.70 μs
+  90% Paired Student's t-CI:           [+49.26, +70.38] μs
+  95% Paired Student's t-CI:           [+47.21, +72.44] μs
+  90% Bootstrap Mean CI (10,000 rep):  [+49.48, +70.49] μs
+  90% Bootstrap Median CI (10,000 rep):[+53.47, +60.35] μs
+  Pre-declared Equivalence Margin (5%):+/- 17.62 μs
 ----------------------------------------------------------------------------------------
-  Null Hypothesis (Zero Difference):   t = 10.97,  p = 8.41e-19 (Decisively Rejected)
-  One-Sided Non-Inferiority Test:      t = 13.53,  p = 1.53e-24 << 0.0001 (PASS)
-  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.70 μs)
+  Null Hypothesis (Zero Difference):   t = 9.41,   p = 2.14e-15 (Decisively Rejected)
+  One-Sided Non-Inferiority Test:      t = 12.18,  p = 1.06e-21 << 0.0001 (PASS)
+  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.62 μs)
 ========================================================================================
 ```
 
 > [!IMPORTANT]
 > **Interpretation of Statistical TOST Equivalence:**
-> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.70\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+64.42, +87.39]\ \mu\text{s}$ far above the upper equivalence bound ($+17.70\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 1.53 \times 10^{-24}$).
+> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.62\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+49.26, +70.38]\ \mu\text{s}$ far above the upper equivalence bound ($+17.62\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 1.06 \times 10^{-21}$).
 
 ---
 
