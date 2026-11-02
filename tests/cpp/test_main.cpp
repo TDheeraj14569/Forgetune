@@ -956,6 +956,36 @@ bool test_aligned_arena_pool_and_reentrancy() {
     return true;
 }
 
+struct NativeTestEntry {
+    const char* name;
+    bool (*func)();
+};
+
+static const NativeTestEntry g_native_test_registry[] = {
+    {"test_ir_construction_and_verification", test_ir_construction_and_verification},
+    {"test_negative_graph_verifier_diagnostics", test_negative_graph_verifier},
+    {"test_reference_interpreter_numerical_eval", test_interpreter_correctness},
+    {"test_constant_folding_pass", test_constant_folding_pass},
+    {"test_dead_code_elimination_pass", test_dead_code_elimination_pass},
+    {"test_operator_fusion_pass", test_operator_fusion_pass},
+    {"test_json_roundtrip_serialization", test_json_roundtrip},
+    {"test_algebraic_simplification_and_fusion_safety", test_algebraic_simplification_and_fusion_safety},
+    {"test_v2_shapes_and_conv2d_verifier", test_v2_shapes_and_conv2d_verifier},
+    {"test_v2_interpreter_new_ops", test_v2_interpreter_new_ops},
+    {"test_conv2d_relu_operator_fusion_pass", test_v2_conv2d_relu_fusion_pass},
+    {"test_v2_memory_planner_64byte_alignment", test_v2_memory_planner_and_64byte_alignment},
+    {"test_aligned_arena_pool_and_reentrancy", test_aligned_arena_pool_and_reentrancy}
+};
+
+std::vector<std::pair<std::string, bool>> run_cpp_test_suite_detailed() {
+    std::vector<std::pair<std::string, bool>> results;
+    for (const auto& entry : g_native_test_registry) {
+        bool pass = entry.func();
+        results.push_back({entry.name, pass});
+    }
+    return results;
+}
+
 int run_cpp_test_suite() {
     std::cout << "========================================" << std::endl;
     std::cout << "Running ForgeTune C++ Test Suite" << std::endl;
@@ -964,28 +994,14 @@ int run_cpp_test_suite() {
     int passed = 0;
     int total = 0;
 
-    auto run_test = [&](bool (*test_fn)()) {
+    for (const auto& entry : g_native_test_registry) {
         total++;
-        if (test_fn()) {
+        if (entry.func()) {
             passed++;
         } else {
-            std::cerr << "Test FAILED!\n";
+            std::cerr << "Test FAILED: " << entry.name << "\n";
         }
-    };
-
-    run_test(test_ir_construction_and_verification);
-    run_test(test_negative_graph_verifier);
-    run_test(test_interpreter_correctness);
-    run_test(test_constant_folding_pass);
-    run_test(test_dead_code_elimination_pass);
-    run_test(test_operator_fusion_pass);
-    run_test(test_json_roundtrip);
-    run_test(test_algebraic_simplification_and_fusion_safety);
-    run_test(test_v2_shapes_and_conv2d_verifier);
-    run_test(test_v2_interpreter_new_ops);
-    run_test(test_v2_conv2d_relu_fusion_pass);
-    run_test(test_v2_memory_planner_and_64byte_alignment);
-    run_test(test_aligned_arena_pool_and_reentrancy);
+    }
 
     std::cout << "========================================" << std::endl;
     std::cout << "Test Summary: " << passed << " / " << total << " tests passed." << std::endl;
@@ -995,7 +1011,29 @@ int run_cpp_test_suite() {
 }
 
 #ifndef FORGETUNE_EXCLUDE_MAIN
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        std::string arg = argv[1];
+        if (arg == "--list-tests") {
+            for (const auto& entry : g_native_test_registry) {
+                std::cout << entry.name << "\n";
+            }
+            return 0;
+        }
+        if (arg == "--json") {
+            auto detailed = run_cpp_test_suite_detailed();
+            std::cout << "[\n";
+            for (size_t i = 0; i < detailed.size(); ++i) {
+                std::cout << "  {\"name\": \"" << detailed[i].first << "\", \"status\": \""
+                          << (detailed[i].second ? "passed" : "failed") << "\"}"
+                          << (i + 1 < detailed.size() ? ",\n" : "\n");
+            }
+            std::cout << "]\n";
+            bool all_ok = true;
+            for (const auto& d : detailed) if (!d.second) all_ok = false;
+            return all_ok ? 0 : 1;
+        }
+    }
     return run_cpp_test_suite();
 }
 #endif

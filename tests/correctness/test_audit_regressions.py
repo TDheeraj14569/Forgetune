@@ -993,7 +993,16 @@ def test_regression_strict_json_commas_and_trailing_characters():
 def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
     """
     Audit P2: Recompiling a locked shared library must raise an informative CompilationError.
+    Also verifies that the Linux verifier correctly recognizes only this approved skip node.
     """
+    from scripts.v2_verify_all import is_approved_linux_skip, APPROVED_LINUX_SKIP_NODE
+    # 1. Exact approved Linux skip node must be accepted
+    assert is_approved_linux_skip(APPROVED_LINUX_SKIP_NODE)
+    assert is_approved_linux_skip(APPROVED_LINUX_SKIP_NODE.replace("/", "\\"))
+    # 2. Any other skipped test must NOT be accepted as approved
+    assert not is_approved_linux_skip("tests/unit/test_v2_shapes.py::test_dynamic_dim_constant")
+    assert not is_approved_linux_skip("tests/correctness/test_audit_regressions.py::test_regression_other")
+
     if sys.platform != "win32":
         pytest.skip("Shared library file locking during active execution is Windows-specific")
 
@@ -1024,8 +1033,15 @@ def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
 
 def test_regression_closed_runtime_lifecycle(tmp_path):
     """
-    Audit P2: Executing NativeRuntime after close() must raise RuntimeError.
+    Audit P2: Executing NativeRuntime after close() must raise ForgeTuneRuntimeError (and ForgeTuneError).
     """
+    from forgetune import ForgeTuneError, ForgeTuneRuntimeError
+    from forgetune.errors import RuntimeError as CompatibleRuntimeError
+
+    assert issubclass(ForgeTuneRuntimeError, ForgeTuneError)
+    assert issubclass(ForgeTuneRuntimeError, RuntimeError)
+    assert CompatibleRuntimeError is ForgeTuneRuntimeError
+
     class SimpleModel(nn.Module):
         def forward(self, x):
             return x
@@ -1037,14 +1053,20 @@ def test_regression_closed_runtime_lifecycle(tmp_path):
     compiled = compile_model(SimpleModel().eval(), (x,), output_dir=out_dir, autotune=False)
     assert compiled.run(x).shape == (1, 4)
     compiled.close()
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ForgeTuneRuntimeError) as exc_info:
         compiled.run(x)
     assert "after it has been closed" in str(exc_info.value)
+    with pytest.raises(ForgeTuneError):
+        compiled.run(x)
+    with pytest.raises(CompatibleRuntimeError):
+        compiled.run(x)
 
     # 2. Context manager __enter__ / __exit__
     with compile_model(SimpleModel().eval(), (x,), output_dir=str(tmp_path / "cm_test"), autotune=False) as cm:
         assert cm.run(x).shape == (1, 4)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ForgeTuneRuntimeError):
+        cm.run(x)
+    with pytest.raises(ForgeTuneError):
         cm.run(x)
 
 

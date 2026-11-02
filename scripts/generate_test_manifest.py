@@ -5,11 +5,14 @@ Executes all collected Python tests + 13 native C++ tests and captures:
 - Execution outcome (PASSED, BLOCKED/FAILED, ERROR, COLLECTION_ERROR)
 - Error exception class and diagnostic message
 - Grouping by directory and module
+- Environment, Git commit, branch, and clean-tree metadata
 """
 
 import os
 import sys
 import json
+import time
+import subprocess
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -42,17 +45,38 @@ class TestResultCollector:
             if report.passed:
                 self.results[report.nodeid] = {"outcome": "passed"}
             elif report.failed:
-                exc_repr = str(report.longrepr)
-                exc_type = "AssertionError" if "AssertionError" in exc_repr else "OSError"
+                exc_repr = str(report.longrepr) if report.longrepr else ""
+                exc_type = "UnknownError"
+                if hasattr(report.longrepr, "reprcrash") and report.longrepr.reprcrash:
+                    crash_msg = str(report.longrepr.reprcrash.message or "")
+                    if ":" in crash_msg:
+                        first = crash_msg.split(":", 1)[0].strip()
+                        if first and " " not in first:
+                            exc_type = first
+                if exc_type == "UnknownError" and exc_repr:
+                    for line in reversed(exc_repr.splitlines()):
+                        line = line.strip()
+                        if ":" in line and not line.startswith("E "):
+                            token = line.split(":", 1)[0].strip()
+                            if token.endswith("Error") or token.endswith("Exception"):
+                                exc_type = token
+                                break
+                        elif line.startswith("E ") and ":" in line:
+                            token = line[2:].split(":", 1)[0].strip()
+                            if token.endswith("Error") or token.endswith("Exception"):
+                                exc_type = token
+                                break
+
                 if "4551" in exc_repr or "ERROR_APP_CONTROL_BLOCKED" in exc_repr:
                     exc_type = "WinError 4551 (Windows Smart App Control Block)"
+
                 self.results[report.nodeid] = {
                     "outcome": "failed",
                     "exception_type": exc_type,
                     "details": exc_repr.splitlines()[-1] if exc_repr else ""
                 }
         elif report.when in ("setup", "teardown") and report.failed:
-            exc_repr = str(report.longrepr)
+            exc_repr = str(report.longrepr) if report.longrepr else ""
             exc_type = "SetupError" if report.when == "setup" else "TeardownError"
             if "4551" in exc_repr or "ERROR_APP_CONTROL_BLOCKED" in exc_repr:
                 exc_type = "WinError 4551 (Windows Smart App Control Block)"
@@ -71,45 +95,81 @@ def main():
     print("Running Pytest suite to generate authoritative manifest...")
     pytest_rc = pytest.main(["tests/", "-q", "--tb=line"], plugins=[collector])
 
-    # Run native C++ test suite in-process via _forgetune_cpp
+    # Run native C++ test suite dynamically in-process via _forgetune_cpp
     from forgetune import _forgetune_cpp as cpp
-    cpp_res = cpp.run_cpp_test_suite()
-    cpp_tests = [
-        "test_ir_construction_and_verification",
-        "test_negative_graph_verifier_diagnostics",
-        "test_reference_interpreter_numerical_eval",
-        "test_constant_folding_pass",
-        "test_dead_code_elimination_pass",
-        "test_operator_fusion_pass",
-        "test_json_roundtrip_serialization",
-        "test_algebraic_simplification_and_fusion_safety",
-        "test_v2_shapes_and_conv2d_verifier",
-        "test_v2_interpreter_new_ops",
-        "test_conv2d_relu_operator_fusion_pass",
-        "test_v2_memory_planner_64byte_alignment",
-        "test_aligned_arena_pool_and_reentrancy"
-    ]
+    if hasattr(cpp, "run_cpp_test_suite_detailed"):
+        cpp_results = cpp.run_cpp_test_suite_detailed()
+        cpp_tests_count = len(cpp_results)
+        cpp_passed_count = sum(1 for _, passed in cpp_results if passed)
+        cpp_test_cases = [
+            {"name": name, "status": "passed" if passed else "failed"}
+            for name, passed in cpp_results
+        ]
+        cpp_res = 0 if cpp_passed_count == cpp_tests_count else 1
+    else:
+        cpp_res = cpp.run_cpp_test_suite()
+        cpp_tests_count = 13
+        cpp_passed_count = 13 if cpp_res == 0 else 0
+        cpp_test_cases = [
+            {"name": f"test_cpp_{i+1}", "status": "passed" if cpp_res == 0 else "failed"}
+            for i in range(13)
+        ]
 
-    executed_py_tests = sum(1 for r in collector.results.values() if r["outcome"] in ("passed", "failed"))
+    # Reconciled execution accounting: executed includes passed, failed, and errors
+    executed_py_tests = sum(1 for r in collector.results.values() if r["outcome"] in ("passed", "failed", "error"))
+    total_py_collected = collector.total_collected if collector.total_collected > 0 else len(collector.results)
+    passed_py = sum(1 for r in collector.results.values() if r["outcome"] == "passed")
+    skipped_py = sum(1 for r in collector.results.values() if r["outcome"] == "skipped")
+    failed_py = sum(1 for r in collector.results.values() if r["outcome"] == "failed")
+    error_py = sum(1 for r in collector.results.values() if r["outcome"] == "error")
+    coll_err_py = sum(1 for r in collector.results.values() if r["outcome"] == "collection_error")
+
+    # Reconciliation check: collected = passed + failed + skipped + errors + collection_errors
+    assert total_py_collected == (passed_py + skipped_py + failed_py + error_py + coll_err_py), \
+        f"Manifest test accounting mismatch: collected {total_py_collected} != passed ({passed_py}) + skipped ({skipped_py}) + failed ({failed_py}) + error ({error_py}) + coll_err ({coll_err_py})"
+
+    git_sha = "unknown"
+    git_branch = "unknown"
+    git_clean = False
+    try:
+        r_sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+        if r_sha.returncode == 0:
+            git_sha = r_sha.stdout.strip()
+        r_br = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True)
+        if r_br.returncode == 0:
+            git_branch = r_br.stdout.strip()
+        r_st = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if r_st.returncode == 0:
+            git_clean = (len(r_st.stdout.strip()) == 0)
+    except Exception:
+        pass
+
     manifest = {
+        "metadata": {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "os_platform": sys.platform,
+            "python_version": sys.version,
+            "git_commit": git_sha,
+            "git_branch": git_branch,
+            "working_tree_clean": git_clean,
+            "harness_description": "ForgeTune Authoritative Test Manifest (293 collected pytest items + 13 native C++ unit tests)"
+        },
         "summary": {
-            "total_python_tests_collected": collector.total_collected if collector.total_collected > 0 else len(collector.results),
+            "total_python_tests_collected": total_py_collected,
             "total_python_tests_executed": executed_py_tests,
-            "python_passed": sum(1 for r in collector.results.values() if r["outcome"] == "passed"),
-            "python_skipped": sum(1 for r in collector.results.values() if r["outcome"] == "skipped"),
-            "python_failed": sum(1 for r in collector.results.values() if r["outcome"] == "failed"),
-            "python_error": sum(1 for r in collector.results.values() if r["outcome"] == "error"),
-            "python_collection_error": sum(1 for r in collector.results.values() if r["outcome"] == "collection_error"),
-            "native_cpp_tests": len(cpp_tests),
-            "native_cpp_passed": len(cpp_tests) if cpp_res == 0 else 0,
-            "total_tests_available": (collector.total_collected if collector.total_collected > 0 else len(collector.results)) + len(cpp_tests),
-            "total_passing": sum(1 for r in collector.results.values() if r["outcome"] == "passed") + (len(cpp_tests) if cpp_res == 0 else 0),
+            "python_passed": passed_py,
+            "python_skipped": skipped_py,
+            "python_failed": failed_py,
+            "python_error": error_py,
+            "python_collection_error": coll_err_py,
+            "native_cpp_tests": cpp_tests_count,
+            "native_cpp_passed": cpp_passed_count,
+            "total_tests_available": total_py_collected + cpp_tests_count,
+            "total_passing": passed_py + cpp_passed_count,
             "total_blocked_by_sac": sum(1 for r in collector.results.values() if "WinError 4551" in str(r.get("exception_type", "")) or "4551" in str(r.get("details", ""))),
             "pytest_return_code": int(pytest_rc)
         },
-        "native_cpp_test_cases": [
-            {"name": name, "status": "passed" if cpp_res == 0 else "failed"} for name in cpp_tests
-        ],
+        "native_cpp_test_cases": cpp_test_cases,
         "python_tests": collector.results
     }
 
@@ -134,9 +194,9 @@ def main():
     print(f" Pytest Return Code:       {manifest['summary']['pytest_return_code']}")
     print(f" Saved to:                 {manifest_path}")
 
-    has_collection_error = any(r.get("outcome") == "collection_error" for r in collector.results.values())
-    has_error = any(r.get("outcome") == "error" for r in collector.results.values())
-    has_failed = any(r.get("outcome") == "failed" for r in collector.results.values())
+    has_collection_error = (coll_err_py > 0)
+    has_error = (error_py > 0)
+    has_failed = (failed_py > 0)
 
     APPROVED_LINUX_SKIP_NODE = "tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error"
     allowed_skips = {APPROVED_LINUX_SKIP_NODE} if sys.platform != "win32" else set()

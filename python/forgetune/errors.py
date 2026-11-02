@@ -52,3 +52,19 @@ class AutotuningError(ForgeTuneError):
 class ForgeTuneRuntimeError(ForgeTuneError, builtins.RuntimeError):
     """Raised when native runtime execution fails."""
     pass
+
+# Backwards-compatible alias for user and legacy runtime code
+RuntimeError = ForgeTuneRuntimeError
+
+__all__ = [
+    "ForgeTuneError",
+    "UnsupportedOpError",
+    "InvalidGraphError",
+    "InvalidShapeError",
+    "CodeGenError",
+    "CompilationError",
+    "CorrectnessError",
+    "AutotuningError",
+    "ForgeTuneRuntimeError",
+    "RuntimeError",
+]

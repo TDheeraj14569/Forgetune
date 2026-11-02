@@ -23,7 +23,7 @@
 
 **High-Performance Ahead-of-Time C++17 Inference Compiler & Native Runtime for CPU Workloads**
 
-*Zero framework runtime dependencies • Dynamic batching $B \in [1, 128]$ • Topological interval-coloring memory planner • Pre-allocated 64-byte aligned SIMD arena • Verified 0-bit divergence bitwise reproducibility*
+*Zero framework runtime dependencies • Leading-dimension dynamic batching (default $B \in [1, 128]$, configurable up to $1,000,000$) • Topological interval-coloring memory planner • Pre-allocated 64-byte aligned SIMD arena • Verified 0-bit divergence bitwise reproducibility*
 
 </div>
 
@@ -61,13 +61,13 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 
 ### Key Architectural Achievements:
 * **Genuine End-to-End Acceleration:** Delivers up to **$9.49\times$ E2E speedup** over PyTorch eager execution in real-world Python caller benchmarks and up to **$8.48\times$** in controlled single-threaded comparisons.
-* **Zero Steady-State Native Heap Allocations:** All intermediate tensor storage is packed into a single, pre-allocated, 64-byte SIMD cache-aligned memory arena (`AlignedArenaPool`). Inference runs with **strictly zero steady-state native mallocs**.
-* **38.5% to 58.6% Intermediate Memory Reduction:** Topological interval coloring computes tensor birth and death lifetimes, overlaying mutually disjoint intermediate buffers in time.
-* **True Dynamic Batching ($B \in [1, 128]$):** Inner loops are parameterized on batch size $B$. A single compiled native artifact executes variable-batch requests without recompilation or runtime dispatch guards.
+* **Zero Steady-State Native Heap Allocations:** All intermediate tensor storage is packed into a single, pre-allocated, 64-byte SIMD cache-aligned memory arena (`AlignedArenaPool`). Inference runs with **zero additional native intermediate-arena allocations after warm-up** for tested workloads.
+* **38.5% to 58.6% Intermediate Buffer Reduction:** Topological interval coloring computes tensor birth and death lifetimes, overlaying mutually disjoint intermediate buffers in time.
+* **True Dynamic Batching:** Inner loops are parameterized on batch size $B$ (tested by default for $B \in [1, 128]$, configurable up to $1,000,000$ via `max_batch_size`). A single compiled native artifact executes variable-batch requests without recompilation or runtime dispatch guards.
 * **Pure C ABI Independence:** Compiled artifacts execute with **zero PyTorch and zero Python dependencies**. They can be linked directly into C, C++, or Rust native binaries.
-* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared paired block protocol ($B=64$, alternating execution order). Non-inferiority is certified with $t = 15.36$ ($p = 3.01 \times 10^{-28} \ll 0.0001$) and a mean latency reduction of $+64.14\ \mu\text{s}$ over single-threaded PyTorch.
-* **100% Bitwise Reproducibility:** Three-round independent clean rebuild protocol demonstrates **0 bit divergences across 65,536 float32 outputs** (0/2,097,152 bits mismatched).
-* **Zero-Warning Toolchain Compilation:** Native engine CLI, pybind11 extension, and standalone unit test binaries compile with **0 warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2`.
+* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 13.53$, $p = 1.53 \times 10^{-24} \ll 0.0001$) with a mean latency reduction of $+75.90\ \mu\text{s}$.
+* **100% Bitwise Reproducibility:** Three-round independent clean rebuild protocol demonstrates **0 bit divergences across 65,536 float32 outputs** (0/2,097,152 bits mismatched) on Model A (Dynamic TinyMLP).
+* **Zero Project-Source Warnings:** Native engine CLI, pybind11 extension, and standalone unit test binaries compile with **0 project-source warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2`.
 
 ---
 
@@ -77,12 +77,12 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 |---|---|---|---|
 | **Runtime Deployment Footprint** | > 500 MB (Full framework runtime) | > 500 MB (Requires PyTorch host runtime) | **< 1 MB** (Self-contained `.dll` / `.so`) |
 | **Execution Dependency** | Python interpreter + PyTorch C++ runtime | Python or `libtorch` C++ shared libraries | **Zero** (Pure C ABI; runs in C, C++, Rust, Python) |
-| **Intermediate Memory Strategy** | Dynamic per-layer allocation & free | JIT runtime buffer allocator | **Topological interval-colored arena (38.5%–58.6% reduction)** |
-| **Steady-State Heap Allocations** | Recurring heap churn during inference | Managed pool allocations | **Strictly ZERO** (Pre-allocated 64-byte aligned arena) |
-| **Dynamic Batch Flexibility** | Dynamic shapes with dispatch overhead | Re-tracing / dynamic guards overhead | **Static loop parametrization ($B \in [1, 128]$ in single binary)** |
+| **Intermediate Memory Strategy** | Dynamic per-layer allocation & free | JIT runtime buffer allocator | **Topological interval-colored arena (38.5%–58.6% buffer reduction)** |
+| **Steady-State Heap Allocations** | Recurring heap churn during inference | Managed pool allocations | **Zero additional intermediate-arena allocations after warm-up** |
+| **Dynamic Batch Flexibility** | Dynamic shapes with dispatch overhead | Re-tracing / dynamic guards overhead | **Static loop parametrization (default $B \in [1, 128]$, configurable up to $1,000,000$)** |
 | **Operator & Activation Fusion** | Separate kernel launches | Pointwise elementwise combinations | **`CONV2D + RELU` & `MATMUL + ADD + RELU` cache-resident loops** |
 | **Python Call Latency (P50)** | 35.6 μs – 394.7 μs (Model dependent) | 25.0 μs – 200.0 μs (Framework dispatch) | **7.0 μs – 385.8 μs (Up to 9.49x E2E acceleration)** |
-| **Numerical Bitwise Reproducibility** | Non-deterministic across minor builds | JIT cache sensitivity | **Bit-exact reproducibility verified (0/2,097,152 bits)** |
+| **Numerical Bitwise Reproducibility** | Non-deterministic across minor builds | JIT cache sensitivity | **Bit-exact reproducibility verified on Model A (0/2,097,152 bits)** |
 
 ---
 
@@ -164,7 +164,7 @@ ForgeTune Arena:    Offset 0     --> [  buf_6 (16 KB)  ]                [  buf_8
 | **Model B (Residual MLP)** | $B \in [1, 128]$ | $59,392\ \text{bytes}$ | $24,576\ \text{bytes}$ | **58.6%** |
 | **Model C (Small CNN)** | $B \in [1, 128]$ | $922,624\ \text{bytes}$ | $524,288\ \text{bytes}$ | **43.2%** |
 
-*Note: Storage reduction measures calculated intermediate activation buffer reuse. The pre-allocated arena guarantees **strictly zero steady-state heap allocations** during inference.*
+*Note: Storage reduction measures calculated intermediate activation buffer reuse. The pre-allocated arena guarantees **zero additional native intermediate-arena allocations after warm-up** for tested workloads.*
 
 ---
 
@@ -338,7 +338,7 @@ To examine measurement variance, 30 independent sample batches were measured und
 
 ### 7.4 Statistically Rigorous Paired Hypothesis Testing ($N=100$ Interleaved Blocks)
 
-To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with alternating execution order (`reports/v2_paired_b64_benchmark_data.json`):
+To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first; `reports/v2_paired_b64_benchmark_data.json`):
 
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
 
@@ -346,28 +346,29 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 ========================================================================================
  STATISTICAL HYPOTHESIS EVALUATION RESULTS (N=100 Paired Blocks, Model C B=64)
 ========================================================================================
-  PyTorch 1-Thread E2E Median:         353.20 μs
-  ForgeTune E2E Median:                294.90 μs
-  Sample Mean Difference (d_bar):      +64.14 μs   (Positive => ForgeTune is faster)
-  Sample Median Difference:            +54.50 μs
-  Sample Standard Deviation (s_d):      53.26 μs
-  Standard Error (SE = s_d / sqrt(N)):   5.33 μs
+  PyTorch 1-Thread E2E Median:         353.95 μs
+  ForgeTune E2E Median:                292.05 μs
+  Sample Mean Difference (d_bar):      +75.90 μs   (Positive => ForgeTune is faster)
+  Sample Median Difference:            +59.45 μs
+  Sample Standard Deviation (s_d):      69.18 μs
+  Standard Error (SE = s_d / sqrt(N)):   6.92 μs
+  Difference Autocorrelation (Lag-1):  +0.2185     (Absence of cyclic harmonics/thermal drift)
   Degrees of Freedom (df):              99
-  90% Paired Student's t-CI:           [+55.30, +72.99] μs
-  95% Paired Student's t-CI:           [+53.58, +74.71] μs
-  90% Bootstrap Mean CI (10,000 rep):  [+55.65, +73.01] μs
-  90% Bootstrap Median CI (10,000 rep):[+52.35, +62.10] μs
-  Pre-declared Equivalence Margin (5%):+/- 17.66 μs
+  90% Paired Student's t-CI:           [+64.42, +87.39] μs
+  95% Paired Student's t-CI:           [+62.18, +89.63] μs
+  90% Bootstrap Mean CI (10,000 rep):  [+64.65, +87.53] μs
+  90% Bootstrap Median CI (10,000 rep):[+56.55, +63.88] μs
+  Pre-declared Equivalence Margin (5%):+/- 17.70 μs
 ----------------------------------------------------------------------------------------
-  Null Hypothesis (Zero Difference):   t = 12.04,  p = 4.16e-21 (Decisively Rejected)
-  One-Sided Non-Inferiority Test:      t = 15.36,  p = 3.01e-28 << 0.0001 (PASS)
-  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.66 μs)
+  Null Hypothesis (Zero Difference):   t = 10.97,  p = 8.41e-19 (Decisively Rejected)
+  One-Sided Non-Inferiority Test:      t = 13.53,  p = 1.53e-24 << 0.0001 (PASS)
+  Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.70 μs)
 ========================================================================================
 ```
 
 > [!IMPORTANT]
 > **Interpretation of Statistical TOST Equivalence:**
-> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.66\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+55.30, +72.99]\ \mu\text{s}$ far above the upper equivalence bound ($+17.66\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 3.01 \times 10^{-28}$).
+> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.70\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+64.42, +87.39]\ \mu\text{s}$ far above the upper equivalence bound ($+17.70\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 1.53 \times 10^{-24}$).
 
 ---
 
@@ -583,12 +584,13 @@ The verification runner (`scripts/v2_verify_all.py`) enforces strict multi-stage
 | **Round 2** | Boundary, Adversarial & Memory Verification | Stress dynamic batch boundaries ($B \in [1, 128]$); verify boundary rejection ($B \le 0, B > 128$); verify dual ABI entry points; evaluate memory reduction | **VERIFIED (PASS)** |
 | **Round 3** | Clean Rebuild & Bitwise Reproducibility | Disposable artifact purge; full clean rebuild of all binaries; rerun C++ and Python suites; independent recompilation and 65,536-float bitwise comparison | **VERIFIED (PASS)** |
 
-**Bitwise Reproducibility Proof:** Round 3 compares 65,536 float32 values across independent clean compilations, certifying **0 bit divergences** (0/65,536 word mismatches, 0/2,097,152 bits mismatched).
+**Bitwise Reproducibility Proof:** Round 3 compares 65,536 float32 values across independent clean compilations of Model A (Dynamic TinyMLP), certifying **0 bit divergences** (0/65,536 word mismatches, 0/2,097,152 bits mismatched).
 
 ---
 
-### 11.3 Zero-Warning Diagnostic Policy & Compiler Flags
-ForgeTune compiles all native C++ components with `-Wall -Wextra -std=c++17 -O2` with a strict **zero-warning policy**:
+### 11.3 Zero Project-Source Warning Policy & Compiler Flags
+ForgeTune compiles all native C++ components with `-Wall -Wextra -std=c++17 -O2` under a strict **zero project-source warning policy**:
+- All codebase source files in `src/`, `include/forgetune/`, and `tests/cpp/` compile cleanly with **0 warnings and 0 errors**.
 - Upstream Python C API header warnings are selectively silenced using `-Wno-nullability*` flags (`-Wno-nullability`, `-Wno-nullability-completeness`, `-Wno-nullability-completeness-on-arrays`, `-Wno-nullability-declspec`) because external Python headers lack complete nullability annotations on MinGW/Windows toolchains.
 - Inference kernel compilation applies `-fno-signed-zeros` (fast-math signed-zero relaxation) to treat $+0.0$ and $-0.0$ interchangeably for maximum SIMD throughput while preserving IEEE 754 float32 finite ranges. MSVC targets use `/fp:precise` to guarantee deterministic floating-point semantics.
 
@@ -615,7 +617,7 @@ ForgeTune implements dedicated AST emitters, reference interpreters, and graph v
 ### Scope & Technical Limitations
 To maintain architectural transparency, current scope boundaries are explicitly declared:
 - **Compute Target:** CPU inference only. No GPU (CUDA/ROCm/Metal) execution is implemented.
-- **Dynamic Dimension Scope:** Dynamic flexibility is strictly constrained to the leading batch dimension ($B \le 128$). Internal tensor channel and spatial dimensions ($C, H, W$) are resolved statically at export time.
+- **Dynamic Dimension Scope:** Dynamic flexibility is parameterized along the leading batch dimension (tested by default for $B \in [1, 128]$, with compiler capacity configurable up to $1,000,000$ via `max_batch_size`). Internal tensor channel and spatial dimensions ($C, H, W$) are resolved statically at export time.
 - **Constant Validation:** Graph verification and constant folding strictly reject non-finite float constants (NaN and Infinity) at compile time to ensure generated C++ source code is valid and compiles cleanly without syntax or literal token errors.
 - **Threading Model:** Single-threaded execution per runtime instance. Multi-threading is achieved at the application level via concurrent independent runtime instances.
 

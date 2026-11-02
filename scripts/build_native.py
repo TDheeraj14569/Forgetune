@@ -103,19 +103,20 @@ def classify_diagnostic(line_str: str, repo_root: Optional[str] = None) -> str:
         rel_under_repo = abs_cand[len(repo_root_norm) + 1:]
         if any(rel_under_repo.startswith(sd) for sd in project_subdirs):
             return "project_warning"
+        return "toolchain_warning"
 
-    for sd in project_subdirs:
-        if f"/{sd}" in abs_cand or f"\\{sd}" in file_candidate.lower():
-            if "forgetune" in abs_cand or abs_cand.startswith(repo_root_norm):
-                return "project_warning"
+    # Strictly check for CI / synthetic paths anchored under a forgetune repo directory
+    cand_norm = file_candidate.replace("\\", "/")
+    if re.search(r"/(?:forgetune/)+(?:src/|include/forgetune/|tests/cpp/)", "/" + cand_norm.lstrip("/"), re.IGNORECASE):
+        return "project_warning"
 
     return "unknown_warning"
 
 def is_codebase_warning(line_str: str, repo_root: Optional[str] = None) -> bool:
     """
     Parses a compiler diagnostic line and returns True if it represents a warning
-    originating from our codebase (or an unplaced diagnostic), and False if it is
-    an external/toolchain header warning.
+    originating from our project codebase (src/, include/forgetune/, tests/cpp/),
+    and False if it is a toolchain, unknown, or non-warning diagnostic.
     """
     return classify_diagnostic(line_str, repo_root) == "project_warning"
 
@@ -144,14 +145,16 @@ def check_compilation_result(target_name, result, repo_root=None):
     if toolchain_lines:
         print(f"   [Notice] Filtered {len(toolchain_lines)} external/toolchain diagnostic(s).")
     if unknown_lines:
-        print(f"   [Notice] Filtered {len(unknown_lines)} unknown/external diagnostic(s).")
+        print(f"   [Notice] Filtered {len(unknown_lines)} unknown/external diagnostic(s):")
+        for u in unknown_lines:
+            print(f"     [Unknown] {u}")
 
     if warning_lines:
         print(f"FAILED zero-warning requirement for {target_name}:")
         for w in warning_lines:
             print(f"  {w}")
         sys.exit(1)
-    print(f"   {target_name} compiled successfully with 0 warnings.")
+    print(f"   {target_name} compiled successfully with 0 project-source warnings.")
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

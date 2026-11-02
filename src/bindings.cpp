@@ -15,6 +15,7 @@ namespace py = pybind11;
 using namespace forgetune;
 
 extern int run_cpp_test_suite();
+extern std::vector<std::pair<std::string, bool>> run_cpp_test_suite_detailed();
 
 PYBIND11_MODULE(_forgetune_cpp, m) {
     m.doc() = "ForgeTune native C++17 compiler engine and reference interpreter bindings";
@@ -248,4 +249,5 @@ PYBIND11_MODULE(_forgetune_cpp, m) {
 
     // Native C++ test suite runner
     m.def("run_cpp_test_suite", &run_cpp_test_suite, "Runs all 13 native C++ unit tests in-process");
+    m.def("run_cpp_test_suite_detailed", &run_cpp_test_suite_detailed, "Runs all 13 native C++ unit tests in-process and returns structured list of (name, passed)");
 }

@@ -453,7 +453,7 @@ def main():
         assert total_floats == 65536, f"Expected 65,536 floats, got {total_floats}"
         assert mismatched_words == 0, f"Bitwise word mismatch detected: {mismatched_words} differences!"
         assert total_diff_bits == 0, f"Bitwise bit mismatch detected: {total_diff_bits} differences!"
-        print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested configurations (0/65,536 mismatched float32 words, 0/2,097,152 mismatched bits across independent compilations).")
+        print("[+] Bitwise reproducibility confirmed: empirically verified bitwise identity for the tested Dynamic TinyMLP configuration across two independent compilations (0/65,536 mismatched float32 words, 0/2,097,152 mismatched bits).")
         round_results[3].append({
             "name": "R3: Bitwise Reproducibility Verification",
             "success": True,
@@ -530,7 +530,7 @@ def main():
     )
 
     r3_evidence = (
-        f"100% bitwise exact match (0 / {total_floats:,} mismatched floats) across independent compilations"
+        f"Bitwise reproducibility certified across two independent compilations of Model A (0 / {total_floats:,} mismatched float32 words, 0 / 2,097,152 bits mismatched)"
         if (r3_status == "**VERIFIED**" and mismatched_words == 0 and total_floats > 0)
         else f"Failures: {', '.join(r['name'] for r in round_results[3] if not r['success'])}"
     )
@@ -588,7 +588,7 @@ def main():
         f"**Git Branch:** `{detected_branch}`",
         f"**Source Revision:** `{curr_rev}`",
         f"**Git Index Fingerprint:** `{curr_tree}`",
-        f"**Working-Tree SHA-256:** `{working_tree_sha}`",
+        f"**Pre-Report Source Tree SHA-256:** `{working_tree_sha}` *(Fingerprint of clean tracked source tree prior to report emission)*",
         f"**Verification Mode:** `{args.mode.upper()}`",
         f"**Final Status:** {final_status}",
         "",
