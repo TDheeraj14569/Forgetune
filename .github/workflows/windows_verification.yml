@@ -80,8 +80,14 @@ jobs:
         run: |
           $env:PYTHONPATH = "$PWD\python;$PWD"
           $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
-          python -m pytest -v --junitxml=reports/junit_report.xml tests/
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -v --tb=short --junitxml=reports/junit_report.xml tests/
+          if ($LASTEXITCODE -ne 0) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Pytest Failures on Windows"
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+            python -m pytest -v --tb=short --lf tests/ | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+            exit 1
+          }
 
       - name: 9. Run Model Acceptance, Dynamic-Batch, and Adversarial Suites
         shell: powershell

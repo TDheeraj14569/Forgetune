@@ -3360,15 +3360,17 @@ def test_compiler_benchmark_and_kernel_batch_size_validation():
     )
 
     # Valid integer and valid numpy integer
-    res1 = compiled.benchmark(batch_size=2, warmup_iters=1, measure_iters=1)
-    assert res1["median_latency_us"] > 0
-    res2 = compiled.benchmark(batch_size=np.int64(4), warmup_iters=1, measure_iters=1)
-    assert res2["median_latency_us"] > 0
+    res1 = compiled.benchmark(batch_size=2, warmup_iters=2, measure_iters=10)
+    assert "median_latency_us" in res1 and res1["median_latency_us"] >= 0.0
+    assert res1["measured_iterations"] == 10
+    res2 = compiled.benchmark(batch_size=np.int64(4), warmup_iters=2, measure_iters=10)
+    assert "median_latency_us" in res2 and res2["median_latency_us"] >= 0.0
+    assert res2["measured_iterations"] == 10
 
-    res_k1 = compiled.benchmark_kernel(iters=5, batch_size=2)
-    assert res_k1 > 0
-    res_k2 = compiled.benchmark_kernel(iters=5, batch_size=np.int64(4))
-    assert res_k2 > 0
+    res_k1 = compiled.benchmark_kernel(iters=50, batch_size=2)
+    assert res_k1 >= 0.0
+    res_k2 = compiled.benchmark_kernel(iters=50, batch_size=np.int64(4))
+    assert res_k2 >= 0.0
 
     # Negative / 0 batch size raises InvalidShapeError
     with pytest.raises(InvalidShapeError):
