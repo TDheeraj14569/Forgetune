@@ -73,7 +73,7 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements-ci.txt
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
           pip install -e .
 
       - name: 4. Build Native Components from Source (-Wall -Wextra)
