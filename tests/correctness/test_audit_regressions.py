@@ -3199,4 +3199,252 @@ def test_warning_parser_ignores_non_warning_lines():
     assert not is_codebase_warning("note: see previous declaration of 'foo'")
 
 
+def test_graph_validate_rejects_unknown_operator_bogus():
+    """P1 Regression: Graph.validate() and to_json() must reject unknown operators like BOGUS."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import UnsupportedOpError
+
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[1, 4]))
+    b = g.add_node(Node(1, "BOGUS", inputs=[x], shape=[1, 4]))
+    g.set_inputs([x])
+    g.set_outputs([b])
+
+    with pytest.raises(UnsupportedOpError) as exc_info:
+        g.validate()
+    assert "unsupported operator" in str(exc_info.value).lower()
+
+    # Verify serialization is blocked
+    with pytest.raises(UnsupportedOpError):
+        g.to_json()
+
+
+def test_graph_validate_rejects_fused_matmul_add_relu_invalid_arity():
+    """P1 Regression: Graph.validate() must enforce exact arity for fused ops."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import InvalidGraphError
+
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[1, 4]))
+    # FUSED_MATMUL_ADD_RELU requires exactly 3 inputs, here given 1
+    fused = g.add_node(Node(1, "FUSED_MATMUL_ADD_RELU", inputs=[x], shape=[1, 4]))
+    g.set_inputs([x])
+    g.set_outputs([fused])
+
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g.validate()
+    assert "expected between 3 and 3 inputs" in str(exc_info.value)
+
+    with pytest.raises(InvalidGraphError):
+        g.to_json()
+
+
+def test_graph_validate_rejects_undeclared_live_input():
+    """P1 Regression: Graph.validate() must ensure all live INPUT nodes appear in graph.inputs."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import InvalidGraphError
+
+    g = Graph()
+    x1 = g.add_node(Node(0, "INPUT", shape=[1, 4]))
+    x2 = g.add_node(Node(1, "INPUT", shape=[1, 4]))
+    add = g.add_node(Node(2, "ADD", inputs=[x1, x2], shape=[1, 4]))
+    g.set_inputs([x1])  # Only x1 declared, x2 is live but undeclared
+    g.set_outputs([add])
+
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g.validate()
+    assert "are not declared in graph.inputs" in str(exc_info.value)
+
+
+def test_graph_validate_rejects_invalid_max_batch_size():
+    """P1 Regression: Graph.validate() must enforce max_batch_size in [1, 1000000]."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import InvalidGraphError
+
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[-1, 4]))
+    r = g.add_node(Node(1, "RELU", inputs=[x], shape=[-1, 4]))
+    g.set_inputs([x])
+    g.set_outputs([r])
+
+    g.max_batch_size = -1
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g.validate()
+    assert "max_batch_size must be an integer between 1 and 1000000" in str(exc_info.value)
+
+    g.max_batch_size = 0
+    with pytest.raises(InvalidGraphError):
+        g.validate()
+
+    g.max_batch_size = False
+    with pytest.raises(InvalidGraphError):
+        g.validate()
+
+
+def test_graph_validate_rejects_node_id_mismatch():
+    """P1 Regression: Graph.validate() must enforce node.id == dictionary_key."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import InvalidGraphError
+
+    g = Graph()
+    x = g.add_node(Node(0, "INPUT", shape=[1, 4]))
+    r = g.add_node(Node(1, "RELU", inputs=[x], shape=[1, 4]))
+    g.set_inputs([x])
+    g.set_outputs([r])
+
+    # Mutate node ID in-place
+    g.nodes[1].id = 99
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g.validate()
+    assert "Node ID mismatch" in str(exc_info.value)
+
+
+def test_graph_validate_rejects_multiple_graph_inputs():
+    """P1 Regression: Graph.validate() must restrict cardinality to single input."""
+    from forgetune.graph_adapter import Graph, Node
+    from forgetune.errors import InvalidGraphError
+
+    g = Graph()
+    x1 = g.add_node(Node(0, "INPUT", shape=[1, 4]))
+    x2 = g.add_node(Node(1, "INPUT", shape=[1, 4]))
+    add = g.add_node(Node(2, "ADD", inputs=[x1, x2], shape=[1, 4]))
+    g.inputs = [0, 1]
+    g.set_outputs([add])
+
+    with pytest.raises(InvalidGraphError) as exc_info:
+        g.validate()
+    assert "strictly supports single-input graphs" in str(exc_info.value)
+
+
+def test_runtime_error_backward_compatibility_alias():
+    """P1 Regression: RuntimeError must be exported as an alias to ForgeTuneRuntimeError."""
+    import forgetune
+    from forgetune import RuntimeError as GlobalRuntimeError
+    from forgetune.errors import RuntimeError as ErrorsRuntimeError, ForgeTuneRuntimeError
+
+    assert GlobalRuntimeError is ForgeTuneRuntimeError
+    assert ErrorsRuntimeError is ForgeTuneRuntimeError
+    assert "RuntimeError" in forgetune.__all__
+    assert "RuntimeError" in forgetune.errors.__all__
+
+    # Verify exception catching compatibility
+    try:
+        raise ForgeTuneRuntimeError("Native ABI dispatch failure simulation")
+    except GlobalRuntimeError as e:
+        assert "Native ABI dispatch failure simulation" in str(e)
+
+
+def test_compiler_benchmark_and_kernel_batch_size_validation():
+    """P1/P3 Regression: benchmark() and benchmark_kernel() must validate batch_size and accept numpy ints."""
+    from forgetune.compiler import compile_model
+    from forgetune.errors import InvalidShapeError
+
+    class SimpleLinear(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(4, 4, bias=False)
+            self.fc.weight.data.fill_(1.0)
+
+        def forward(self, x):
+            return self.fc(x)
+
+    model = SimpleLinear().eval()
+    x = torch.ones(2, 4, dtype=torch.float32)
+    compiled = compile_model(
+        model,
+        (x,),
+        output_dir="build/artifacts/regression_bench_validation",
+        dynamic_batch=True,
+        max_batch_size=128,
+        autotune=False,
+    )
+
+    # Valid integer and valid numpy integer
+    res1 = compiled.benchmark(batch_size=2, warmup_iters=1, measure_iters=1)
+    assert res1["median_latency_us"] > 0
+    res2 = compiled.benchmark(batch_size=np.int64(4), warmup_iters=1, measure_iters=1)
+    assert res2["median_latency_us"] > 0
+
+    res_k1 = compiled.benchmark_kernel(iters=5, batch_size=2)
+    assert res_k1 > 0
+    res_k2 = compiled.benchmark_kernel(iters=5, batch_size=np.int64(4))
+    assert res_k2 > 0
+
+    # Negative / 0 batch size raises InvalidShapeError
+    with pytest.raises(InvalidShapeError):
+        compiled.benchmark(batch_size=0)
+    with pytest.raises(InvalidShapeError):
+        compiled.benchmark_kernel(batch_size=0)
+
+    # Batch size exceeding max_batch_size raises InvalidShapeError
+    with pytest.raises(InvalidShapeError):
+        compiled.benchmark(batch_size=256)
+    with pytest.raises(InvalidShapeError):
+        compiled.benchmark_kernel(batch_size=256)
+
+    # Boolean batch_size raises TypeError
+    with pytest.raises(TypeError):
+        compiled.benchmark(batch_size=True)
+    with pytest.raises(TypeError):
+        compiled.benchmark_kernel(batch_size=True)
+
+
+def test_cpp_test_suite_json_cli_subprocess():
+    """P2 Regression: Native test suite binary --json CLI produces valid JSON with 13 tests."""
+    import subprocess
+    import json
+
+    exe_name = "forgetune_test_suite.exe" if os.name == "nt" else "forgetune_test_suite"
+    exe_path = os.path.join(repo_root, "bin", exe_name)
+    assert os.path.isfile(exe_path), f"Test executable not found: {exe_path}"
+
+    proc = subprocess.run([exe_path, "--json"], capture_output=True, text=True, check=True)
+    parsed = json.loads(proc.stdout)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 13
+    for entry in parsed:
+        assert "name" in entry and isinstance(entry["name"], str)
+        assert entry["status"] == "passed"
+
+
+def test_manifest_zero_collected_tests_reconciliation():
+    """Manifest Edge Case: Reconciling when 0 tests are collected or with collection errors."""
+    import sys
+    scripts_dir = os.path.join(repo_root, "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from generate_test_manifest import TestResultCollector
+
+    collector = TestResultCollector()
+    class DummySession:
+        items = []
+    collector.pytest_collection_finish(DummySession())
+
+    assert collector.total_collected == 0
+    assert len(collector.results) == 0
+    assert len(collector.collection_errors) == 0
+
+    # Simulate collection error
+    class DummyReport:
+        failed = True
+        nodeid = "test_broken.py"
+        longrepr = "SyntaxError: invalid syntax"
+    collector.pytest_collectreport(DummyReport())
+
+    assert collector.total_collected == 0
+    assert len(collector.results) == 0
+    assert len(collector.collection_errors) == 1
+    assert "test_broken.py" in collector.collection_errors
+
+    # Reconciliation check: total_py_collected == sum of executed outcomes
+    total_py_collected = collector.total_collected
+    passed_py = sum(1 for r in collector.results.values() if r["outcome"] == "passed")
+    skipped_py = sum(1 for r in collector.results.values() if r["outcome"] == "skipped")
+    failed_py = sum(1 for r in collector.results.values() if r["outcome"] == "failed")
+    error_py = sum(1 for r in collector.results.values() if r["outcome"] == "error")
+
+    assert total_py_collected == (passed_py + skipped_py + failed_py + error_py) == 0
+
+
+
 

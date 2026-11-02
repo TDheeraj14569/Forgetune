@@ -2,7 +2,7 @@
 
 ## 1. System Overview
 
-ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing machine-learning compiler built from scratch for CPU inference. It translates PyTorch computation graphs into custom C++ Intermediate Representation (IR Schema 2.0), verifies graph structure, type safety, and dynamic shape contracts, optimizes through an extensible pass manager (including constant folding, algebraic simplification, dead-code elimination, and multi-operator fusion), performs compile-time liveness interval analysis to reuse intermediate memory buffers, generates standalone C++ CPU kernels supporting dynamic batch execution ($B \in [1, 128]$), compiles them into shared libraries, and autotunes kernel candidates through an empirical correctness gate on the host machine.
+ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing machine-learning compiler built from scratch for CPU inference. It translates PyTorch computation graphs into custom C++ Intermediate Representation (IR Schema 2.0), verifies graph structure, type safety, and dynamic shape contracts, optimizes through an extensible pass manager (including constant folding, algebraic simplification, dead-code elimination, and multi-operator fusion), performs compile-time liveness interval analysis to reuse intermediate memory buffers, generates standalone C++ CPU kernels supporting dynamic batch execution ($B \in [1, B_{max}]$, default $B_{max}=128$, configurable up to $1,000,000$), compiles them into shared libraries, and autotunes kernel candidates through an empirical correctness gate on the host machine.
 
 ```
 +-----------------------------------------------------------------------------------------+
@@ -71,19 +71,22 @@ ForgeTune v2.0 is a specification-driven, correctness-verified, self-optimizing 
    - Performs topological liveness interval analysis $[birth, death]$ for all intermediate activation buffers.
    - Employs greedy interval-coloring to assign non-overlapping buffers to shared offsets within a single 64-byte aligned memory arena.
    - Reduces intermediate buffer memory by 38.5% to 58.6% while eliminating stack overflow hazards on Windows.
+   - Output buffers are written directly into caller-provided memory, while intermediate tensors share the managed arena.
 
-5. **Code Generator & Dual ABI (`forgetune::CodeGenerator`)**:
-   - Emits clean, readable C++17 source code without third-party tensor libraries.
-   - Manages dynamic batch indexing: outer loops iterate over runtime batch size $B$.
-   - Intermediate buffers are mapped into a single `alignas(64) static thread_local std::vector<float> arena_storage`.
-   - Dual C ABI export:
-     - `forgetune_run`: 5 arguments for dynamic graphs `(const float* inp, size_t inp_count, float* out, size_t out_count, int64_t batch_size)`.
-     - `forgetune_run_v1`: 4 arguments for backward compatibility.
-     - `forgetune_is_dynamic`: returns 1 for dynamic models, 0 for static.
-     - `forgetune_max_batch`: returns configured maximum batch (default 128).
-     - `forgetune_benchmark_kernel`: microbenchmark kernel running entirely inside pure C++ via `std::chrono::steady_clock`.
+5. **Code Generator & Versioned C ABI (`forgetune::CodeGenerator`)**:
+   - Emits clean, readable C++17 source code without third-party tensor libraries or framework runtimes.
+   - Manages dynamic batch indexing: outer loops iterate over runtime batch size $B \in [1, B_{max}]$.
+   - Intermediate buffers are managed via `static thread_local AlignedArenaPool g_thread_arena_pool`. An RAII `ArenaLease` is acquired at function entry and released at exit, guaranteeing 64-byte alignment, re-entrancy safety across threads, and zero steady-state heap allocations after warm-up.
+   - Versioned C ABI specification (`include/forgetune/forgetune_abi.h`):
+     - `forgetune_run_v2`: Canonical 5-argument dynamic batch entry point `(const float* inp, size_t inp_count, float* out, size_t out_count, int64_t batch_size)`.
+     - `forgetune_run`: Exported inference entry point (aliased to 5 arguments for dynamic models, 4 arguments for static models).
+     - `forgetune_run_v1`: Backward-compatible 4-argument entry point `(const float* inp, size_t inp_count, float* out, size_t out_count)` with automatic batch inference.
+     - `forgetune_is_dynamic`: Query function returning 1 for dynamic models, 0 for static.
+     - `forgetune_max_batch`: Query function returning configured maximum batch $B_{max}$ (default 128, configurable up to 1,000,000).
+     - `forgetune_benchmark_kernel`: Isolated microbenchmark kernel running entirely inside pure C++ via `std::chrono::steady_clock` to exclude Python and CFFI overhead.
+     - `forgetune_get_arena_alloc_count` / `forgetune_reset_arena_alloc_count`: Introspection hooks for proving zero steady-state allocations during continuous inference.
 
 6. **Native Runtime & Loader (`forgetune.runtime.NativeRuntime`)**:
-   - Loads compiled `.dll` directly with security policy compliance (no evasion, no stream deletion, no temporary staging). Bounded retry is strictly reserved for transient file-sharing locks.
-   - Introspects exported symbols to determine dynamic capabilities.
-   - Enforces contract validations: validates input rank, static dimensions, dynamic batch bounds ($1 \le B \le 128$), ensures contiguous float32 data, and verifies native return status codes.
+   - Loads compiled `.dll` / `.so` directly with security policy compliance (no evasion, no stream deletion, no temporary staging). Bounded retry is strictly reserved for transient file-sharing locks.
+   - Introspects exported symbols (`forgetune_run_v2`, `forgetune_run_v1`, `forgetune_run`, `forgetune_is_dynamic`, `forgetune_max_batch`) to determine dynamic capabilities.
+   - Enforces strict contract validations: validates input rank, static dimensions, dynamic batch bounds ($1 \le B \le B_{max}$), uses direct pointer pass-through for contiguous CPU NumPy arrays (with contiguous-buffer conversion fallback when required), and verifies native return status codes.

@@ -51,9 +51,15 @@ def compute_working_tree_fingerprint(root_dir: str) -> str:
     for rel_f in all_files:
         full_p = os.path.join(root_dir, rel_f)
         if os.path.isfile(full_p):
-            h.update(rel_f.replace("\\", "/").encode("utf-8"))
+            rel_norm = rel_f.replace("\\", "/")
+            f_size = os.path.getsize(full_p)
+            h.update(rel_norm.encode("utf-8"))
+            h.update(b"\0")
+            h.update(str(f_size).encode("ascii"))
+            h.update(b"\0")
             with open(full_p, "rb") as fp:
-                h.update(fp.read())
+                while chunk := fp.read(65536):
+                    h.update(chunk)
     return h.hexdigest()
 
 def check_non_report_dirty(root_dir: str):

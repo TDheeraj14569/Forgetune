@@ -47,7 +47,7 @@ def test_v2_new_ops_roundtrip_and_verify():
     g.set_inputs([x])
     g.set_outputs([mul])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert res.passed, f"C++ graph verification failed: {res.to_string()}"
@@ -58,7 +58,7 @@ def test_verifier_rejects_non_leading_dynamic_dimension():
     g.set_inputs([x])
     g.set_outputs([x])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert not res.passed
@@ -70,7 +70,7 @@ def test_verifier_rejects_const_with_dynamic_dimension():
     g.set_inputs([])
     g.set_outputs([c])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert not res.passed
@@ -87,7 +87,7 @@ def test_verifier_rejects_conv2d_channel_mismatch():
     g.set_inputs([x])
     g.set_outputs([conv])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert not res.passed
@@ -103,7 +103,7 @@ def test_verifier_rejects_conv2d_dynamic_weight():
     g.set_inputs([x])
     g.set_outputs([conv])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert not res.passed
@@ -116,7 +116,7 @@ def test_verifier_rejects_flatten_invalid_rank():
     g.set_inputs([x])
     g.set_outputs([flat])
 
-    json_str = g.to_json()
+    json_str = g.to_json(validate=False)
     cpp_graph = cpp.json_to_graph(json_str)
     res = cpp.verify_graph(cpp_graph, False)
     assert not res.passed

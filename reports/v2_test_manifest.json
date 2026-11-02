@@ -1,27 +1,46 @@
 {
   "metadata": {
-    "timestamp": "2026-11-02T10:40:30Z",
+    "timestamp": "2026-11-02T15:03:51Z",
     "os_platform": "win32",
     "python_version": "3.12.14 (main, Aug 14 2026, 15:40:22) [MSC v.1944 64 bit (AMD64)]",
-    "git_commit": "65ce717ff51a9c3c2c5cd1e28cc06457b8e90263",
+    "git_commit": "a7f4881aee590d05d3924d0c91e8cb34a5fc8a6e",
     "git_branch": "v2.0-dev",
-    "working_tree_clean": true,
-    "source_files_clean": true,
-    "dirty_files": [],
-    "harness_description": "ForgeTune Authoritative Test Manifest (293 collected pytest items + 13 native C++ unit tests)"
+    "working_tree_clean": false,
+    "source_files_clean": false,
+    "dirty_files": [
+      ".github/workflows/linux_verification.yml",
+      "docs/ARCHITECTURE.md",
+      "python/forgetune/__init__.py",
+      "python/forgetune/compiler.py",
+      "python/forgetune/errors.py",
+      "python/forgetune/graph_adapter.py",
+      "reports/v2_paired_b64_benchmark_data.json",
+      "scripts/generate_test_manifest.py",
+      "scripts/run_v2_benchmarks.py",
+      "scripts/run_v2_paired_benchmark.py",
+      "scripts/v2_verify_all.py",
+      "tests/acceptance/test_mutation_resilience.py",
+      "tests/correctness/test_audit_regressions.py",
+      "tests/cpp/test_main.cpp",
+      "tests/unit/test_operators.py",
+      "tests/unit/test_v2_ir.py",
+      "tests/unit/test_v2_operators.py",
+      "requirements-ci-py311.txt"
+    ],
+    "harness_description": "ForgeTune Authoritative Test Manifest (303 collected pytest items + 13 native C++ unit tests)"
   },
   "summary": {
-    "total_python_tests_collected": 293,
-    "total_python_tests_executed": 293,
-    "python_passed": 293,
+    "total_python_tests_collected": 303,
+    "total_python_tests_executed": 303,
+    "python_passed": 303,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "python_collection_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 306,
-    "total_passing": 306,
+    "total_tests_available": 316,
+    "total_passing": 316,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -681,6 +700,36 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_warning_parser_ignores_non_warning_lines": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_unknown_operator_bogus": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_fused_matmul_add_relu_invalid_arity": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_undeclared_live_input": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_invalid_max_batch_size": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_node_id_mismatch": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_multiple_graph_inputs": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_runtime_error_backward_compatibility_alias": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_compiler_benchmark_and_kernel_batch_size_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_cpp_test_suite_json_cli_subprocess": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_manifest_zero_collected_tests_reconciliation": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

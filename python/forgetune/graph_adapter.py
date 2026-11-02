@@ -8,6 +8,28 @@ from typing import List, Dict, Any, Optional
 import numpy as np
 from .errors import InvalidGraphError, InvalidShapeError, UnsupportedOpError
 
+CANONICAL_OPS = {
+    "INPUT", "CONST", "MATMUL", "ADD", "MUL",
+    "RELU", "SIGMOID", "TANH", "FLATTEN", "CONV2D", "FUSED_CONV2D_RELU",
+    "FUSED_MATMUL_ADD_RELU", "OUTPUT"
+}
+
+EXPECTED_ARITIES = {
+    "INPUT": (0, 0),
+    "CONST": (0, 0),
+    "ADD": (2, 2),
+    "MUL": (2, 2),
+    "MATMUL": (2, 2),
+    "RELU": (1, 1),
+    "SIGMOID": (1, 1),
+    "TANH": (1, 1),
+    "FLATTEN": (1, 1),
+    "CONV2D": (2, 3), # x, weight, optional bias
+    "FUSED_CONV2D_RELU": (2, 3),
+    "FUSED_MATMUL_ADD_RELU": (3, 3),
+    "OUTPUT": (1, 1),
+}
+
 class Node:
     def __init__(
         self,
@@ -155,67 +177,149 @@ class Graph:
 
         return order
 
-    def validate(self) -> None:
+    def validate(self, strict_abi: bool = True) -> None:
         """
         Validates internal consistency of the graph representation:
         - Every static shape dimension must be positive.
         - -1 is only permitted as the leading dynamic batch dimension.
         - Every operand must refer to an existing, non-deleted node.
         - Input IDs and output IDs must exist and have the appropriate operators.
-        - Input IDs and output IDs must not contain duplicates.
-        - Operator arity must match the operator definition.
-        - Node IDs must be valid and unique.
+        - Exactly single-input and single-output supported by ForgeTune ABI (when strict_abi=True).
+        - Every live INPUT node must appear in graph.inputs.
+        - Operator arity and operator names must match canonical definitions.
+        - Node IDs must be unique and match graph.nodes mapping keys.
+        - max_batch_size must be in [1, 1000000].
+        - CONST nodes must have valid shapes and matching constant data counts.
+        - Convolution attributes must be valid.
         - Cycles and disconnected invalid references must be detected.
         """
-        active_nodes = {nid: node for nid, node in self.nodes.items() if not node.deleted}
+        import math
 
-        if len(self.inputs) != len(set(self.inputs)):
-            raise InvalidGraphError("Graph inputs contains duplicate node IDs")
-        for inp_id in self.inputs:
-            if inp_id not in active_nodes:
-                raise InvalidGraphError(f"Graph input node {inp_id} does not exist in graph")
-            if active_nodes[inp_id].op != "INPUT":
-                raise InvalidGraphError(f"Graph input node {inp_id} has operator '{active_nodes[inp_id].op}', expected 'INPUT'")
+        max_batch = getattr(self, "max_batch_size", 128)
+        if type(max_batch) is bool or type(max_batch) is not int or not (1 <= max_batch <= 1000000):
+            raise InvalidGraphError(f"max_batch_size must be an integer between 1 and 1000000, got {max_batch}")
 
-        if len(self.outputs) != len(set(self.outputs)):
-            raise InvalidGraphError("Graph outputs contains duplicate node IDs")
-        for out_id in self.outputs:
-            if out_id not in active_nodes:
-                raise InvalidGraphError(f"Graph output node {out_id} does not exist in graph")
-
-        OP_ARITY = {
-            "INPUT": (0, 0),
-            "CONST": (0, 0),
-            "RELU": (1, 1),
-            "SIGMOID": (1, 1),
-            "TANH": (1, 1),
-            "FLATTEN": (1, 1),
-            "MATMUL": (2, 2),
-            "ADD": (2, 2),
-            "MUL": (2, 2),
-            "CONV2D": (2, 3),
-            "FUSED_CONV2D_RELU": (2, 3),
-        }
+        active_nodes = {}
+        for nid, node in self.nodes.items():
+            if type(nid) is bool or type(nid) is not int or nid < 0:
+                raise InvalidGraphError(f"Node id must be a non-negative int, got {nid}")
+            if node.id != nid:
+                raise InvalidGraphError(f"Node ID mismatch: dictionary key {nid} != node.id {node.id}")
+            if not node.deleted:
+                active_nodes[nid] = node
 
         for nid, node in active_nodes.items():
+            op_upper = str(node.op).upper()
+            if op_upper == "CONSTANT":
+                op_upper = "CONST"
+            elif op_upper == "FUSED_MATMUL_BIAS_RELU":
+                op_upper = "FUSED_MATMUL_ADD_RELU"
+
+            if op_upper not in CANONICAL_OPS:
+                raise UnsupportedOpError(f"Node {nid} has unsupported operator: '{node.op}'")
+
+            if not isinstance(node.shape, list):
+                raise InvalidShapeError(f"Node {nid} shape must be a list, got {type(node.shape).__name__}")
             for idx, dim in enumerate(node.shape):
-                if dim < -1 or dim == 0:
-                    raise InvalidGraphError(f"Node {nid} has invalid shape dimension {dim}")
+                if type(dim) is bool or type(dim) is not int or dim < -1 or dim == 0:
+                    raise InvalidShapeError(f"Node {nid} has invalid shape dimension {dim}")
                 if dim == -1 and idx != 0:
-                    raise InvalidGraphError(f"Node {nid} has dynamic dimension -1 at non-leading index {idx}")
+                    raise InvalidShapeError(f"Node {nid} has dynamic dimension -1 at non-leading index {idx}")
+
+            if not isinstance(node.inputs, list):
+                raise InvalidGraphError(f"Node {nid} inputs must be a list, got {type(node.inputs).__name__}")
+
+            min_a, max_a = EXPECTED_ARITIES[op_upper]
+            if not (min_a <= len(node.inputs) <= max_a):
+                raise InvalidGraphError(f"Node {nid} ({node.op}) expected between {min_a} and {max_a} inputs, got {len(node.inputs)}")
 
             for inp_id in node.inputs:
                 if inp_id not in active_nodes:
                     raise InvalidGraphError(f"Node {nid} ({node.op}) depends on non-existent or deleted node {inp_id}")
 
-            if node.op in OP_ARITY:
-                min_a, max_a = OP_ARITY[node.op]
-                if not (min_a <= len(node.inputs) <= max_a):
-                    raise InvalidGraphError(f"Node {nid} ({node.op}) expected between {min_a} and {max_a} inputs, got {len(node.inputs)}")
+            # Validate CONST node shape and data count parity
+            if op_upper == "CONST":
+                expected_elems = 1
+                for dim in node.shape:
+                    if dim == -1:
+                        raise InvalidShapeError(f"CONST node {nid} cannot have dynamic dimension -1")
+                    expected_elems *= dim
+                const_data = getattr(node, "const_data", None)
+                if const_data is None:
+                    raise InvalidGraphError(f"Node {nid}: 'const_data' cannot be None for CONST op")
+                if not isinstance(const_data, list):
+                    raise InvalidGraphError(f"Node {nid} const_data must be a list, got {type(const_data).__name__}")
+                if len(const_data) != expected_elems:
+                    raise InvalidShapeError(f"CONST node {nid} data count ({len(const_data)}) does not match shape {node.shape} (expected {expected_elems})")
+                for c in const_data:
+                    if type(c) is bool or not isinstance(c, (int, float)):
+                        raise InvalidGraphError(f"const_data element in node {nid} must be a float or int, got {c}")
+                    if not math.isfinite(c) or abs(c) > 3.4028235e38:
+                        raise InvalidGraphError(f"Non-finite or overflowing float32 constant value in node {nid}: {c}")
+
+            # Validate conv_attrs if present
+            conv_attrs = getattr(node, "conv_attrs", None)
+            if conv_attrs is not None:
+                if not isinstance(conv_attrs, dict):
+                    raise InvalidGraphError(f"conv_attrs in node {nid} must be a dict, got {type(conv_attrs).__name__}")
+                allowed_conv_keys = {"stride_h", "stride_w", "pad_h", "pad_w", "dilation_h", "dilation_w", "groups"}
+                for ck, val in conv_attrs.items():
+                    if ck not in allowed_conv_keys:
+                        raise InvalidGraphError(f"Unknown conv_attrs key: '{ck}' in node {nid}")
+                    if type(val) is not int or isinstance(val, bool):
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be an integer, got {val}")
+                    if ck in ("stride_h", "stride_w", "dilation_h", "dilation_w") and val <= 0:
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be a positive integer (> 0), got {val}")
+                    if ck in ("pad_h", "pad_w") and val < 0:
+                        raise InvalidGraphError(f"conv_attrs '{ck}' must be a non-negative integer (>= 0), got {val}")
+                    if ck == "groups" and val != 1:
+                        raise InvalidGraphError(f"conv_attrs 'groups' must be 1, got {val}")
+
+        if not isinstance(self.inputs, list):
+            raise InvalidGraphError(f"Graph inputs must be a list, got {type(self.inputs).__name__}")
+        if strict_abi:
+            if len(self.inputs) == 0:
+                raise InvalidGraphError("Graph has empty inputs list")
+            if len(self.inputs) != 1:
+                raise InvalidGraphError(f"ForgeTune ABI strictly supports single-input graphs, got {len(self.inputs)}")
+        if len(self.inputs) != len(set(self.inputs)):
+            raise InvalidGraphError("Graph inputs contains duplicate node IDs")
+
+        for in_id in self.inputs:
+            if in_id not in active_nodes:
+                raise InvalidGraphError(f"Graph input node {in_id} does not exist in graph")
+            if active_nodes[in_id].op != "INPUT":
+                raise InvalidGraphError(f"Graph input node {in_id} has operator '{active_nodes[in_id].op}', expected 'INPUT'")
+
+        # Ensure all live INPUT nodes in the graph are declared in self.inputs
+        declared_inputs = set(self.inputs)
+        live_inputs = {nid for nid, node in active_nodes.items() if node.op == "INPUT"}
+        if declared_inputs != live_inputs:
+            undeclared = live_inputs - declared_inputs
+            if undeclared:
+                raise InvalidGraphError(f"Live INPUT node(s) {sorted(list(undeclared))} are not declared in graph.inputs")
+            missing = declared_inputs - live_inputs
+            if missing:
+                raise InvalidGraphError(f"Declared input(s) {sorted(list(missing))} are not live INPUT nodes in graph")
+
+        if not isinstance(self.outputs, list):
+            raise InvalidGraphError(f"Graph outputs must be a list, got {type(self.outputs).__name__}")
+        if len(self.outputs) == 0:
+            raise InvalidGraphError("Graph has empty outputs list")
+        if strict_abi and len(self.outputs) != 1:
+            raise InvalidGraphError(f"ForgeTune currently supports only single-output graphs, got {len(self.outputs)}")
+        if len(self.outputs) != len(set(self.outputs)):
+            raise InvalidGraphError("Graph outputs contains duplicate node IDs")
+
+        for out_id in self.outputs:
+            if out_id not in active_nodes:
+                raise InvalidGraphError(f"Graph output node {out_id} does not exist in graph")
 
         self.topological_order()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, validate: bool = True) -> Dict[str, Any]:
+        if validate:
+            self.validate(strict_abi=True)
         return {
             "schema_version_major": 2,
             "schema_version_minor": 0,
@@ -225,8 +329,10 @@ class Graph:
             "nodes": [node.to_dict() for node in self.nodes.values()]
         }
 
-    def to_json(self, indent: int = 2) -> str:
-        return json.dumps(self.to_dict(), indent=indent)
+    def to_json(self, indent: int = 2, validate: bool = True) -> str:
+        if validate:
+            self.validate(strict_abi=True)
+        return json.dumps(self.to_dict(validate=False), indent=indent)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Graph":
@@ -282,12 +388,6 @@ class Graph:
         if len(set(outputs)) != len(outputs):
             raise InvalidGraphError(f"outputs list contains duplicate IDs: {outputs}")
         g.set_outputs(outputs)
-
-        CANONICAL_OPS = {
-            "INPUT", "CONST", "MATMUL", "ADD", "MUL",
-            "RELU", "SIGMOID", "TANH", "FLATTEN", "CONV2D", "FUSED_CONV2D_RELU",
-            "FUSED_MATMUL_ADD_RELU", "OUTPUT"
-        }
 
         seen_ids = set()
         for nd in d.get("nodes", []):
@@ -357,23 +457,8 @@ class Graph:
                     raise InvalidGraphError(f"Node input operand ID must be a non-negative int, got {op_id} ({type(op_id).__name__})")
 
             # Validate operator input arity
-            expected_arities = {
-                "INPUT": (0, 0),
-                "CONST": (0, 0),
-                "ADD": (2, 2),
-                "MUL": (2, 2),
-                "MATMUL": (2, 2),
-                "RELU": (1, 1),
-                "SIGMOID": (1, 1),
-                "TANH": (1, 1),
-                "FLATTEN": (1, 1),
-                "CONV2D": (2, 3), # x, weight, optional bias
-                "FUSED_CONV2D_RELU": (2, 3),
-                "FUSED_MATMUL_ADD_RELU": (3, 3),
-                "OUTPUT": (1, 1)
-            }
-            if op in expected_arities:
-                min_a, max_a = expected_arities[op]
+            if op in EXPECTED_ARITIES:
+                min_a, max_a = EXPECTED_ARITIES[op]
                 if not (min_a <= len(node_inputs) <= max_a):
                     raise InvalidGraphError(f"Node op '{op}' requires {min_a} to {max_a} inputs, got {len(node_inputs)}")
 
@@ -463,7 +548,7 @@ class Graph:
         """
         Pure-Python reference interpreter for differential correctness testing.
         """
-        self.validate()
+        self.validate(strict_abi=False)
         env: Dict[int, np.ndarray] = {}
 
         # Load inputs

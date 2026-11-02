@@ -21,13 +21,15 @@ def test_acceptance_mutation_cycle_detection():
     g.set_inputs([in_id])
     g.set_outputs([out])
 
-    # In Python topological sort:
+    # In Python topological sort / validation:
     with pytest.raises(InvalidGraphError) as exc_info:
         g.topological_order()
     assert "cycle" in str(exc_info.value).lower()
+    with pytest.raises(InvalidGraphError):
+        g.to_json()
 
     # In C++ graph verifier:
-    cpp_g = cpp.json_to_graph(g.to_json())
+    cpp_g = cpp.json_to_graph(g.to_json(validate=False))
     vres = cpp.verify_graph(cpp_g, False)
     assert not vres.passed
     assert any("cycle" in e.lower() for e in vres.errors)
@@ -71,7 +73,9 @@ def test_acceptance_mutation_const_buffer_size_mismatch():
     g.set_inputs([in_id])
     g.set_outputs([out_id])
 
-    cpp_g = cpp.json_to_graph(g.to_json())
+    with pytest.raises(InvalidGraphError):
+        g.to_json()
+    cpp_g = cpp.json_to_graph(g.to_json(validate=False))
     vres = cpp.verify_graph(cpp_g, False)
     assert not vres.passed
     assert any("buffer size mismatch" in e.lower() for e in vres.errors)
@@ -85,7 +89,9 @@ def test_acceptance_mutation_missing_operand_reference():
     g.set_inputs([in_id])
     g.set_outputs([out])
 
-    cpp_g = cpp.json_to_graph(g.to_json())
+    with pytest.raises(InvalidGraphError):
+        g.to_json()
+    cpp_g = cpp.json_to_graph(g.to_json(validate=False))
     vres = cpp.verify_graph(cpp_g, False)
     assert not vres.passed
     assert any("non-existent node" in e.lower() for e in vres.errors)
@@ -98,7 +104,9 @@ def test_acceptance_mutation_empty_inputs_or_outputs():
     g_no_in.set_inputs([])
     g_no_in.set_outputs([out])
 
-    cpp_g = cpp.json_to_graph(g_no_in.to_json())
+    with pytest.raises(InvalidGraphError):
+        g_no_in.to_json()
+    cpp_g = cpp.json_to_graph(g_no_in.to_json(validate=False))
     vres = cpp.verify_graph(cpp_g, False)
     assert not vres.passed
     assert any("no declared inputs" in e.lower() for e in vres.errors)
@@ -111,7 +119,9 @@ def test_acceptance_mutation_non_positive_dimensions():
     g.set_inputs([in_id])
     g.set_outputs([out])
 
-    cpp_g = cpp.json_to_graph(g.to_json())
+    with pytest.raises(InvalidGraphError):
+        g.to_json()
+    cpp_g = cpp.json_to_graph(g.to_json(validate=False))
     vres = cpp.verify_graph(cpp_g, False)
     assert not vres.passed
     assert any("non-positive dimension" in e.lower() for e in vres.errors)

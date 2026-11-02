@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 class TestResultCollector:
     def __init__(self):
         self.results = {}
+        self.collection_errors = {}
         self.total_collected = 0
 
     def pytest_collection_finish(self, session):
@@ -29,7 +30,7 @@ class TestResultCollector:
     def pytest_collectreport(self, report):
         if report.failed:
             exc_repr = str(report.longrepr)
-            self.results[report.nodeid or f"collection_error_{len(self.results)}"] = {
+            self.collection_errors[report.nodeid or f"collection_error_{len(self.collection_errors)}"] = {
                 "outcome": "collection_error",
                 "exception_type": "CollectionError",
                 "details": exc_repr.splitlines()[-1] if exc_repr else "Failed to collect test file"
@@ -111,12 +112,12 @@ def main():
 
     # Reconciled execution accounting: executed includes passed, failed, and errors
     executed_py_tests = sum(1 for r in collector.results.values() if r["outcome"] in ("passed", "failed", "error"))
-    total_py_collected = collector.total_collected if collector.total_collected > 0 else len(collector.results)
+    total_py_collected = collector.total_collected
     passed_py = sum(1 for r in collector.results.values() if r["outcome"] == "passed")
     skipped_py = sum(1 for r in collector.results.values() if r["outcome"] == "skipped")
     failed_py = sum(1 for r in collector.results.values() if r["outcome"] == "failed")
     error_py = sum(1 for r in collector.results.values() if r["outcome"] == "error")
-    coll_err_py = sum(1 for r in collector.results.values() if r["outcome"] == "collection_error")
+    coll_err_py = len(collector.collection_errors)
 
     # Reconciliation check: collected items = passed + failed + skipped + errors (collection errors recorded separately)
     assert total_py_collected == (passed_py + skipped_py + failed_py + error_py), \
@@ -188,7 +189,7 @@ def main():
             "pytest_return_code": int(pytest_rc)
         },
         "native_cpp_test_cases": cpp_test_cases,
-        "python_tests": collector.results
+        "python_tests": {**collector.collection_errors, **collector.results}
     }
 
     os.makedirs("reports", exist_ok=True)

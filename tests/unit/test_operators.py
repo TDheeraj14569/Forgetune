@@ -105,7 +105,7 @@ def test_add_unsupported_shapes_rejected():
     g1.add_node(Node(2, "ADD", inputs=[a1, b1], shape=[2, 3]))
     g1.set_inputs([a1, b1])
     g1.set_outputs([2])
-    cg1 = cpp.json_to_graph(g1.to_json())
+    cg1 = cpp.json_to_graph(g1.to_json(validate=False))
     vres1 = cpp.verify_graph(cg1, False)
     assert not vres1.passed, "C++ verifier must reject [2, 3] + [2]"
     with pytest.raises(Exception):
@@ -120,7 +120,7 @@ def test_add_unsupported_shapes_rejected():
     g2.add_node(Node(2, "ADD", inputs=[a2, b2], shape=[2, 3]))
     g2.set_inputs([a2, b2])
     g2.set_outputs([2])
-    cg2 = cpp.json_to_graph(g2.to_json())
+    cg2 = cpp.json_to_graph(g2.to_json(validate=False))
     vres2 = cpp.verify_graph(cg2, False)
     assert not vres2.passed, "C++ verifier must reject [2, 3] + [4]"
     with pytest.raises(Exception):
@@ -135,7 +135,7 @@ def test_add_unsupported_shapes_rejected():
     g3.add_node(Node(2, "ADD", inputs=[a3, b3], shape=[2, 3]))
     g3.set_inputs([a3, b3])
     g3.set_outputs([2])
-    cg3 = cpp.json_to_graph(g3.to_json())
+    cg3 = cpp.json_to_graph(g3.to_json(validate=False))
     vres3 = cpp.verify_graph(cg3, False)
     assert not vres3.passed, "C++ verifier must reject [2, 3] + [3, 2]"
     with pytest.raises(Exception):

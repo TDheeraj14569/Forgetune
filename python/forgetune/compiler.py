@@ -8,6 +8,7 @@ import sys
 import hashlib
 import json
 import platform
+import operator
 import numpy as np
 import torch
 from typing import Tuple, Optional, Dict, Any, Union, Callable, List
@@ -18,7 +19,7 @@ from .runtime import NativeRuntime
 from .autotuner import Autotuner, KernelCandidate
 from .manifest import create_manifest, write_atomic_json
 from .benchmark import benchmark_function
-from .errors import CorrectnessError
+from .errors import CorrectnessError, InvalidShapeError
 
 def _compute_file_sha256(path: str) -> str:
     """Computes SHA-256 hash of a file on disk."""
@@ -422,28 +423,48 @@ class CompiledModel:
         """
         Measures steady-state native inference latency on host machine.
         """
-        if type(warmup_iters) is bool or not isinstance(warmup_iters, int) or warmup_iters < 0:
+        if isinstance(warmup_iters, bool):
+            raise TypeError(f"warmup_iters must be a non-boolean integer, got {warmup_iters} (bool)")
+        try:
+            warmup_iters = operator.index(warmup_iters)
+        except (TypeError, ValueError):
             raise TypeError(f"warmup_iters must be a non-negative integer, got {warmup_iters}")
-        if type(measure_iters) is bool or not isinstance(measure_iters, int) or measure_iters < 1:
+        if warmup_iters < 0:
+            raise TypeError(f"warmup_iters must be a non-negative integer, got {warmup_iters}")
+
+        if isinstance(measure_iters, bool):
+            raise TypeError(f"measure_iters must be a non-boolean integer, got {measure_iters} (bool)")
+        try:
+            measure_iters = operator.index(measure_iters)
+        except (TypeError, ValueError):
+            raise TypeError(f"measure_iters must be a positive integer >= 1, got {measure_iters}")
+        if measure_iters < 1:
             raise TypeError(f"measure_iters must be a positive integer >= 1, got {measure_iters}")
 
         if self._runtime.is_dynamic:
             if batch_size is not None:
-                if type(batch_size) is bool or not isinstance(batch_size, int):
+                if isinstance(batch_size, bool):
+                    raise TypeError(f"batch_size must be a non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b = operator.index(batch_size)
+                except (TypeError, ValueError):
                     raise TypeError(f"batch_size must be a positive integer, got {batch_size}")
-                if not (1 <= batch_size <= self._runtime.max_batch_size):
-                    raise InvalidShapeError(f"Dynamic batch size {batch_size} out of valid range [1, {self._runtime.max_batch_size}]")
-                b = batch_size
+                if not (1 <= b <= self._runtime.max_batch_size):
+                    raise InvalidShapeError(f"Dynamic batch size {b} out of valid range [1, {self._runtime.max_batch_size}]")
             else:
                 b = 1
             shape = (b, *self._runtime.expected_input_shape[1:])
             dummy_input = np.ones(shape, dtype=np.float32)
         else:
             if batch_size is not None:
-                if type(batch_size) is bool or not isinstance(batch_size, int):
+                if isinstance(batch_size, bool):
+                    raise TypeError(f"batch_size must be a non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b = operator.index(batch_size)
+                except (TypeError, ValueError):
                     raise TypeError(f"batch_size must be a positive integer, got {batch_size}")
-                if batch_size != self._runtime.expected_input_shape[0]:
-                    raise InvalidShapeError(f"Batch size {batch_size} does not match static model batch dimension {self._runtime.expected_input_shape[0]}")
+                if b != self._runtime.expected_input_shape[0]:
+                    raise InvalidShapeError(f"Batch size {b} does not match static model batch dimension {self._runtime.expected_input_shape[0]}")
             dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
         return benchmark_function(lambda: self._runtime.run(dummy_input), warmup_iters, measure_iters)
 
@@ -452,26 +473,39 @@ class CompiledModel:
         Executes microbenchmark inside native C++ without Python/ctypes per-iteration overhead.
         Returns average latency per call in microseconds.
         """
-        if type(iters) is bool or not isinstance(iters, int) or iters < 1:
+        if isinstance(iters, bool):
+            raise TypeError(f"iters must be a non-boolean integer, got {iters} (bool)")
+        try:
+            iters = operator.index(iters)
+        except (TypeError, ValueError):
+            raise TypeError(f"iters must be a positive integer >= 1, got {iters}")
+        if iters < 1:
             raise TypeError(f"iters must be a positive integer >= 1, got {iters}")
 
         if self._runtime.is_dynamic:
             if batch_size is not None:
-                if type(batch_size) is bool or not isinstance(batch_size, int):
+                if isinstance(batch_size, bool):
+                    raise TypeError(f"batch_size must be a non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b = operator.index(batch_size)
+                except (TypeError, ValueError):
                     raise TypeError(f"batch_size must be a positive integer, got {batch_size}")
-                if not (1 <= batch_size <= self._runtime.max_batch_size):
-                    raise InvalidShapeError(f"Dynamic batch size {batch_size} out of valid range [1, {self._runtime.max_batch_size}]")
-                b = batch_size
+                if not (1 <= b <= self._runtime.max_batch_size):
+                    raise InvalidShapeError(f"Dynamic batch size {b} out of valid range [1, {self._runtime.max_batch_size}]")
             else:
                 b = 1
             shape = (b, *self._runtime.expected_input_shape[1:])
             dummy_input = np.ones(shape, dtype=np.float32)
         else:
             if batch_size is not None:
-                if type(batch_size) is bool or not isinstance(batch_size, int):
+                if isinstance(batch_size, bool):
+                    raise TypeError(f"batch_size must be a non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b = operator.index(batch_size)
+                except (TypeError, ValueError):
                     raise TypeError(f"batch_size must be a positive integer, got {batch_size}")
-                if batch_size != self._runtime.expected_input_shape[0]:
-                    raise InvalidShapeError(f"Batch size {batch_size} does not match static model batch dimension {self._runtime.expected_input_shape[0]}")
+                if b != self._runtime.expected_input_shape[0]:
+                    raise InvalidShapeError(f"Batch size {b} does not match static model batch dimension {self._runtime.expected_input_shape[0]}")
             dummy_input = np.ones(self._runtime.expected_input_shape, dtype=np.float32)
         return self._runtime.benchmark_kernel(dummy_input, iters)
 

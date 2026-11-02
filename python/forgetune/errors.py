@@ -22,7 +22,7 @@ class InvalidGraphError(ForgeTuneError):
     """Raised when an IR graph fails verification."""
     pass
 
-class InvalidShapeError(ForgeTuneError):
+class InvalidShapeError(InvalidGraphError):
     """Raised when tensor shapes are incompatible with operation contracts."""
     pass
 
@@ -53,6 +53,9 @@ class ForgeTuneRuntimeError(ForgeTuneError, builtins.RuntimeError):
     """Raised when native runtime execution fails."""
     pass
 
+# Backward compatibility alias for v1.0 API
+RuntimeError = ForgeTuneRuntimeError
+
 __all__ = [
     "ForgeTuneError",
     "UnsupportedOpError",
@@ -63,4 +66,5 @@ __all__ = [
     "CorrectnessError",
     "AutotuningError",
     "ForgeTuneRuntimeError",
+    "RuntimeError",
 ]

@@ -241,22 +241,63 @@ def main():
         ci_90 = [round(ci_90_raw[0], 2), round(ci_90_raw[1], 2)]
         ci_95 = [round(ci_95_raw[0], 2), round(ci_95_raw[1], 2)]
 
+        # Newey-West HAC Standard Error estimation with Bartlett kernel
+        e = diffs - mean_diff
+        gamma0 = float(np.mean(e ** 2))
+        hac_by_lag = {}
+        for L in [1, 2, 3, 4, 5, 10]:
+            v_hac = gamma0
+            for j in range(1, L + 1):
+                weight = 1.0 - (j / (L + 1.0))
+                gamma_j = float(np.sum(e[j:] * e[:-j]) / n)
+                v_hac += 2.0 * weight * gamma_j
+            se_l = float(np.sqrt(max(0.0, v_hac) / n))
+            t_ni_l = float((mean_diff - (-equiv_margin_raw)) / se_l) if se_l > 0 else 0.0
+            t_zero_l = float(mean_diff / se_l) if se_l > 0 else 0.0
+            p_ni_l = float(stats.t.sf(t_ni_l, df=df)) if se_l > 0 else 0.0
+            p_zero_l = float(stats.t.sf(abs(t_zero_l), df=df) * 2.0) if se_l > 0 else 0.0
+            hac_by_lag[str(L)] = {
+                "lag": L,
+                "se_hac_us": round(se_l, 3),
+                "t_stat_zero_hac": round(t_zero_l, 2),
+                "p_val_zero_hac": p_zero_l,
+                "t_stat_non_inferiority_hac": round(t_ni_l, 2),
+                "p_val_non_inferiority_hac": p_ni_l,
+                "ci_90_hac": [round(mean_diff - t_crit_90 * se_l, 2), round(mean_diff + t_crit_90 * se_l, 2)],
+                "ci_95_hac": [round(mean_diff - t_crit_95 * se_l, 2), round(mean_diff + t_crit_95 * se_l, 2)],
+            }
+
+        # Primary HAC estimates at lag 4 (Bartlett kernel, L=4)
+        se_hac_primary = hac_by_lag["4"]["se_hac_us"]
+        t_stat_zero_hac = hac_by_lag["4"]["t_stat_zero_hac"]
+        p_val_zero_hac = hac_by_lag["4"]["p_val_zero_hac"]
+        t_stat_ni_hac = hac_by_lag["4"]["t_stat_non_inferiority_hac"]
+        p_val_ni_hac = hac_by_lag["4"]["p_val_non_inferiority_hac"]
+        ci_90_hac = hac_by_lag["4"]["ci_90_hac"]
+        ci_95_hac = hac_by_lag["4"]["ci_95_hac"]
+
+        # Moving block bootstrap (block size b=4, 10,000 resamples)
+        block_size = 4
+        num_sub_blocks = n - block_size + 1
+        sub_blocks = [diffs[i:i + block_size] for i in range(num_sub_blocks)]
         rng = np.random.default_rng(42)
-        boot_means = []
-        boot_medians = []
+        mbb_means = []
+        mbb_medians = []
+        k_blocks = int(np.ceil(n / block_size))
         for _ in range(10000):
-            resample = rng.choice(diffs, size=n, replace=True)
-            boot_means.append(float(np.mean(resample)))
-            boot_medians.append(float(np.median(resample)))
-        boot_means = np.sort(boot_means)
-        boot_medians = np.sort(boot_medians)
-        boot_mean_ci_90 = [round(float(np.percentile(boot_means, 5.0)), 2), round(float(np.percentile(boot_means, 95.0)), 2)]
-        boot_mean_ci_95 = [round(float(np.percentile(boot_means, 2.5)), 2), round(float(np.percentile(boot_means, 97.5)), 2)]
-        boot_median_ci_90 = [round(float(np.percentile(boot_medians, 5.0)), 2), round(float(np.percentile(boot_medians, 95.0)), 2)]
-        boot_median_ci_95 = [round(float(np.percentile(boot_medians, 2.5)), 2), round(float(np.percentile(boot_medians, 97.5)), 2)]
+            chosen = rng.integers(0, num_sub_blocks, size=k_blocks)
+            resamp = np.concatenate([sub_blocks[idx] for idx in chosen])[:n]
+            mbb_means.append(float(np.mean(resamp)))
+            mbb_medians.append(float(np.median(resamp)))
+
+        mbb_mean_ci_90 = [round(float(np.percentile(mbb_means, 5.0)), 2), round(float(np.percentile(mbb_means, 95.0)), 2)]
+        mbb_mean_ci_95 = [round(float(np.percentile(mbb_means, 2.5)), 2), round(float(np.percentile(mbb_means, 97.5)), 2)]
+        mbb_median_ci_90 = [round(float(np.percentile(mbb_medians, 5.0)), 2), round(float(np.percentile(mbb_medians, 95.0)), 2)]
+        mbb_median_ci_95 = [round(float(np.percentile(mbb_medians, 2.5)), 2), round(float(np.percentile(mbb_medians, 97.5)), 2)]
 
         # Decisions based on unrounded full-precision arithmetic to prevent boundary distortion
         non_inferior = t_stat_ni > t_crit_90
+        non_inferior_hac = (hac_by_lag["4"]["t_stat_non_inferiority_hac"] > t_crit_90)
         tost_equivalent = (ci_90_raw[0] >= -equiv_margin_raw) and (ci_90_raw[1] <= equiv_margin_raw)
 
         return {
@@ -268,9 +309,28 @@ def main():
             "t_stat_zero": t_stat_zero, "t_stat_ni": t_stat_ni,
             "p_val_zero": p_val_zero, "p_val_ni": p_val_ni,
             "ci_90": ci_90, "ci_95": ci_95,
-            "boot_mean_ci_90": boot_mean_ci_90, "boot_mean_ci_95": boot_mean_ci_95,
-            "boot_median_ci_90": boot_median_ci_90, "boot_median_ci_95": boot_median_ci_95,
-            "non_inferior": non_inferior, "tost_equivalent": tost_equivalent
+            "boot_mean_ci_90": mbb_mean_ci_90,
+            "boot_mean_ci_95": mbb_mean_ci_95,
+            "boot_median_ci_90": mbb_median_ci_90,
+            "boot_median_ci_95": mbb_median_ci_95,
+            "se_hac_us": se_hac_primary,
+            "t_stat_zero_hac": t_stat_zero_hac,
+            "p_val_zero_hac": p_val_zero_hac,
+            "t_stat_non_inferiority_hac": t_stat_ni_hac,
+            "p_val_non_inferiority_hac": p_val_ni_hac,
+            "ci_90_hac": ci_90_hac,
+            "ci_95_hac": ci_95_hac,
+            "hac_sensitivity_by_lag": hac_by_lag,
+            "moving_block_bootstrap": {
+                "block_size": block_size,
+                "mean_ci_90": mbb_mean_ci_90,
+                "mean_ci_95": mbb_mean_ci_95,
+                "median_ci_90": mbb_median_ci_90,
+                "median_ci_95": mbb_median_ci_95,
+            },
+            "non_inferior": non_inferior,
+            "non_inferior_hac": non_inferior_hac,
+            "tost_equivalent": tost_equivalent
         }
 
     blocks = []
@@ -364,10 +424,15 @@ def main():
         if ls_res.returncode == 0:
             h_tree = hashlib.sha256()
             for fn in sorted(ls_res.stdout.splitlines()):
-                fn = fn.strip()
+                fn = fn.strip().replace("\\", "/")
                 full_p = os.path.join(repo_root, fn)
                 if not fn or not os.path.isfile(full_p):
                     continue
+                f_size = os.path.getsize(full_p)
+                h_tree.update(fn.encode("utf-8"))
+                h_tree.update(b"\0")
+                h_tree.update(str(f_size).encode("ascii"))
+                h_tree.update(b"\0")
                 with open(full_p, "rb") as f_in:
                     while chunk := f_in.read(65536):
                         h_tree.update(chunk)
@@ -460,12 +525,26 @@ def main():
             "p_val_non_inferiority": p_val_ni,
             "ci_90_percent": ci_90,
             "ci_95_percent": ci_95,
-            "bootstrap_ci_90": boot_mean_ci_90,
-            "bootstrap_ci_95": boot_mean_ci_95,
-            "bootstrap_mean_ci_90": boot_mean_ci_90,
-            "bootstrap_mean_ci_95": boot_mean_ci_95,
-            "bootstrap_median_ci_90": boot_median_ci_90,
-            "bootstrap_median_ci_95": boot_median_ci_95,
+            "newey_west_hac": {
+                "primary_bandwidth_lag": 4,
+                "kernel": "Bartlett",
+                "standard_error_hac_us": st["se_hac_us"],
+                "t_stat_zero_hac": st["t_stat_zero_hac"],
+                "p_val_zero_hac": st["p_val_zero_hac"],
+                "t_stat_non_inferiority_hac": st["t_stat_non_inferiority_hac"],
+                "p_val_non_inferiority_hac": st["p_val_non_inferiority_hac"],
+                "ci_90_percent_hac": st["ci_90_hac"],
+                "ci_95_percent_hac": st["ci_95_hac"],
+                "non_inferiority_pass_hac": bool(st["non_inferior_hac"]),
+                "sensitivity_by_lag": st["hac_sensitivity_by_lag"]
+            },
+            "moving_block_bootstrap": st["moving_block_bootstrap"],
+            "bootstrap_ci_90": st["moving_block_bootstrap"]["mean_ci_90"],
+            "bootstrap_ci_95": st["moving_block_bootstrap"]["mean_ci_95"],
+            "bootstrap_mean_ci_90": st["moving_block_bootstrap"]["mean_ci_90"],
+            "bootstrap_mean_ci_95": st["moving_block_bootstrap"]["mean_ci_95"],
+            "bootstrap_median_ci_90": st["moving_block_bootstrap"]["median_ci_90"],
+            "bootstrap_median_ci_95": st["moving_block_bootstrap"]["median_ci_95"],
             "non_inferiority_pass": bool(non_inferior),
             "tost_equivalence_pass": bool(tost_equivalent)
         },
@@ -492,18 +571,32 @@ To evaluate Model C at $B=64$ without sequential bias or hypervisor thermal paci
 - **Harness SHA-256:** `{harness_sha}`
 - **Working Tree Clean:** `{'True' if git_clean else 'False'}` (Source clean: `{'True' if source_clean else 'False'}`)
 - **Evaluated Kernel Candidate:** Model C autotuned candidate `{cand_id}` (`{cand_opt}`)
-- **Timing Boundary:** Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.
+- **Timing Boundary:** Post-staging inference-call latency (excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling [direct pointer pass-through for contiguous CPU NumPy arrays with contiguous-buffer conversion fallback when required], output buffer allocation, and native kernel invocation).
 - **PyTorch 1-Thread E2E Median:** ${pt_median:.2f}\\ \\mu\\text{{s}}$
 - **ForgeTune E2E Median:** ${ft_median:.2f}\\ \\mu\\text{{s}}$
 - **Mean Paired Difference ($\\bar{{d}} = t_{{PT1}} - t_{{FT}}$):** ${mean_diff:+.2f}\\ \\mu\\text{{s}}$ paired latency reduction (ForgeTune faster)
 - **Median Paired Difference:** ${median_diff:+.2f}\\ \\mu\\text{{s}}$
-- **Standard Error ($SE$):** ${se_diff:.2f}\\ \\mu\\text{{s}}$ ($df = {df}$, sample standard deviation $s_d = {std_diff:.2f}\\ \\mu\\text{{s}}$)
-- **Difference Autocorrelation (Lag-1 $\\rho_1$):** ${autocorr_lag1:+.4f}$ (diagnostic lag-1 measurement; does not independently establish absence of temporal drift or thermal skew)
-- **One-Sided Non-Inferiority ($H_0: \\mu_d \\le -{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$):** $t = {t_stat_ni:.2f}$, exact Student's t $p = {p_val_ni:.2e} \\ll 0.0001$. Non-inferiority is certified.
-- **Two-Sided TOST Equivalence ($[-\\delta, +\\delta] = [-{equiv_margin_raw:.2f}, +{equiv_margin_raw:.2f}]\\ \\mu\\text{{s}}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T ($90\\%\\ \\text{{CI}} = [{ci_90[0]:+.2f}, {ci_90[1]:+.2f}]\\ \\mu\\text{{s}}$), placing the upper confidence bound above $+{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
-- **Bootstrap 90% Confidence Intervals ($B=10,000$ resamples):**
-  - Mean Difference: $[{boot_mean_ci_90[0]:+.2f}\\ \\mu\\text{{s}},\\; {boot_mean_ci_90[1]:+.2f}\\ \\mu\\text{{s}}]$
-  - Median Difference: $[{boot_median_ci_90[0]:+.2f}\\ \\mu\\text{{s}},\\; {boot_median_ci_90[1]:+.2f}\\ \\mu\\text{{s}}]$"""
+- **Sample Standard Deviation ($s_d$):** ${std_diff:.2f}\\ \\mu\\text{{s}}$ ($df = {df}$, difference IQR = ${diff_iqr:.2f}\\ \\mu\\text{{s}}$)
+- **Autocorrelation (Lag-1 $\\rho_1$):** ${autocorr_lag1:+.4f}$ (substantial serial correlation in time-ordered measurements)
+
+### Autocorrelation-Adjusted Statistical Inference
+
+Because serial correlation is present ($\\rho_1 = {autocorr_lag1:+.4f}$), standard errors and confidence intervals are computed using both classical IID inference and serial-correlation-robust procedures:
+
+| Inference Procedure | Standard Error ($SE$) | 90% Confidence Interval | 95% Confidence Interval | Non-Inferiority Statistic ($t_{{NI}}$) | Non-Inferiority $p$-value | Decision |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Classical IID Student's t** | ${se_diff:.2f}\\ \\mu\\text{{s}}$ | $[{ci_90[0]:+.2f},\\; {ci_90[1]:+.2f}]\\ \\mu\\text{{s}}$ | $[{ci_95[0]:+.2f},\\; {ci_95[1]:+.2f}]\\ \\mu\\text{{s}}$ | $t = {t_stat_ni:.2f}$ | $p = {p_val_ni:.2e}$ | **PASS** |
+| **Newey–West HAC (Lag 1)** | ${st['hac_sensitivity_by_lag']['1']['se_hac_us']:.2f}\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['1']['ci_90_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['1']['ci_90_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['1']['ci_95_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['1']['ci_95_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $t = {st['hac_sensitivity_by_lag']['1']['t_stat_non_inferiority_hac']:.2f}$ | $p = {st['hac_sensitivity_by_lag']['1']['p_val_non_inferiority_hac']:.2e}$ | **PASS** |
+| **Newey–West HAC (Lag 2)** | ${st['hac_sensitivity_by_lag']['2']['se_hac_us']:.2f}\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['2']['ci_90_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['2']['ci_90_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['2']['ci_95_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['2']['ci_95_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $t = {st['hac_sensitivity_by_lag']['2']['t_stat_non_inferiority_hac']:.2f}$ | $p = {st['hac_sensitivity_by_lag']['2']['p_val_non_inferiority_hac']:.2e}$ | **PASS** |
+| **Newey–West HAC (Lag 4, Primary)** | **${st['se_hac_us']:.2f}\\ \\mu\\text{{s}}** | **$[{st['ci_90_hac'][0]:+.2f},\\; {st['ci_90_hac'][1]:+.2f}]\\ \\mu\\text{{s}}** | **$[{st['ci_95_hac'][0]:+.2f},\\; {st['ci_95_hac'][1]:+.2f}]\\ \\mu\\text{{s}}** | **$t = {st['t_stat_non_inferiority_hac']:.2f}$** | **$p = {st['p_val_non_inferiority_hac']:.2e}$** | **PASS** |
+| **Newey–West HAC (Lag 10)** | ${st['hac_sensitivity_by_lag']['10']['se_hac_us']:.2f}\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['10']['ci_90_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['10']['ci_90_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $[{st['hac_sensitivity_by_lag']['10']['ci_95_hac'][0]:+.2f},\\; {st['hac_sensitivity_by_lag']['10']['ci_95_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $t = {st['hac_sensitivity_by_lag']['10']['t_stat_non_inferiority_hac']:.2f}$ | $p = {st['hac_sensitivity_by_lag']['10']['p_val_non_inferiority_hac']:.2e}$ | **PASS** |
+| **Moving-Block Bootstrap ($b=4$)** | — | $[{st['moving_block_bootstrap']['mean_ci_90'][0]:+.2f},\\; {st['moving_block_bootstrap']['mean_ci_90'][1]:+.2f}]\\ \\mu\\text{{s}}$ | $[{st['moving_block_bootstrap']['mean_ci_95'][0]:+.2f},\\; {st['moving_block_bootstrap']['mean_ci_95'][1]:+.2f}]\\ \\mu\\text{{s}}$ | — | — | **PASS** |
+
+- **One-Sided Non-Inferiority Conclusion:** Under both the classical model ($t_{{NI}} = {t_stat_ni:.2f}$) and the Newey-West HAC model ($t_{{NI, HAC}} = {st['t_stat_non_inferiority_hac']:.2f}$, $p = {st['p_val_non_inferiority_hac']:.2e} \\ll 0.0001$), ForgeTune decisively surpasses the non-inferiority margin ($-\\delta = -{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$).
+- **Two-Sided TOST Equivalence ($[-\\delta, +\\delta] = [-{equiv_margin_raw:.2f}, +{equiv_margin_raw:.2f}]\\ \\mu\\text{{s}}$):** Inconclusive strictly because ForgeTune significantly outperforms PyTorch 1T (HAC $90\\%\\ \\text{{CI}} = [{st['ci_90_hac'][0]:+.2f}, {st['ci_90_hac'][1]:+.2f}]\\ \\mu\\text{{s}}$), placing the entire confidence interval above $+{equiv_margin_raw:.2f}\\ \\mu\\text{{s}}$. The test fails equivalence due to substantial performance superiority, not high variance or performance inferiority.
+- **Moving-Block Bootstrap ($b=4$, $B=10,000$ resamples):**
+  - Mean Difference 95% CI: $[{st['moving_block_bootstrap']['mean_ci_95'][0]:+.2f}\\ \\mu\\text{{s}},\\; {st['moving_block_bootstrap']['mean_ci_95'][1]:+.2f}\\ \\mu\\text{{s}}]$
+  - Median Difference 95% CI: $[{st['moving_block_bootstrap']['median_ci_95'][0]:+.2f}\\ \\mu\\text{{s}},\\; {st['moving_block_bootstrap']['median_ci_95'][1]:+.2f}\\ \\mu\\text{{s}}]$"""
 
             if s4_marker in content:
                 idx = content.find(s4_marker)

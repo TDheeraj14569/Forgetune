@@ -1023,13 +1023,22 @@ int main(int argc, char** argv) {
         }
         if (arg == "--json") {
             // Divert test diagnostics away from stdout so stdout contains exclusively valid JSON.
-            std::streambuf* old_cout_buf = std::cout.rdbuf();
+            struct StreamBufGuard {
+                std::ostream& stream;
+                std::streambuf* old_buf;
+                StreamBufGuard(std::ostream& s, std::streambuf* new_buf)
+                    : stream(s), old_buf(s.rdbuf(new_buf)) {}
+                ~StreamBufGuard() {
+                    stream.rdbuf(old_buf);
+                }
+            };
+
             std::stringstream diag_sink;
-            std::cout.rdbuf(diag_sink.rdbuf());
-
-            auto detailed = run_cpp_test_suite_detailed();
-
-            std::cout.rdbuf(old_cout_buf);
+            std::vector<std::pair<std::string, bool>> detailed;
+            {
+                StreamBufGuard guard(std::cout, diag_sink.rdbuf());
+                detailed = run_cpp_test_suite_detailed();
+            }
 
             std::cout << "[\n";
             for (size_t i = 0; i < detailed.size(); ++i) {

@@ -31,7 +31,7 @@ def test_v2_mul_exact_elementwise():
         np.testing.assert_allclose(py_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
 
         # C++ interpreter
-        cpp_graph = cpp.json_to_graph(g.to_json())
+        cpp_graph = cpp.json_to_graph(g.to_json(validate=False))
         interp = cpp.Interpreter()
         cpp_res = interp.evaluate(cpp_graph, {0: t_a.numpy(), 1: t_b.numpy()})[2]
         np.testing.assert_allclose(cpp_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
@@ -55,7 +55,7 @@ def test_v2_mul_broadcast_vector():
         np.testing.assert_allclose(py_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
 
         # C++ interpreter
-        cpp_graph = cpp.json_to_graph(g.to_json())
+        cpp_graph = cpp.json_to_graph(g.to_json(validate=False))
         interp = cpp.Interpreter()
         cpp_res = interp.evaluate(cpp_graph, {0: t_x.numpy()})[2]
         np.testing.assert_allclose(cpp_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
@@ -80,7 +80,7 @@ def test_v2_mul_broadcast_channel_4d():
         np.testing.assert_allclose(py_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)
 
         # C++ interpreter
-        cpp_graph = cpp.json_to_graph(g.to_json())
+        cpp_graph = cpp.json_to_graph(g.to_json(validate=False))
         interp = cpp.Interpreter()
         cpp_res = interp.evaluate(cpp_graph, {0: t_x.numpy()})[2]
         np.testing.assert_allclose(cpp_res, t_out.numpy(), atol=TOL_ATOL, rtol=TOL_RTOL)

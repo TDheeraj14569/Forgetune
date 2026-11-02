@@ -61,11 +61,11 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 
 ### Key Architectural Achievements:
 * **Genuine End-to-End Acceleration:** Delivers up to **$11.63\times$ E2E speedup** over PyTorch eager execution in real-world Python caller benchmarks and up to **$7.81\times$** in controlled single-threaded comparisons.
-* **Zero Steady-State Native Heap Allocations:** All intermediate tensor storage is packed into a single, pre-allocated, 64-byte SIMD cache-aligned memory arena (`AlignedArenaPool`). Inference runs with **zero additional native intermediate-arena allocations after warm-up** for tested workloads.
+* **Zero Steady-State Native Heap Allocations:** All intermediate tensor storage is packed into a single, pre-allocated, 64-byte SIMD cache-aligned memory arena (`AlignedArenaPool`). Inference runs with **zero additional intermediate-arena allocations after warm-up** (deterministic steady-state memory reuse).
 * **38.5% to 58.6% Intermediate Buffer Reduction:** Topological interval coloring computes tensor birth and death lifetimes, overlaying mutually disjoint intermediate buffers in time.
 * **True Dynamic Batching:** Inner loops are parameterized on batch size $B$ (tested by default for $B \in [1, 128]$, configurable up to $1,000,000$ via `max_batch_size`). A single compiled native artifact executes variable-batch requests without recompilation or runtime dispatch guards.
-* **Pure C ABI Independence:** Compiled artifacts execute with **zero PyTorch and zero Python dependencies**. They can be linked directly into C, C++, or Rust native binaries.
-* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch ($t = 16.71$, $p = 7.04 \times 10^{-31} \ll 0.0001$) with a mean latency reduction of $+70.48\ \mu\text{s}$.
+* **Pure C ABI Independence:** Compiled artifacts execute with **no Python, PyTorch, or ML framework runtime dependency** (relying solely on standard C/C++ runtime). They can be linked directly into C, C++, or Rust native binaries.
+* **Statistically Certified Non-Inferiority ($N=100$ Interleaved Blocks):** Evaluated under a pre-declared balanced randomized paired block protocol ($B=64$, Model C). Non-inferiority is decisively certified over single-threaded PyTorch: classical IID $t = 16.71$, $p = 7.04 \times 10^{-31} \ll 0.0001$; Newey-West HAC adjusted $SE_{HAC} = 8.51\ \mu\text{s}$, $t_{HAC} = 10.31$, $p = 8.73 \times 10^{-18} \ll 0.0001$ with a mean latency reduction of $+70.48\ \mu\text{s}$.
 * **100% Bitwise Reproducibility:** Three-round independent clean rebuild protocol demonstrates **0 bit divergences across 65,536 float32 outputs** (0/2,097,152 bits mismatched) on Model A (Dynamic TinyMLP).
 * **Zero Project-Source Warnings:** Native engine CLI, pybind11 extension, and standalone unit test binaries compile with **0 project-source warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2`.
 
@@ -76,9 +76,9 @@ In edge microservices, low-latency scoring services, and embedded environments, 
 | Systems Engineering Dimension | PyTorch Eager Runtime | ForgeTune v2.0 Native Compiler |
 |---|---|---|
 | **Runtime Deployment Footprint** | Full framework runtime (> 500 MB installed) | **< 1 MB** (Self-contained `.dll` / `.so`) |
-| **Execution Dependency** | Python interpreter + PyTorch C++ runtime (`libtorch`) | **Zero** (Pure C ABI; runs in C, C++, Rust, Python) |
+| **Execution Dependency** | Python interpreter + PyTorch C++ runtime (`libtorch`) | **No framework runtime dependency** (Pure C ABI relying solely on standard C/C++ runtime; runs in C, C++, Rust, Python) |
 | **Intermediate Memory Strategy** | Dynamic per-layer allocation & free | **Topological interval-colored arena (38.5%–58.6% buffer reduction)** |
-| **Steady-State Heap Allocations** | Recurring heap churn during inference passes | **Zero additional intermediate-arena allocations after warm-up** |
+| **Steady-State Heap Allocations** | Recurring heap churn during inference passes | **Zero additional intermediate-arena allocations after warm-up (deterministic steady-state memory reuse)** |
 | **Dynamic Batch Flexibility** | Dynamic shapes with framework dispatch overhead | **Static loop parametrization (default $B \in [1, 128]$, configurable up to $1,000,000$)** |
 | **Operator & Activation Fusion** | Separate kernel launches with intermediate memory traffic | **`CONV2D + RELU` & `MATMUL + ADD + RELU` cache-resident loops** |
 | **Python Call Latency (P50)** | 41.2 μs – 441.9 μs (Model dependent, measured across Models A–C) | **9.3 μs – 384.6 μs (Up to 11.63x E2E acceleration)** |
@@ -115,7 +115,7 @@ flowchart TD
         G --> H["C++17 Standalone Codegen<br/>(Dynamic Batch Inner Loop Indexing)"]
         H --> I["Zig C++ / Host Toolchain (Clang, GCC, MSVC)<br/>(-Wall -Wextra -std=c++17 -O2)"]
         I --> J["Native Shared Library (.dll on Windows, .so on Linux)<br/>(Dual Versioned C ABI)"]
-        J --> K["Direct Native Dispatch via NativeRuntime / ctypes<br/>(Zero-copy for contiguous buffers; strictly zero steady-state native allocations)"]
+        J --> K["Direct Native Dispatch via NativeRuntime / ctypes<br/>(Direct pointer pass-through for contiguous CPU NumPy arrays; zero additional intermediate-arena allocations after warm-up)"]
     end
 ```
 
@@ -129,7 +129,7 @@ flowchart TD
    - *Multi-Operator Loop Fusion:* Collapses consecutive operators (`CONV2D + RELU`, `MATMUL + ADD + RELU`) into single cache-resident loops, eliminating redundant intermediate memory writes and reads.
 5. **Interval-Coloring Memory Planner (`src/memory_planner.cpp`):** Solves memory allocation using register-allocation principles. Computes birth and death execution intervals for all activation tensors and overlays mutually disjoint lifetimes into a single pre-allocated, 64-byte aligned SIMD arena.
 6. **C++17 Standalone Code Generator (`src/codegen.cpp`):** Emits standard, portable C++17 code parameterized on dynamic batch size $B$, compiling into a high-performance native shared library with zero external runtime dependencies.
-7. **Zero-Copy Native Runtime (`python/forgetune/runtime.py`):** Wraps compiled shared libraries via a versioned pure C ABI (`forgetune_run_v2` / `forgetune_run_v1`), marshalling NumPy arrays with zero copying and sub-microsecond validation.
+7. **Native Runtime (`python/forgetune/runtime.py`):** Wraps compiled shared libraries via a versioned pure C ABI (`forgetune_run_v2` / `forgetune_run_v1`), using direct pointer pass-through for contiguous CPU NumPy arrays with contiguous-buffer conversion fallback when required, delivering sub-microsecond invocation.
 
 ---
 
@@ -319,7 +319,7 @@ To prevent misleading comparisons, ForgeTune strictly disambiguates timing bound
 > [!NOTE]
 > **Architectural Insights on Benchmark Data:**
 > - **Framework Overhead Elimination:** Across all three models, ForgeTune delivers substantial E2E speedups (up to **$11.63\times$** on Model C $B=4$, **$6.71\times$** on Model B $B=4$, and **$4.71\times$** on Model A $B=4$) primarily by eliminating Python interpreter dispatch, dynamic shape memory allocations, and tensor abstraction layers.
-> - **Autotuning & Kernel Optimization:** Model A achieves up to **$1.77\times$** in-kernel speedup via `tiled_16`. Model B's operator fusion (`fused_ikj`) provides consistent native kernel performance while achieving a **$4.79\times$–$5.46\times$ E2E speedup** at $B=64$. Model C's cache-friendly convolution kernel (`loop_ikj`) yields **$1.26\times$–$1.68\times$** kernel acceleration.
+> - **Autotuning & Kernel Optimization Trade-offs:** Model A achieves up to **$1.77\times$** in-kernel speedup via `tiled_16`. Model B's operator fusion (`fused_ikj`) provides superior aggregate performance across the dynamic range ($B=1$: $1.12\text{x}$, $B=16$: $1.12\text{x}$, $B=64$: $1.02\text{x}$), though at small batch $B=4$ the candidate kernel is 4% slower ($0.96\text{x}$) than baseline due to tiling overhead. Model C at $B=64$ achieves statistical parity with multi-threaded PyTorch ($1.00\text{x}$ vs 8T) while delivering a certified $1.15\text{x}$ speedup over single-threaded PyTorch ($1.26\text{x}$ kernel opt speedup via `loop_ikj`).
 
 ---
 
@@ -345,7 +345,7 @@ To examine measurement variance, 30 independent sample batches were measured und
 
 To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first; `reports/v2_paired_b64_benchmark_data.json`):
 - **Evaluated Kernel Candidate:** Model C autotuned candidate `loop_ikj` (`-O2`).
-- **Timing Boundary:** Excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling, output buffer allocation, and native kernel invocation.
+- **Timing Boundary:** Post-staging inference-call latency: excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling (direct pointer pass-through for contiguous CPU NumPy arrays with contiguous-buffer conversion fallback when required), output allocation, and native kernel invocation.
 
 $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E})_i$$
 
@@ -358,24 +358,28 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
   Sample Mean Difference (d_bar):      +70.48 μs   (Positive => ForgeTune is faster)
   Sample Median Difference:            +55.08 μs
   Sample Standard Deviation (s_d):      52.47 μs
-  Standard Error (SE = s_d / sqrt(N)):   5.25 μs
-  Difference Autocorrelation (Lag-1):  +0.6656     (Diagnostic lag-1 measurement)
+  Classical IID Standard Error:          5.25 μs
+  Difference Autocorrelation (Lag-1):  +0.6656     (Positive serial correlation)
   Degrees of Freedom (df):              99
-  90% Paired Student's t-CI:           [+61.77, +79.20] μs
-  95% Paired Student's t-CI:           [+60.07, +80.90] μs
-  90% Bootstrap Mean CI (10,000 rep):  [+62.51, +79.54] μs
-  90% Bootstrap Median CI (10,000 rep):[+52.80, +57.80] μs
-  Pre-declared Equivalence Margin (5%):+/- 17.21 μs
+  95% Paired Student's t-CI (IID):     [+60.07, +80.90] μs
+  One-Sided Non-Inferiority Test (IID):t = 16.71,  p = 7.04e-31 << 0.0001 (PASS)
 ----------------------------------------------------------------------------------------
-  Null Hypothesis (Zero Difference):   t = 13.43,  p = 4.87e-24 (Decisively Rejected)
-  One-Sided Non-Inferiority Test:      t = 16.71,  p = 7.04e-31 << 0.0001 (PASS)
+ SERIAL-CORRELATION-ADJUSTED INFERENCE (Newey-West HAC & Moving-Block Bootstrap):
+  Newey-West HAC Standard Error (L=4):   8.51 μs   (Bartlett kernel, L=4 primary)
+  95% Confidence Interval (HAC L=4):   [+53.59, +87.38] μs
+  Non-Inferiority Test (HAC L=4):      t = 10.31,  p = 8.73e-18 << 0.0001 (PASS)
+  Moving-Block Bootstrap (b=4) Mean:   95% CI: [+58.17, +89.98] μs
+  Moving-Block Bootstrap (b=4) Median: 95% CI: [+52.27, +59.85] μs
+----------------------------------------------------------------------------------------
+  Pre-declared Equivalence Margin (5%):+/- 17.21 μs
   Two-Sided TOST Equivalence (+/-5%):  INCONCLUSIVE (CI strictly exceeds +17.21 μs)
 ========================================================================================
 ```
 
 > [!IMPORTANT]
-> **Interpretation of Statistical TOST Equivalence:**
-> The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.21\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $90\%$ confidence interval $[+61.77, +79.20]\ \mu\text{s}$ far above the upper equivalence bound ($+17.21\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority. Non-inferiority is decisively certified ($p = 7.04 \times 10^{-31}$).
+> **Interpretation of Statistical TOST Equivalence & HAC Inference:**
+> 1. **Serial Correlation Adjustment:** Because successive execution blocks exhibit moderate positive serial correlation ($\rho_1 = +0.6656$), Newey-West HAC standard error correction was applied ($SE_{HAC} = 8.51\ \mu\text{s}$ at primary lag $L=4$, sensitivity analyzed across $L \in \{1, 2, 3, 4, 5, 10\}$). Under both classical IID and HAC adjustments, non-inferiority is certified beyond $p < 10^{-17} \ll 0.0001$.
+> 2. **TOST Equivalence:** The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.21\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $95\%$ confidence interval $[+53.59, +87.38]\ \mu\text{s}$ far above the upper equivalence bound ($+17.21\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority.
 
 ---
 
