@@ -13,6 +13,10 @@ from forgetune.export_frontend import export_to_forgetune_ir
 from forgetune.errors import UnsupportedOpError, InvalidGraphError, CompilationError
 from forgetune.native_compiler import NativeCompiler
 
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 def test_regression_identity_model_returns_correct_output():
     """
     P1 Regression: Identity models must not return unwritten/garbage memory.
@@ -995,9 +999,9 @@ def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
     Audit P2: Recompiling a locked shared library must raise an informative CompilationError.
     Also verifies that the Linux verifier correctly recognizes only this approved skip node.
     """
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    if repo_root not in sys.path:
-        sys.path.insert(0, repo_root)
+    if sys.platform != "win32":
+        pytest.skip("Shared library file locking during active execution is Windows-specific")
+
     from scripts.v2_verify_all import is_approved_linux_skip, APPROVED_LINUX_SKIP_NODE
     # 1. Exact approved Linux skip node must be accepted
     assert is_approved_linux_skip(APPROVED_LINUX_SKIP_NODE)
@@ -1005,9 +1009,6 @@ def test_regression_locked_dll_raises_informative_compilation_error(tmp_path):
     # 2. Any other skipped test must NOT be accepted as approved
     assert not is_approved_linux_skip("tests/unit/test_v2_shapes.py::test_dynamic_dim_constant")
     assert not is_approved_linux_skip("tests/correctness/test_audit_regressions.py::test_regression_other")
-
-    if sys.platform != "win32":
-        pytest.skip("Shared library file locking during active execution is Windows-specific")
 
     class SimpleModel(nn.Module):
         def forward(self, x):

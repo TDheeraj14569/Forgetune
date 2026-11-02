@@ -32,6 +32,7 @@ jobs:
       - name: 4. Build Native Components from Source (-Wall -Wextra)
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           python scripts/build_native.py
 
       - name: 5. Run Native C++ Test Suite (13 tests)
@@ -41,16 +42,19 @@ jobs:
       - name: 6. Run Full PyTest Suite
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           python -m pytest -v tests/
 
       - name: 7. Execute Three-Round Master Verification Protocol
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           python scripts/v2_verify_all.py --mode=full --skip-benchmarks
 
       - name: 8. Verify Pure CMake Build & CTest Execution
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           cmake -B build-cmake -S . -DCMAKE_BUILD_TYPE=Release
           cmake --build build-cmake --config Release
           ctest --test-dir build-cmake --output-on-failure
@@ -79,6 +83,7 @@ jobs:
       - name: 4. Build Native Components from Source (-Wall -Wextra)
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           python scripts/build_native.py
 
       - name: 5. Run Native C++ Test Suite (13 tests)
@@ -88,4 +93,5 @@ jobs:
       - name: 6. Run Core Acceptance Suites
         run: |
           . .venv/bin/activate
+          export PYTHONPATH="$PWD/python:$PWD"
           python -m pytest -v tests/acceptance/
