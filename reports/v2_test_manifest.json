@@ -1,31 +1,13 @@
 {
   "metadata": {
-    "timestamp": "2026-11-02T20:24:51Z",
+    "timestamp": "2026-11-02T20:46:42Z",
     "os_platform": "win32",
     "python_version": "3.12.14 (main, Aug 14 2026, 15:40:22) [MSC v.1944 64 bit (AMD64)]",
-    "git_commit": "42f6b2e8254145ed53119b88117754f529683663",
+    "git_commit": "b5781bf5b7e65bfc0ef04ca9a4e4e2a8d5f1af8b",
     "git_branch": "v2.0-dev",
-    "working_tree_clean": false,
-    "source_files_clean": false,
-    "dirty_files": [
-      "README.md",
-      "docs/BUILD_AND_TESTING.md",
-      "python/forgetune/__init__.py",
-      "python/forgetune/autotuner.py",
-      "python/forgetune/compiler.py",
-      "python/forgetune/errors.py",
-      "python/forgetune/graph_adapter.py",
-      "python/forgetune/runtime.py",
-      "reports/V2_BENCHMARK_REPORT.md",
-      "reports/V2_FINAL_CLOSURE_AUDIT.md",
-      "reports/V2_FINAL_VERIFICATION.md",
-      "reports/V2_REQUIREMENTS_MATRIX.md",
-      "requirements-ci-py311.txt",
-      "requirements-ci.txt",
-      "scripts/build_native.py",
-      "scripts/run_v2_paired_benchmark.py",
-      "tests/correctness/test_audit_regressions.py"
-    ],
+    "working_tree_clean": true,
+    "source_files_clean": true,
+    "dirty_files": [],
     "harness_description": "ForgeTune Authoritative Test Manifest (306 collected pytest items + 13 native C++ unit tests)"
   },
   "summary": {
