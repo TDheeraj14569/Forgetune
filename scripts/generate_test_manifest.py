@@ -136,6 +136,7 @@ def main():
         "reports/V2_MEMORY_REPORT.md",
         "reports/V2_FINAL_CLOSURE_AUDIT.md",
         "reports/junit_report.xml",
+        "reports/junit_linux.xml",
     }
     try:
         r_sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)

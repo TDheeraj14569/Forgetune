@@ -70,6 +70,7 @@ def check_non_report_dirty(root_dir: str):
         "reports/v2_paired_b64_benchmark_data.json",
         "reports/v2_test_manifest.json",
         "reports/junit_report.xml",
+        "reports/junit_linux.xml",
         "reports/v2_benchmark_report.json",
         "reports/V2_BENCHMARK_REPORT.md",
         "reports/V2_FINAL_CLOSURE_AUDIT.md",
