@@ -105,8 +105,8 @@ Automated GitHub Actions workflows have been created in `.github/workflows/windo
 
 ### 3.4 Remote Cross-Platform CI Execution Evidence & Certification
 The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and successfully executed to completion on GitHub Actions:
-- **Windows Run ID:** `41506288672` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672))
-- **Linux Run ID:** `41506288719` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719))
+- **Windows Run ID:** `41524770520` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524770520))
+- **Linux Run ID:** `41524769437` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524769437))
 - **Commit SHA:** `543057c79e7a83688b1f5fc56d49ca74a5840d86`
 - **Runner Environments:**
   - Windows: Windows Server 2022 (`windows-latest`, AMD64, Python 3.12, Ziglang 0.16.0)
@@ -270,7 +270,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 | **REQ-22** | **Runtime ABI** | Versioned C ABI `forgetune_run` | `python/forgetune/runtime.py` | `tests/acceptance/test_v2_adversarial_boundary.py` | Executed cleanly | **PASS** |
 | **REQ-23** | **Autotuning** | Correctness-gated autotuning across variants | `python/forgetune/autotuner.py` | `tests/acceptance/test_autotuner_integrity.py` | Executed cleanly in suite | **PASS** |
 | **REQ-24** | **Benchmarking** | Kernel vs E2E latency reporting | `scripts/run_v2_benchmarks.py` | `reports/V2_BENCHMARK_REPORT.md` | Executed cleanly | **PASS** |
-| **REQ-25** | **Audits** | Three Final Verification Rounds | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and locally with exit code 0 | **PASS** |
+| **REQ-25** | **Audits** | Three Final Verification Rounds | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41524770520](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524770520)), Linux CI ([Run 41524769437](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524769437)), and locally with exit code 0 | **PASS** |
 | **REQ-26** | **Audits** | Three Independent Written Audits | `reports/` | `reports/V2_AUDIT_1/2/3.md` | Completed and preserved | **PASS** |
 | **REQ-27** | **Compatibility** | All v1.0 tests continue to pass | `tests/`, `tests/cpp/test_main.cpp` | C++ test suite passes (13/13); pytest passes | Executed cleanly in suite | **PASS** |
 
@@ -290,7 +290,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 | **Gate 8** | **Deterministic Compilation & Codegen** | **PASS** | Direct empirical evidence of independent deterministic code generation established in `tests/unit/test_v2_independent_determinism.py`: separate subprocesses, isolated directories, bypassed caches, identical SHA-256 byte comparisons (100% bitwise identity), and negative mutation tests detecting intentional discrepancies. |
 | **Gate 9** | **Clean C++ Architecture & Quality** | **PASS** | Native C++ codebase builds with **0 warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2` across all core translation units (`interpreter.cpp`, `codegen.cpp`, etc.), executables, and `_forgetune_cpp.pyd`. RAII, 64-byte aligned arena allocation, and strict contract validation verified. |
 | **Gate 10** | **Export Frontend Robustness** | **PASS** | `torch.export.export()` with dynamic shape constraints successfully extracts, normalizes, and lowers PyTorch workloads to ForgeTune IR. |
-| **Gate 11** | **Production Verification Protocol** | **PASS** | Three-round verification protocol executes cleanly with `-Wall -Wextra`, cleans artifacts, and correctly propagates exit code 0 in Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and locally with bitwise reproducibility across 65,536 floats (0 bit mismatches). |
+| **Gate 11** | **Production Verification Protocol** | **PASS** | Three-round verification protocol executes cleanly with `-Wall -Wextra`, cleans artifacts, and correctly propagates exit code 0 in Windows CI ([Run 41524770520](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524770520)), Linux CI ([Run 41524769437](https://github.com/TDheeraj14569/Forgetune/actions/runs/41524769437)), and locally with bitwise reproducibility across 65,536 floats (0 bit mismatches). |
 | **Gate 12** | **Overall Technical Readiness** | **PASS** | All 11 prerequisite release gates are certified PASS. Codebase is staged on `v2.0-dev` with 100% test pass rate, verified bitwise reproducibility, strict branch isolation, and complete audit documentation. Ready for human-reviewed release authorization. |
 
 **Final Decision:** **ALL 12 GATES PASS (12 PASS, 0 HOLD, 0 FAIL). RELEASE READINESS CERTIFIED.**
