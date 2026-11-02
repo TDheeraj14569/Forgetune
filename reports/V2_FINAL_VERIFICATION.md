@@ -1,10 +1,10 @@
 # FORGETUNE V2.0 — FINAL THREE-ROUND VERIFICATION REPORT
 
-**Date:** 2026-11-02 03:07:39
+**Date:** 2026-11-02 09:08:39
 **Git Branch:** `v2.0-dev`
-**Source Revision:** `9a0b843e943462f6936fe53cc260d046860751f7`
-**Git Index Fingerprint:** `440faddc021feee9912455d93780dc97928734f5`
-**Working-Tree SHA-256:** `ac0623c47c61cee243ab18cd074f435c5a0eea4584ec7dd644057ea909bb940d`
+**Source Revision:** `036dc72b81c1f586a4492fee8a49af5933069202`
+**Git Index Fingerprint:** `023bed8e6bb08534a5300cfc36dd7107317509b7`
+**Pre-Report Source Tree SHA-256:** `ad7277e26c0fe0e481321302ff289020cc31f1408d601316c415f1fd3cd943e5` *(Fingerprint of clean tracked source tree prior to report emission)*
 **Verification Mode:** `FULL`
 **Final Status:** **FULLY VERIFIED**
 
@@ -16,7 +16,7 @@
 |---|---|:---:|:---:|---|
 | **Round 1** | Clean Build & Functional Verification | C++ suite (13/13 passed), Python pytest (293 collected, 293 passed), Models A, B, C runs (3/3 passed) | **VERIFIED** | Clean build from scratch, C++ 100% pass, pure workload execution 100% pass |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch boundaries (B in [1, 128]), dual ABI wrappers, Memory reports (Benchmarks bypassed via --skip-benchmarks) | **VERIFIED** | `V2_MEMORY_REPORT.md` (benchmarks bypassed via `--skip-benchmarks`; prior authoritative baseline preserved in `V2_BENCHMARK_REPORT.md`) |
-| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun (3/3 passed), 65,536 float bitwise comparison | **VERIFIED** | 100% bitwise exact match (0 / 65,536 mismatched floats) across independent compilations |
+| **Round 3** | Complete Clean Rebuild & Reproducibility | Disposable purge, full C++ suite rerun (13/13), full rebuild, Models A/B/C rerun (3/3 passed), 65,536 float bitwise comparison | **VERIFIED** | Bitwise reproducibility certified across two independent compilations of Model A (0 / 65,536 mismatched float32 words, 0 / 2,097,152 bits mismatched) |
 
 ---
 
