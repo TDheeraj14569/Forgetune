@@ -43,7 +43,13 @@ jobs:
         run: |
           . .venv/bin/activate
           export PYTHONPATH="$PWD/python:$PWD"
-          python -m pytest -v tests/
+          python -m pytest -v --tb=short --junitxml=reports/junit_linux.xml tests/ || {
+            echo "## Pytest Failures on Linux" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            python -m pytest -v --tb=short --lf tests/ >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          }
 
       - name: 7. Execute Three-Round Master Verification Protocol
         run: |
@@ -58,6 +64,13 @@ jobs:
           cmake -B build-cmake -S . -DCMAKE_BUILD_TYPE=Release
           cmake --build build-cmake --config Release
           ctest --test-dir build-cmake --output-on-failure
+
+      - name: 9. Upload Linux Test Artifacts
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        if: always()
+        with:
+          name: forgetune-v2-linux-verification-artifacts
+          path: reports/
 
   verify-python311:
     name: Python 3.11 Compatibility Verification (Ubuntu, C++17, PyTorch)
