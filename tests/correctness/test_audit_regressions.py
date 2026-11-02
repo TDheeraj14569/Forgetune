@@ -10,7 +10,7 @@ import torch.nn as nn
 import numpy as np
 from forgetune.compiler import compile_model
 from forgetune.export_frontend import export_to_forgetune_ir
-from forgetune.errors import UnsupportedOpError, InvalidGraphError, CompilationError
+from forgetune.errors import UnsupportedOpError, InvalidGraphError, CompilationError, InvalidShapeError, ForgeTuneRuntimeError
 from forgetune.native_compiler import NativeCompiler
 
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -3317,20 +3317,20 @@ def test_graph_validate_rejects_multiple_graph_inputs():
 
 
 def test_runtime_error_backward_compatibility_alias():
-    """P1 Regression: RuntimeError must be exported as an alias to ForgeTuneRuntimeError."""
+    """P1 Regression: RuntimeError in errors.py must be an alias to ForgeTuneRuntimeError without shadowing builtins."""
     import forgetune
-    from forgetune import RuntimeError as GlobalRuntimeError
+    import forgetune.errors
     from forgetune.errors import RuntimeError as ErrorsRuntimeError, ForgeTuneRuntimeError
 
-    assert GlobalRuntimeError is ForgeTuneRuntimeError
     assert ErrorsRuntimeError is ForgeTuneRuntimeError
-    assert "RuntimeError" in forgetune.__all__
-    assert "RuntimeError" in forgetune.errors.__all__
+    assert "RuntimeError" not in forgetune.__all__
+    assert "RuntimeError" not in forgetune.errors.__all__
+    assert not hasattr(forgetune, "RuntimeError")
 
     # Verify exception catching compatibility
     try:
         raise ForgeTuneRuntimeError("Native ABI dispatch failure simulation")
-    except GlobalRuntimeError as e:
+    except ErrorsRuntimeError as e:
         assert "Native ABI dispatch failure simulation" in str(e)
 
 
@@ -3400,12 +3400,30 @@ def test_cpp_test_suite_json_cli_subprocess():
     exe_path = os.path.join(repo_root, "bin", exe_name)
     assert os.path.isfile(exe_path), f"Test executable not found: {exe_path}"
 
+    EXPECTED_CPP_TEST_NAMES = [
+        "test_ir_construction_and_verification",
+        "test_negative_graph_verifier_diagnostics",
+        "test_reference_interpreter_numerical_eval",
+        "test_constant_folding_pass",
+        "test_dead_code_elimination_pass",
+        "test_operator_fusion_pass",
+        "test_json_roundtrip_serialization",
+        "test_algebraic_simplification_and_fusion_safety",
+        "test_v2_shapes_and_conv2d_verifier",
+        "test_v2_interpreter_new_ops",
+        "test_conv2d_relu_operator_fusion_pass",
+        "test_v2_memory_planner_64byte_alignment",
+        "test_aligned_arena_pool_and_reentrancy"
+    ]
+
     proc = subprocess.run([exe_path, "--json"], capture_output=True, text=True, check=True)
     parsed = json.loads(proc.stdout)
     assert isinstance(parsed, list)
     assert len(parsed) == 13
+    names = [entry["name"] for entry in parsed]
+    assert len(names) == len(set(names)), "Duplicate C++ test names detected"
+    assert set(names) == set(EXPECTED_CPP_TEST_NAMES), f"Mismatch in expected C++ test suite names: {set(EXPECTED_CPP_TEST_NAMES) ^ set(names)}"
     for entry in parsed:
-        assert "name" in entry and isinstance(entry["name"], str)
         assert entry["status"] == "passed"
 
 
@@ -3446,6 +3464,121 @@ def test_manifest_zero_collected_tests_reconciliation():
     error_py = sum(1 for r in collector.results.values() if r["outcome"] == "error")
 
     assert total_py_collected == (passed_py + skipped_py + failed_py + error_py) == 0
+
+
+def test_graph_validate_rejects_mutated_objects():
+    """P1 Regression: Graph.validate() rejects mutated node fields (dtype, deleted, name, operand float ID)."""
+    from forgetune.graph_adapter import Graph, Node
+
+    def make_g():
+        g = Graph()
+        n0 = Node(0, "INPUT", "in", [], [-1, 16], "f32")
+        n1 = Node(1, "RELU", "relu", [0], [-1, 16], "f32")
+        g.add_node(n0)
+        g.add_node(n1)
+        g.set_inputs([0])
+        g.set_outputs([1])
+        return g
+
+    # 1. Mutated dtype
+    g1 = make_g()
+    g1.nodes[0].dtype = "f64"
+    with pytest.raises(InvalidGraphError):
+        g1.validate()
+
+    # 2. Mutated deleted flag
+    g2 = make_g()
+    g2.nodes[0].deleted = 0
+    with pytest.raises(InvalidGraphError):
+        g2.validate()
+
+    # 3. Mutated name to None
+    g3 = make_g()
+    g3.nodes[0].name = None
+    with pytest.raises(InvalidGraphError):
+        g3.validate()
+
+    # 4. Floating-point node.id
+    g4 = make_g()
+    g4.nodes[0].id = 0.0
+    with pytest.raises(InvalidGraphError):
+        g4.validate()
+
+    # 5. Floating-point operand ID
+    g5 = make_g()
+    g5.nodes[1].inputs = [0.0]
+    with pytest.raises(InvalidGraphError):
+        g5.validate()
+
+    # 6. Floating-point input ID
+    g6 = make_g()
+    g6.inputs = [0.0]
+    with pytest.raises(InvalidGraphError):
+        g6.validate()
+
+    # 7. Floating-point output ID
+    g7 = make_g()
+    g7.outputs = [1.0]
+    with pytest.raises(InvalidGraphError):
+        g7.validate()
+
+    # 8. Unhashable list in inputs
+    g8 = make_g()
+    g8.inputs = [[]]
+    with pytest.raises(InvalidGraphError):
+        g8.validate()
+
+    # 9. Node constructor rejects string deleted
+    with pytest.raises(InvalidGraphError):
+        Node(0, "RELU", deleted="false")
+
+
+def test_static_runtime_batch_size_validation():
+    """P2 Regression: Static NativeRuntime.run() validates batch_size argument."""
+    class StaticModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(8, 4)
+        def forward(self, x):
+            return self.fc(x)
+
+    m = StaticModel().eval()
+    x = torch.randn(1, 8)
+    compiled = compile_model(m, (x,), output_dir="build/artifacts/regression_static_bs", dynamic_batch=False, autotune=False)
+    x_np = x.numpy()
+
+    # Matching batch_size succeeds
+    out1 = compiled.run(x_np, batch_size=1)
+    assert out1.shape == (1, 4)
+
+    # Valid numpy int succeeds
+    out2 = compiled.run(x_np, batch_size=np.int64(1))
+    assert out2.shape == (1, 4)
+
+    # Mismatched batch_size raises InvalidShapeError
+    with pytest.raises(InvalidShapeError):
+        compiled.run(x_np, batch_size=999)
+
+    # Boolean batch_size raises InvalidShapeError
+    with pytest.raises(InvalidShapeError):
+        compiled.run(x_np, batch_size=True)
+
+    # String batch_size raises InvalidShapeError
+    with pytest.raises(InvalidShapeError):
+        compiled.run(x_np, batch_size="1")
+
+
+def test_star_import_does_not_shadow_builtin_runtime_error():
+    """Regression: from forgetune import * must not shadow builtins.RuntimeError."""
+    import builtins
+    import forgetune
+    assert hasattr(builtins, "RuntimeError")
+    assert "RuntimeError" not in forgetune.__all__
+    assert "RuntimeError" not in forgetune.errors.__all__
+    # But backward compatibility import from errors still works
+    from forgetune.errors import RuntimeError as FRT
+    assert issubclass(FRT, builtins.RuntimeError)
+
 
 
 

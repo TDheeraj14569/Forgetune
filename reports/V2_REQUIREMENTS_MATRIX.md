@@ -38,7 +38,7 @@
 | **REQ-22** | **Runtime ABI** | Versioned C ABI `forgetune_run` supporting dynamic batch | `src/codegen.cpp`, `python/forgetune/runtime.py` | `tests/acceptance/test_v2_adversarial_boundary.py` | Executed cleanly | **VERIFIED** |
 | **REQ-23** | **Autotuning** | Correctness-gated autotuning across dynamic batch and kernel variants | `python/forgetune/autotuner.py` | `scripts/run_v2_benchmarks.py` (PASS); `tests/acceptance/test_autotuner_integrity.py` (PASS) | Executed cleanly in suite | **VERIFIED** |
 | **REQ-24** | **Benchmarking** | Reproducible benchmarks reporting kernel latency vs e2e latency | `scripts/run_v2_benchmarks.py` | `reports/V2_BENCHMARK_REPORT.md`, `reports/v2_benchmark_report.json` | Executed cleanly | **VERIFIED** |
-| **REQ-25** | **Audits** | Three Final Verification Rounds on final source revision | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41433215210](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215210)), Linux CI ([Run 41433215244](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215244)), and locally with exit code 0 | **VERIFIED** |
+| **REQ-25** | **Audits** | Three Final Verification Rounds on final source revision | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and locally with exit code 0 | **VERIFIED** |
 | **REQ-26** | **Audits** | Three Independent Written Audits (Audits 1, 2, 3) | `reports/` | `reports/V2_AUDIT_1_REQUIREMENTS.md`, `reports/V2_AUDIT_2_CODE_QUALITY.md`, `reports/V2_AUDIT_3_RELEASE_READINESS.md` | Completed and preserved | **VERIFIED** |
 | **REQ-27** | **Compatibility** | All existing v1.0 tests continue to pass without regression | `tests/`, `tests/acceptance/` | In-process native suite passes (13/13); standalone C++ suite passes (13/13); legacy pytest passes (100%) | Executed cleanly in suite and standalone | **VERIFIED** |
 
@@ -47,9 +47,9 @@
 ## Final Assessment Evidence Summary
 
 1. **Specification Coverage:** 27 out of 27 requirements (**100.0%**) are implemented in source code.
-2. **Direct Empirical Verification:** 27 out of 27 requirements (**100.0%**) are empirically verified by passing automated tests across both Windows CI ([Run 41433215210](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215210)), Linux CI ([Run 41433215244](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215244)), and the local environment. Zero requirements failed, zero blocked.
-3. **Defensible Test Inventory:** Exactly **306 enumerated test identifiers** (293 collected pytest items + 13 standalone native C++ test functions).
+2. **Direct Empirical Verification:** 27 out of 27 requirements (**100.0%**) are empirically verified by passing automated tests across both Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and the local environment. Zero requirements failed, zero blocked.
+3. **Defensible Test Inventory:** Exactly **319 enumerated test identifiers** (306 collected pytest items + 13 standalone native C++ test functions).
 4. **Platform-Specific Test Outcomes:**
-   - **Windows (Local & CI):** 293 Python tests passed, 0 skipped; 13 native C++ tests passed (306/306 passing, 0 skipped, 0 failed).
-   - **Linux (CI):** 292 Python tests passed, 1 approved platform-specific skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows NTFS DLL locking semantics); 13 native C++ tests passed (305 passed, 1 approved skip, 0 failed).
+   - **Windows (Local & CI):** 306 Python tests passed, 0 skipped; 13 native C++ tests passed (319/319 passing, 0 skipped, 0 failed).
+   - **Linux (CI):** 305 Python tests passed, 1 approved platform-specific skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows NTFS DLL locking semantics); 13 native C++ tests passed (318 passed, 1 approved skip, 0 failed).
 5. **Execution Success:** Three-round verification protocol runs to completion with **EXIT CODE 0** in `--mode=full` across all three rounds, including bitwise reproducibility for the tested Dynamic TinyMLP configuration across two independent compilations (0/65,536 float32 words mismatched, 0/2,097,152 bits mismatched).

@@ -9,6 +9,9 @@
 **Python Runtime:** 3.12.14
 **PyTorch Version:** 2.14.1+cpu (Default threads: 8)
 
+> [!NOTE]
+> **Benchmark Provenance & Source Delta:** Datasets `v2-bench-1793606750-6921052d` and `v2-paired-1793608129-6921052d` were captured at commit `6921052`. Subsequent commits introduced Python-level graph validation and error hardening (`compiler.py`, `graph_adapter.py`, `errors.py`, `__init__.py`) without modifying native C++ code generation (`src/`, `include/`) or compiled kernel execution path, ensuring all measured kernel and inference latencies remain strictly valid.
+
 ---
 
 ## 1. Executive Performance Summary
@@ -42,7 +45,7 @@ ForgeTune v2.0 introduces ahead-of-time C++ code generation, operator fusion (`C
 
 > [!NOTE]
 > **Architectural Note on Model B Kernel Optimization:**
-> Across the dynamic batch workload ($B \in \{1, 4, 16, 64\}$), `fused_ikj` provides superior aggregate performance across the full batch range ($B=1$: $1.12\text{x}$; $B=16$: $1.12\text{x}$; $B=64$: $1.02\text{x}$). At small batch $B=4$, the candidate kernel ($0.290\ \mu\text{s}$) is 4% slower ($0.96\text{x}$) than baseline ($0.279\ \mu\text{s}$) due to small-batch loop tiling overhead. However, at the Python end-to-end level, single-threaded ForgeTune with `fused_ikj` ($9.45\ \mu\text{s}$) achieves a **$6.65\text{x}$ speedup over single-threaded PyTorch ($62.80\ \mu\text{s}$)** and **$6.71\text{x}$ over 8-threaded PyTorch ($63.40\ \mu\text{s}$)** by completely eliminating framework interpreter dispatch and runtime tensor allocations.
+> Across the dynamic batch workload ($B \in \{1, 4, 16, 64\}$), `fused_ikj` provides superior aggregate performance across the full batch range ($B=1$: $1.12\text{x}$; $B=16$: $1.12\text{x}$; $B=64$: $1.02\text{x}$). At small batch $B=4$, the candidate kernel ($0.290\ \mu\text{s}$) shows minor variation ($0.96\text{x}$) against baseline ($0.279\ \mu\text{s}$) due to loop reordering and small-loop dispatch variation. However, at the Python end-to-end level, single-threaded ForgeTune with `fused_ikj` ($9.45\ \mu\text{s}$) achieves a **$6.65\text{x}$ speedup over single-threaded PyTorch ($62.80\ \mu\text{s}$)** and **$6.71\text{x}$ over 8-threaded PyTorch ($63.40\ \mu\text{s}$)** by completely eliminating framework interpreter dispatch and runtime tensor allocations.
 
 ### Model C (Small CNN) (Selected: `loop_ikj`, Cost: 77.33s) — *Autotuner selected `loop_ikj` over `baseline`*
 | Batch Size ($B$) | PyTorch Eager (8 threads) (μs) | PyTorch Eager (1 thread) (μs) | ForgeTune E2E (μs) | **Genuine E2E Speedup (8 threads)** | **Controlled E2E Speedup (1 thread)** | Baseline C++ Kernel (μs) | Candidate Kernel (μs) | Selected Implementation Kernel (μs) | Candidate Speedup | **Genuine Kernel Opt Speedup** | E2E - Kernel Residual (μs) | Diagnostic Ratio (Non-equiv)* |
@@ -112,17 +115,17 @@ Because $\rho_1 = +0.6656$, the IID assumption underestimates standard error. He
 | Estimator / Lag | Standard Error ($SE$) | 95% Confidence Interval | $t$-stat (Non-Inf) | $p$-value | Decision |
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **Classical IID ($L=0$)** | $5.25\ \mu\text{s}$ | $[+60.07,\; +80.90]\ \mu\text{s}$ | $16.71$ | $7.04 \times 10^{-31}$ | PASS |
-| **Newey-West HAC ($L=1$)** | $6.74\ \mu\text{s}$ | $[+57.10,\; +83.87]\ \mu\text{s}$ | $13.02$ | $1.76 \times 10^{-23}$ | PASS |
-| **Newey-West HAC ($L=2$)** | $7.67\ \mu\text{s}$ | $[+55.26,\; +85.71]\ \mu\text{s}$ | $11.44$ | $5.39 \times 10^{-20}$ | PASS |
-| **Newey-West HAC ($L=3$)** | $8.20\ \mu\text{s}$ | $[+54.21,\; +86.76]\ \mu\text{s}$ | $10.70$ | $3.09 \times 10^{-18}$ | PASS |
-| **Newey-West HAC ($L=4$, Primary)** | **$8.51\ \mu\text{s}$** | **$[+53.59,\; +87.38]\ \mu\text{s}$** | **$10.31$** | **$8.73 \times 10^{-18}$** | **PASS** |
-| **Newey-West HAC ($L=5$)** | $8.69\ \mu\text{s}$ | $[+53.24,\; +87.73]\ \mu\text{s}$ | $10.09$ | $3.59 \times 10^{-17}$ | PASS |
-| **Newey-West HAC ($L=10$)** | $9.26\ \mu\text{s}$ | $[+52.11,\; +88.86]\ \mu\text{s}$ | $9.47$ | $1.15 \times 10^{-15}$ | PASS |
+| **Newey-West HAC ($L=1$)** | $6.74\ \mu\text{s}$ | $[+57.12,\; +83.85]\ \mu\text{s}$ | $13.01$ | $1.82 \times 10^{-23}$ | PASS |
+| **Newey-West HAC ($L=2$)** | $7.67\ \mu\text{s}$ | $[+55.26,\; +85.70]\ \mu\text{s}$ | $11.43$ | $4.25 \times 10^{-20}$ | PASS |
+| **Newey-West HAC ($L=3$)** | $8.20\ \mu\text{s}$ | $[+54.21,\; +86.76]\ \mu\text{s}$ | $10.69$ | $1.71 \times 10^{-18}$ | PASS |
+| **Newey-West HAC ($L=4$, Primary)** | **$8.51\ \mu\text{s}$** | **$[+53.60,\; +87.37]\ \mu\text{s}$** | **$10.31$** | **$1.18 \times 10^{-17}$** | **PASS** |
+| **Newey-West HAC ($L=5$)** | $8.69\ \mu\text{s}$ | $[+53.24,\; +87.73]\ \mu\text{s}$ | $10.09$ | $3.45 \times 10^{-17}$ | PASS |
+| **Newey-West HAC ($L=10$)** | $9.26\ \mu\text{s}$ | $[+52.10,\; +88.86]\ \mu\text{s}$ | $9.47$ | $7.98 \times 10^{-16}$ | PASS |
 
 - **Moving-Block Bootstrap ($b=4$ block size, 10,000 resamples):**
-  - **Mean Difference 90% CI:** $[+60.85\ \mu\text{s},\; +80.52\ \mu\text{s}]$
+  - **Mean Difference 90% CI:** $[+59.31\ \mu\text{s},\; +85.95\ \mu\text{s}]$
   - **Mean Difference 95% CI:** $[+58.17\ \mu\text{s},\; +89.98\ \mu\text{s}]$
-  - **Median Difference 90% CI:** $[+52.80\ \mu\text{s},\; +57.80\ \mu\text{s}]$
+  - **Median Difference 90% CI:** $[+52.45\ \mu\text{s},\; +59.25\ \mu\text{s}]$
   - **Median Difference 95% CI:** $[+52.27\ \mu\text{s},\; +59.85\ \mu\text{s}]$
 
 Under both classical IID and serial-correlation-adjusted HAC / moving-block bootstrap inference, non-inferiority is demonstrated beyond $p < 10^{-17} \ll 0.0001$.

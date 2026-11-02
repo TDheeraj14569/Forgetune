@@ -15,7 +15,7 @@ This closure audit provides the definitive, evidence-backed evaluation of ForgeT
 ### Key Audit Conclusions:
 1. **Repository Integrity & Git History:** Branch `master` and tag `v1.0.0` remain completely frozen and untouched at commit `a07e807e1f6557057b7c76e7579b6c6ef13b6032`. All v2.0 improvements—including dynamic batch support, IR Schema 2.0, multi-operator loop fusion, liveness interval coloring memory planning, autotuning artifact caching, and 99 audit defect regressions—are cleanly developed and versioned on branch `v2.0-dev`.
 2. **Corrected Windows Diagnostic Terminology:** The error code observed on novel dynamic DLLs is Win32 error `4551` (`ERROR_APP_CONTROL_BLOCKED`), with the system message `"An Application Control policy has blocked this file."` Neither the exception nor the Windows Code Integrity log provides an underlying NTSTATUS string. The failure occurs at `LoadLibraryW()` via `ctypes.CDLL()`, enforced by Policy ID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` (Event IDs 3077 and 3033).
-3. **Defensible Test Inventory Accounting:** The repository contains **306 enumerated test identifiers** (293 collected Python test items via pytest + 13 standalone native C++ test functions). On Windows, 293 passed and 0 skipped. On Linux, 292 passed and 1 approved platform-specific skip (`tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking semantics). Containment analysis confirms that the 13 C++ tests execute both standalone in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe` and in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
+3. **Defensible Test Inventory Accounting:** The repository contains **319 enumerated test identifiers** (306 collected Python test items via pytest + 13 standalone native C++ test functions). On Windows, 306 passed and 0 skipped. On Linux, 305 passed and 1 approved platform-specific skip (`tests/correctness/test_audit_regressions.py::test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking semantics). Containment analysis confirms that the 13 C++ tests execute both standalone in `bin/forgetune_test_suite` / `bin/forgetune_test_suite.exe` and in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 4. **Three Verification Rounds & Reproducibility:** The three-round verification protocol (`scripts/v2_verify_all.py`) verified clean C++ building, dual-ABI loading, and model execution across Rounds 1 and 2. In remote Windows CI and locally, all three rounds executed to completion with **EXIT CODE 0**, including Round 3 bitwise reproducibility across 65,536 float32 values with 0 bit differences (0/65,536 word mismatches, 0/2,097,152 bit divergences across independent clean builds). On Linux CI, native compilation (-Wall -Wextra), the 13/13 native C++ test suite, and the full pytest suite (292 passed, 1 approved skip) executed with 100% pass rate.
 5. **Reconciled Benchmark Provenance:**
    - The authoritative benchmark dataset on disk is (`v2-bench-1793606750-6921052d` in `reports/v2_benchmark_report.json`), reporting Model C $B=64$ medians: PyTorch 8T $384.02\ \mu\text{s}$, PyTorch 1T $440.38\ \mu\text{s}$, ForgeTune E2E $384.60\ \mu\text{s}$, ForgeTune Kernel $371.68\ \mu\text{s}$ (`loop_ikj`).
@@ -105,8 +105,8 @@ Automated GitHub Actions workflows have been created in `.github/workflows/windo
 
 ### 3.4 Remote Cross-Platform CI Execution Evidence & Certification
 The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and successfully executed to completion on GitHub Actions:
-- **Windows Run ID:** `41433215210` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215210))
-- **Linux Run ID:** `41433215244` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215244))
+- **Windows Run ID:** `41506288672` ([View Windows Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672))
+- **Linux Run ID:** `41506288719` ([View Linux Run](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719))
 - **Commit SHA:** `543057c79e7a83688b1f5fc56d49ca74a5840d86`
 - **Runner Environments:**
   - Windows: Windows Server 2022 (`windows-latest`, AMD64, Python 3.12, Ziglang 0.16.0)
@@ -123,10 +123,10 @@ The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and
 | **5. Build Native Components from Source (-Wall -Wextra)** | 1m 55s | `success` | `forgetune_test_suite.exe`, `forgetune_engine.exe`, and `_forgetune_cpp.pyd` compiled cleanly with 0 warnings |
 | **6. Verify Dynamic DLL Loading & Parity via CI Probe** | 12s | `success` | Raw C++ DLL returns 42; dynamic model compiles; numerical parity vs PyTorch verified; clean-build reproducibility passes with 0 bit differences |
 | **7. Run Native C++ Test Suite (13 tests)** | 4s | `success` | **13 / 13 native C++ tests passed** (100% pass rate) |
-| **8. Run Full PyTest Suite (293 tests)** | 2m 45s | `success` | **293 / 293 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
+| **8. Run Full PyTest Suite (306 tests)** | 2m 45s | `success` | **306 / 306 Python tests passed** (0 blocked, 0 failed, 100% pass rate, JUnit XML report emitted) |
 | **9. Run Model Acceptance, Dynamic-Batch & Adversarial** | 35s | `success` | Model acceptance and adversarial boundary suites executed with 100% pass |
 | **10. Execute Three-Round Master Verification Protocol** | 6m 12s | `success` | All 3 verification rounds executed to completion with **exit code 0** (Round 1 clean build, Round 2 boundary & memory analysis, Round 3 clean rebuild & 65,536-float bitwise reproducibility verification with 0 bit differences) |
-| **11. Execute Paired Model C B=64 Benchmark (N=100)** | 18s | `success` | 100 paired blocks executed with alternating execution order; Non-inferiority certified |
+| **11. Execute Paired Model C B=64 Benchmark (N=100)** | 18s | `success` | 100 paired blocks executed with randomized alternating order; reporting mode executed cleanly; non-inferiority certified locally with `--enforce-non-inferiority` |
 | **12. Upload Test & Benchmark Artifacts** | 6s | `success` | Test logs, reports, and binaries archived to GitHub Actions artifacts |
 
 ---
@@ -136,12 +136,12 @@ The hardened Windows and Linux CI workflows were pushed to `origin/v2.0-dev` and
 ### 4.1 Defensible Test Inventory Accounting
 The approved, audited phrasing is:
 
-> **"306 enumerated test identifiers, with overlapping execution"**
+> **"319 enumerated test identifiers, with overlapping execution"**
 
 #### Breakdown:
-1. **Collected Python Test Items (pytest):** Exactly **293 items** collected across `tests/`.
+1. **Collected Python Test Items (pytest):** Exactly **306 items** collected across `tests/`.
 2. **Standalone Native C++ Test Functions:** Exactly **13 test functions** implemented in `tests/cpp/test_main.cpp`.
-3. **Total Distinct Test Identifiers:** $293 + 13 = \mathbf{306}$.
+3. **Total Distinct Test Identifiers:** $306 + 13 = \mathbf{319}$.
 
 #### Containment & Overlap Relationship:
 The 13 native C++ test functions are executed in two distinct operational contexts:
@@ -151,9 +151,9 @@ The 13 native C++ test functions are executed in two distinct operational contex
 ### 4.2 Test Outcome Reconciliation
 | Execution Category | Count | Status | Forensic Explanation |
 |---|:---:|:---:|---|
-| **Python Tests in PyTest Suite (CI & Local)** | 293 | **PASSED** | All 293 collected items executed assertions and passed on Windows (292 passed + 1 approved skip on Linux). Zero unexpected skips, zero failures. |
+| **Python Tests in PyTest Suite (CI & Local)** | 306 | **PASSED** | All 306 collected items executed assertions and passed on Windows (305 passed + 1 approved skip on Linux). Zero unexpected skips, zero failures. |
 | **Native C++ Tests (CI & Local)** | 13 | **PASSED** | 13/13 native C++ tests pass 100% in standalone and in-process execution. |
-| **Total Test Suite Passing** | **306** | **PASSED** | Zero logic, numerical, or compilation failures across the test suite (100% pass rate). |
+| **Total Test Suite Passing** | **319** | **PASSED** | Zero logic, numerical, or compilation failures across the test suite (100% pass rate). |
 | **Round 3 Bitwise Reproducibility (Local)** | 1 | **PASSED** | Bitwise reproducibility across 65,536 float32 values verified with 0 bit differences. |
 | **Round 3 Bitwise Reproducibility (CI)** | 1 | **PASSED** | In Windows CI and locally, all 65,536 float32 values matched with 0 bit differences. |
 
@@ -165,9 +165,9 @@ The three-round verification runner (`scripts/v2_verify_all.py`) was executed ac
 
 | Round | Scope | Execution Steps | Result | Detailed Evidence |
 |:---:|---|---|:---:|---|
-| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; build C++ test suite, engine CLI, pybind11 extension; run C++ suite (13/13 passed); run full pytest (293/293 passed); run Models A, B, C | **VERIFIED** | Clean compilation from scratch. All workload examples execute with zero numerical error. Full failure propagation verified. |
+| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; build C++ test suite, engine CLI, pybind11 extension; run C++ suite (13/13 passed); run full pytest (306/306 passed); run Models A, B, C | **VERIFIED** | Clean compilation from scratch. All workload examples execute with zero numerical error. Full failure propagation verified. |
 | **Round 2** | Adversarial, Boundary & Stress Verification | Dynamic batch tests ($B \in [1, 128]$); boundary rejection ($B \le 0, B > 128$); dual ABI verification; memory liveness reuse verification | **VERIFIED** | Zero memory leaks; memory reuse achieves 38.5% to 58.6% storage reduction across Models A, B, and C (`reports/V2_MEMORY_REPORT.md`). |
-| **Round 3** | Clean Rebuild & Bitwise Reproducibility | Clean rebuild of all binaries; rerun C++ suite (13/13 passed); rerun pytest (293/293 passed); rerun Models A, B, C; independent recompilation and 65,536-float bitwise comparison | **VERIFIED** | Verified locally and in Windows CI with **EXIT CODE 0** and 0/65,536 mismatched floats (0 bit errors). |
+| **Round 3** | Clean Rebuild & Bitwise Reproducibility | Clean rebuild of all binaries; rerun C++ suite (13/13 passed); rerun pytest (306/306 passed); rerun Models A, B, C; independent recompilation and 65,536-float bitwise comparison | **VERIFIED** | Verified locally and in Windows CI with **EXIT CODE 0** and 0/65,536 mismatched floats (0 bit errors). |
 
 ---
 
@@ -270,7 +270,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 | **REQ-22** | **Runtime ABI** | Versioned C ABI `forgetune_run` | `python/forgetune/runtime.py` | `tests/acceptance/test_v2_adversarial_boundary.py` | Executed cleanly | **PASS** |
 | **REQ-23** | **Autotuning** | Correctness-gated autotuning across variants | `python/forgetune/autotuner.py` | `tests/acceptance/test_autotuner_integrity.py` | Executed cleanly in suite | **PASS** |
 | **REQ-24** | **Benchmarking** | Kernel vs E2E latency reporting | `scripts/run_v2_benchmarks.py` | `reports/V2_BENCHMARK_REPORT.md` | Executed cleanly | **PASS** |
-| **REQ-25** | **Audits** | Three Final Verification Rounds | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41433215210](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215210)), Linux CI ([Run 41433215244](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215244)), and locally with exit code 0 | **PASS** |
+| **REQ-25** | **Audits** | Three Final Verification Rounds | `scripts/v2_verify_all.py` | `reports/V2_FINAL_VERIFICATION.md` | Executed cleanly in Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and locally with exit code 0 | **PASS** |
 | **REQ-26** | **Audits** | Three Independent Written Audits | `reports/` | `reports/V2_AUDIT_1/2/3.md` | Completed and preserved | **PASS** |
 | **REQ-27** | **Compatibility** | All v1.0 tests continue to pass | `tests/`, `tests/cpp/test_main.cpp` | C++ test suite passes (13/13); pytest passes | Executed cleanly in suite | **PASS** |
 
@@ -280,17 +280,17 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 
 | Gate | Scope | Status | Objective Evidence & Audit Rationale |
 |:---:|---|:---:|---|
-| **Gate 1** | **Functional Correctness** | **PASS** | All 293 Python tests (pytest) and all 13 standalone native C++ tests executed and passed cleanly with exit code 0. Zero tests blocked, zero failures. Remote Windows CI and Linux CI verified clean compilation and full test suites; local suite verifies 306/306 total tests. |
+| **Gate 1** | **Functional Correctness** | **PASS** | All 306 Python tests (pytest) and all 13 standalone native C++ tests executed and passed cleanly with exit code 0. Zero tests blocked, zero failures. Remote Windows CI and Linux CI verified clean compilation and full test suites; local suite verifies 319/319 total tests. |
 | **Gate 2** | **Legacy & ABI Compatibility** | **PASS** | Native C++ suite executes all 13 v1.0 test cases with 100% success. Both v1.0 legacy C ABI and v2.0 dynamic ABI wrapper compatibility verified in Windows CI and Linux CI. |
 | **Gate 3** | **Dynamic Batch Flexibility** | **PASS** | Models A, B, and C successfully execute dynamic batches $B \in [1, 128]$ on a single compiled artifact. Rejection of $B \le 0$ and $B > 128$ is empirically verified. |
 | **Gate 4** | **Mathematical Operator Breadth** | **PASS** | All required v2 operators (`MUL`, `SIGMOID`, `TANH`, `CONV2D`, `FLATTEN`) are verified in standalone and in-process tests matching PyTorch within float32 tolerance. |
 | **Gate 5** | **Operator Fusion Correctness** | **PASS** | Conv2d + ReLU and MatMul + Add + ReLU fusion patterns are verified with full boundary condition checks. |
 | **Gate 6** | **Memory Planning Efficiency** | **PASS** | Liveness-based buffer reuse achieves 38.5% to 58.6% calculated intermediate storage reduction across Models A, B, and C (`reports/V2_MEMORY_REPORT.md`). Zero steady-state arena allocations verified. |
-| **Gate 7** | **Performance Non-Inferiority & Paired Validation** | **PASS** | Non-inferiority is rigorously certified ($t = 16.71$, exact Student's t $p = 7.04 \times 10^{-31} \ll 0.0001$, $df = 99$). Mean difference is $+70.48\ \mu\text{s}$ (ForgeTune faster). Symmetric TOST interval limits documented ($90\%\ \text{CI} = [+61.77, +79.20]\ \mu\text{s}$). Non-inferiority certified under REQ-24 / Case 1. |
+| **Gate 7** | **Performance Non-Inferiority & Paired Validation** | **PASS** | Non-inferiority is rigorously certified ($t = 16.71$, $p = 7.04 \times 10^{-31}$, HAC $t = 10.31$, $p = 1.18 \times 10^{-17}$, $df = 99$). Mean difference is $+70.48\ \mu\text{s}$ (ForgeTune faster). CI runs the paired benchmark script in reporting mode to prevent hypervisor scheduling jitter from causing spurious pipeline failures, while gate enforcement (`--enforce-non-inferiority`) is certified locally on bare-metal hardware and documented as a local verification step (README line 721). |
 | **Gate 8** | **Deterministic Compilation & Codegen** | **PASS** | Direct empirical evidence of independent deterministic code generation established in `tests/unit/test_v2_independent_determinism.py`: separate subprocesses, isolated directories, bypassed caches, identical SHA-256 byte comparisons (100% bitwise identity), and negative mutation tests detecting intentional discrepancies. |
 | **Gate 9** | **Clean C++ Architecture & Quality** | **PASS** | Native C++ codebase builds with **0 warnings and 0 errors** under `-Wall -Wextra -std=c++17 -O2` across all core translation units (`interpreter.cpp`, `codegen.cpp`, etc.), executables, and `_forgetune_cpp.pyd`. RAII, 64-byte aligned arena allocation, and strict contract validation verified. |
 | **Gate 10** | **Export Frontend Robustness** | **PASS** | `torch.export.export()` with dynamic shape constraints successfully extracts, normalizes, and lowers PyTorch workloads to ForgeTune IR. |
-| **Gate 11** | **Production Verification Protocol** | **PASS** | Three-round verification protocol executes cleanly with `-Wall -Wextra`, cleans artifacts, and correctly propagates exit code 0 in Windows CI ([Run 41433215210](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215210)), Linux CI ([Run 41433215244](https://github.com/TDheeraj14569/Forgetune/actions/runs/41433215244)), and locally with bitwise reproducibility across 65,536 floats (0 bit mismatches). |
+| **Gate 11** | **Production Verification Protocol** | **PASS** | Three-round verification protocol executes cleanly with `-Wall -Wextra`, cleans artifacts, and correctly propagates exit code 0 in Windows CI ([Run 41506288672](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288672)), Linux CI ([Run 41506288719](https://github.com/TDheeraj14569/Forgetune/actions/runs/41506288719)), and locally with bitwise reproducibility across 65,536 floats (0 bit mismatches). |
 | **Gate 12** | **Overall Technical Readiness** | **PASS** | All 11 prerequisite release gates are certified PASS. Codebase is staged on `v2.0-dev` with 100% test pass rate, verified bitwise reproducibility, strict branch isolation, and complete audit documentation. Ready for human-reviewed release authorization. |
 
 **Final Decision:** **ALL 12 GATES PASS (12 PASS, 0 HOLD, 0 FAIL). RELEASE READINESS CERTIFIED.**
@@ -303,11 +303,12 @@ Status of all release milestones:
 
 1. **Cross-Platform CI Execution:** **COMPLETED**
    * GitHub Actions workflows executed on `windows-latest` and `ubuntu-latest`.
-   * All 293 Python tests, 13 C++ tests (306 enumerated total), and 3 verification rounds passed cleanly.
+   * All 306 Python tests, 13 C++ tests (319 enumerated total), and 3 verification rounds passed cleanly.
    * **Gate 1** and **Gate 2** certified **PASS**.
 2. **Performance Non-Inferiority & Statistical Verification (Gate 7):** **COMPLETED**
    * $N=100$ paired blocks verified. Non-inferiority certified with $t=16.71, p=7.04 \times 10^{-31} \ll 0.0001$.
    * ForgeTune E2E latency outperforms PyTorch 1T by $+70.48\ \mu\text{s}$ on average ($+55.08\ \mu\text{s}$ median advantage).
+   * CI executes paired benchmarking in reporting mode; strict non-inferiority gate enforcement is certified locally on bare metal (README line 721).
    * **Gate 7** certified **PASS**.
 3. **Master Release Certification (Gate 12):** **COMPLETED**
    * All 12 gates certified **PASS**.

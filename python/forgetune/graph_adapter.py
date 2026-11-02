@@ -47,6 +47,10 @@ class Node:
             raise InvalidGraphError(f"Invalid node_id: {node_id} (must be a non-negative integer or None)")
         if not isinstance(op, str) or not op.strip():
             raise InvalidGraphError(f"Invalid op: {op} (must be a non-empty string)")
+        if not isinstance(name, str):
+            raise InvalidGraphError(f"name must be a string, got {type(name).__name__}")
+        if type(deleted) is not bool:
+            raise InvalidGraphError(f"deleted must be a boolean, got {type(deleted).__name__}")
         if inputs is not None:
             if not isinstance(inputs, list):
                 raise InvalidGraphError(f"inputs must be a list of ints, got {type(inputs).__name__}")
@@ -67,12 +71,12 @@ class Node:
 
         self.id = node_id
         self.op = op.upper()
-        self.name = str(name) if name else ""
+        self.name = name
         self.inputs = list(inputs) if inputs else []
         self.shape = list(shape) if shape else []
         self.dtype = "f32"
         self.const_data = list(const_data) if const_data else []
-        self.deleted = bool(deleted)
+        self.deleted = deleted
         self.conv_attrs = dict(conv_attrs) if conv_attrs else {}
 
     def to_dict(self) -> Dict[str, Any]:
@@ -199,12 +203,44 @@ class Graph:
         if type(max_batch) is bool or type(max_batch) is not int or not (1 <= max_batch <= 1000000):
             raise InvalidGraphError(f"max_batch_size must be an integer between 1 and 1000000, got {max_batch}")
 
+        if not isinstance(self.nodes, dict):
+            raise InvalidGraphError(f"Graph nodes must be a dict, got {type(self.nodes).__name__}")
+
         active_nodes = {}
         for nid, node in self.nodes.items():
             if type(nid) is bool or type(nid) is not int or nid < 0:
                 raise InvalidGraphError(f"Node id must be a non-negative int, got {nid}")
+            if not isinstance(node, Node):
+                raise InvalidGraphError(f"Graph node {nid} must be a Node instance, got {type(node).__name__}")
+            if type(node.id) is bool or type(node.id) is not int or node.id < 0:
+                raise InvalidGraphError(f"Node {nid} has invalid node.id: {node.id}")
             if node.id != nid:
                 raise InvalidGraphError(f"Node ID mismatch: dictionary key {nid} != node.id {node.id}")
+            if not isinstance(node.name, str):
+                raise InvalidGraphError(f"Node {nid} name must be a string, got {type(node.name).__name__}")
+            if not isinstance(node.op, str) or not node.op.strip():
+                raise InvalidGraphError(f"Node {nid} op must be a non-empty string, got {type(node.op).__name__}")
+            if type(node.deleted) is not bool:
+                raise InvalidGraphError(f"Node {nid} deleted must be a genuine boolean, got {type(node.deleted).__name__}")
+
+            norm_dtype = node.dtype.lower() if isinstance(node.dtype, str) else ""
+            if norm_dtype not in ("f32", "float32"):
+                raise InvalidGraphError(f"Unsupported node dtype: '{node.dtype}' in node {nid} (only f32/float32 supported)")
+
+            if not isinstance(node.inputs, list):
+                raise InvalidGraphError(f"Node {nid} inputs must be a list, got {type(node.inputs).__name__}")
+            for inp in node.inputs:
+                if type(inp) is bool or type(inp) is not int or inp < 0:
+                    raise InvalidGraphError(f"Node {nid} has invalid operand ID: {inp}")
+
+            if not isinstance(node.shape, list):
+                raise InvalidShapeError(f"Node {nid} shape must be a list, got {type(node.shape).__name__}")
+            for idx, dim in enumerate(node.shape):
+                if type(dim) is bool or type(dim) is not int or dim < -1 or dim == 0:
+                    raise InvalidShapeError(f"Node {nid} has invalid shape dimension {dim}")
+                if dim == -1 and idx != 0:
+                    raise InvalidShapeError(f"Node {nid} has dynamic dimension -1 at non-leading index {idx}")
+
             if not node.deleted:
                 active_nodes[nid] = node
 
@@ -277,6 +313,9 @@ class Graph:
 
         if not isinstance(self.inputs, list):
             raise InvalidGraphError(f"Graph inputs must be a list, got {type(self.inputs).__name__}")
+        for in_id in self.inputs:
+            if type(in_id) is bool or type(in_id) is not int or in_id < 0:
+                raise InvalidGraphError(f"Graph input node ID must be a non-negative int, got {in_id}")
         if strict_abi:
             if len(self.inputs) == 0:
                 raise InvalidGraphError("Graph has empty inputs list")
@@ -304,6 +343,9 @@ class Graph:
 
         if not isinstance(self.outputs, list):
             raise InvalidGraphError(f"Graph outputs must be a list, got {type(self.outputs).__name__}")
+        for out_id in self.outputs:
+            if type(out_id) is bool or type(out_id) is not int or out_id < 0:
+                raise InvalidGraphError(f"Graph output node ID must be a non-negative int, got {out_id}")
         if len(self.outputs) == 0:
             raise InvalidGraphError("Graph has empty outputs list")
         if strict_abi and len(self.outputs) != 1:

@@ -66,5 +66,4 @@ __all__ = [
     "CorrectnessError",
     "AutotuningError",
     "ForgeTuneRuntimeError",
-    "RuntimeError",
 ]

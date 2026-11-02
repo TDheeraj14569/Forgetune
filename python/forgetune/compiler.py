@@ -40,14 +40,17 @@ def get_compiler_sources_fingerprint() -> str:
     tracked_files = []
     for pattern in [
         "src/*.cpp",
+        "src/**/*.cpp",
         "include/*.h",
         "include/**/*.h",
         "include/**/*.hpp",
         "python/forgetune/*.py",
+        "python/forgetune/**/*.py",
         "scripts/build_native.py",
         "setup.py",
         "pyproject.toml",
-        "CMakeLists.txt"
+        "CMakeLists.txt",
+        "cmake/*.cmake"
     ]:
         tracked_files.extend(glob.glob(os.path.join(root, pattern), recursive=True))
     tracked_files = sorted(set(tracked_files))
@@ -56,9 +59,12 @@ def get_compiler_sources_fingerprint() -> str:
         if os.path.isfile(p):
             rel_path = os.path.relpath(p, root).replace("\\", "/")
             h.update(rel_path.encode("utf-8"))
+            h.update(b"\0")
             with open(p, "rb") as f:
-                h.update(f.read())
-    return h.hexdigest()[:16]
+                content = f.read()
+            h.update(len(content).to_bytes(8, "big"))
+            h.update(content)
+    return h.hexdigest()
 
 _get_compiler_sources_fingerprint = get_compiler_sources_fingerprint
 
@@ -553,7 +559,8 @@ def compile_model(
     tile_sizes: Optional[Tuple[int, int, int]] = None,
     dynamic_batch: bool = False,
     max_batch_size: int = 128,
-    max_workspace_bytes: int = 512 * 1024 * 1024
+    max_workspace_bytes: int = 512 * 1024 * 1024,
+    tuning_batch_sizes: Optional[List[int]] = None
 ) -> CompiledModel:
     """
     Compiles a PyTorch model into a standalone, correctness-verified native C++ shared library.
@@ -684,7 +691,8 @@ def compile_model(
                 max_budget=max_autotune_budget,
                 oracle=oracle,
                 enable_fusion=enable_fusion,
-                max_workspace_bytes=max_workspace_bytes
+                max_workspace_bytes=max_workspace_bytes,
+                tuning_batch_sizes=tuning_batch_sizes
             )
             cand_provenance_hash = _get_candidate_provenance_hash(graph_hash, selected_cand)
             cand_dir = os.path.join(output_dir, f"{selected_cand.candidate_id}_{cand_provenance_hash}")

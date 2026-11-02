@@ -16,7 +16,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue.svg)](pyproject.toml)
 [![Windows CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/windows_verification.yml)
 [![Linux CI](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml/badge.svg)](https://github.com/TDheeraj14569/Forgetune/actions/workflows/linux_verification.yml)
-[![Tests](https://img.shields.io/badge/Tests-306%20Pass%20(Win)%20%7C%201%20Skip%20(Linux)-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
+[![Tests](https://img.shields.io/badge/Tests-319%20Pass%20(Win)%20%7C%201%20Skip%20(Linux)-brightgreen.svg)](reports/V2_REQUIREMENTS_MATRIX.md)
 [![Protocol](https://img.shields.io/badge/Protocol-3--Round%20Bitwise%20Exact-brightgreen.svg)](reports/V2_FINAL_VERIFICATION.md)
 [![Memory Savings](https://img.shields.io/badge/Memory%20Savings-38.5%25%20--%2058.6%25-brightgreen.svg)](reports/V2_MEMORY_REPORT.md)
 [![E2E Speedup](https://img.shields.io/badge/E2E%20Speedup-Up%20to%2011.63x-brightgreen.svg)](reports/V2_BENCHMARK_REPORT.md)
@@ -290,6 +290,9 @@ All benchmarks are measured on an AMD64 platform (AMD Ryzen 7 7730U, Windows 11,
 - Multi-Model Benchmark Dataset: [Multi-Model Benchmark Report](reports/v2_benchmark_report.json)
 - Paired Hypothesis Dataset ($N=100$ Interleaved Blocks): [Paired Benchmark Data](reports/v2_paired_b64_benchmark_data.json)
 
+> [!NOTE]
+> **Benchmark Provenance & Source Delta:** Datasets `v2-bench-1793606750-6921052d` and `v2-paired-1793608129-6921052d` were captured at commit `6921052`. Subsequent commits introduced Python-level graph validation and error hardening (`compiler.py`, `graph_adapter.py`, `errors.py`, `__init__.py`) without modifying native C++ code generation (`src/`, `include/`) or compiled kernel execution path, ensuring all measured kernel and inference latencies remain strictly valid.
+
 ### 7.1 Latency Metric Disambiguation
 To prevent misleading comparisons, ForgeTune strictly disambiguates timing boundaries:
 1. **Genuine End-to-End Speedup (8 Threads):** Measures complete real-world Python caller latency: `PyTorch Eager (8 threads) / ForgeTune Python E2E`. Both run complete inference with input validation and output return.
@@ -319,7 +322,7 @@ To prevent misleading comparisons, ForgeTune strictly disambiguates timing bound
 > [!NOTE]
 > **Architectural Insights on Benchmark Data:**
 > - **Framework Overhead Elimination:** Across all three models, ForgeTune delivers substantial E2E speedups (up to **$11.63\times$** on Model C $B=4$, **$6.71\times$** on Model B $B=4$, and **$4.71\times$** on Model A $B=4$) primarily by eliminating Python interpreter dispatch, dynamic shape memory allocations, and tensor abstraction layers.
-> - **Autotuning & Kernel Optimization Trade-offs:** Model A achieves up to **$1.77\times$** in-kernel speedup via `tiled_16`. Model B's operator fusion (`fused_ikj`) provides superior aggregate performance across the dynamic range ($B=1$: $1.12\text{x}$, $B=16$: $1.12\text{x}$, $B=64$: $1.02\text{x}$), though at small batch $B=4$ the candidate kernel is 4% slower ($0.96\text{x}$) than baseline due to tiling overhead. Model C at $B=64$ achieves statistical parity with multi-threaded PyTorch ($1.00\text{x}$ vs 8T) while delivering a certified $1.15\text{x}$ speedup over single-threaded PyTorch ($1.26\text{x}$ kernel opt speedup via `loop_ikj`).
+> - **Autotuning & Kernel Optimization Trade-offs:** Model A achieves up to **$1.77\times$** in-kernel speedup via `tiled_16`. Model B's operator fusion (`fused_ikj`) provides superior aggregate performance across the dynamic range ($B=1$: $1.12\text{x}$, $B=16$: $1.12\text{x}$, $B=64$: $1.02\text{x}$), though at small batch $B=4$ the selected candidate kernel is approximately 4% slower ($0.96\text{x}$) under this measurement due to small-loop dispatch variation. Model C at $B=64$ achieves statistical parity with multi-threaded PyTorch ($1.00\text{x}$ vs 8T) while delivering a certified $1.15\text{x}$ speedup over single-threaded PyTorch ($1.26\text{x}$ kernel opt speedup via `loop_ikj`).
 
 ---
 
@@ -343,7 +346,7 @@ To examine measurement variance, 30 independent sample batches were measured und
 
 ### 7.4 Statistically Rigorous Paired Hypothesis Testing ($N=100$ Interleaved Blocks)
 
-To evaluate Model C at $B=64$ without sequential order bias or hypervisor thermal throttling skew, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first; `reports/v2_paired_b64_benchmark_data.json`):
+To evaluate Model C at $B=64$ without sequential order bias, an interleaved 100-block paired experiment was executed with deterministic seeded balanced randomized order (seed=42, 50 PT-first, 50 FT-first); serial correlation was measured and handled with Newey-West HAC inference (`reports/v2_paired_b64_benchmark_data.json`):
 - **Evaluated Kernel Candidate:** Model C autotuned candidate `loop_ikj` (`-O2`).
 - **Timing Boundary:** Post-staging inference-call latency: excludes initial PyTorch-to-NumPy tensor input staging; includes native runtime shape validation, contiguous-array handling (direct pointer pass-through for contiguous CPU NumPy arrays with contiguous-buffer conversion fallback when required), output allocation, and native kernel invocation.
 
@@ -366,8 +369,8 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 ----------------------------------------------------------------------------------------
  SERIAL-CORRELATION-ADJUSTED INFERENCE (Newey-West HAC & Moving-Block Bootstrap):
   Newey-West HAC Standard Error (L=4):   8.51 μs   (Bartlett kernel, L=4 primary)
-  95% Confidence Interval (HAC L=4):   [+53.59, +87.38] μs
-  Non-Inferiority Test (HAC L=4):      t = 10.31,  p = 8.73e-18 << 0.0001 (PASS)
+  95% Confidence Interval (HAC L=4):   [+53.60, +87.37] μs
+  Non-Inferiority Test (HAC L=4):      t = 10.29,  p = 1.18e-17 << 0.0001 (PASS)
   Moving-Block Bootstrap (b=4) Mean:   95% CI: [+58.17, +89.98] μs
   Moving-Block Bootstrap (b=4) Median: 95% CI: [+52.27, +59.85] μs
 ----------------------------------------------------------------------------------------
@@ -379,7 +382,7 @@ $$D_i = \text{Latency}(\text{PyTorch 1T})_i - \text{Latency}(\text{ForgeTune E2E
 > [!IMPORTANT]
 > **Interpretation of Statistical TOST Equivalence & HAC Inference:**
 > 1. **Serial Correlation Adjustment:** Because successive execution blocks exhibit moderate positive serial correlation ($\rho_1 = +0.6656$), Newey-West HAC standard error correction was applied ($SE_{HAC} = 8.51\ \mu\text{s}$ at primary lag $L=4$, sensitivity analyzed across $L \in \{1, 2, 3, 4, 5, 10\}$). Under both classical IID and HAC adjustments, non-inferiority is certified beyond $p < 10^{-17} \ll 0.0001$.
-> 2. **TOST Equivalence:** The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.21\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $95\%$ confidence interval $[+53.59, +87.38]\ \mu\text{s}$ far above the upper equivalence bound ($+17.21\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority.
+> 2. **TOST Equivalence:** The two-sided TOST (Two One-Sided Tests) equivalence within $\pm 5\%$ ($\pm 17.21\ \mu\text{s}$) is inconclusive **strictly because ForgeTune significantly outperforms PyTorch 1T**, placing the entire $95\%$ confidence interval $[+53.60, +87.37]\ \mu\text{s}$ far above the upper equivalence bound ($+17.21\ \mu\text{s}$). The test fails equivalence due to **genuine performance superiority**, not high variance or performance inferiority.
 
 ---
 
@@ -564,7 +567,7 @@ gcc -O2 main.c -Iinclude -Lbuild/artifacts/tinymlp -lkernel -o main
 The repository enforces a defensible, multi-tier automated test suite:
 
 ```bash
-# 1. Run complete Python test suite (293 tests)
+# 1. Run complete Python test suite (306 tests)
 python -m pytest -v tests/
 
 # 2. Run standalone native C++ test suite (13 tests)
@@ -576,13 +579,13 @@ python scripts/v2_verify_all.py --mode=full
 ```
 
 #### Authoritative Test Inventory:
-* **Total Enumerated Test Identifiers:** Exactly **306 tests** (Windows: 293 Python + 13 Native C++ = 306 passed, 0 skipped; Linux: 292 Python + 13 Native C++ = 305 passed, 1 approved platform-specific skip).
-  - **293 Python Test Items:** Executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 99 audit defect regressions.
+* **Total Enumerated Test Identifiers:** Exactly **319 tests** (Windows: 306 Python + 13 Native C++ = 319 passed, 0 skipped; Linux: 305 Python + 13 Native C++ = 318 passed, 1 approved platform-specific skip).
+  - **306 Python Test Items:** Executed via `pytest`. Covers operator semantics, algebraic simplification, numerical stress, versioned ABI contracts, candidate isolation, and 99 audit defect regressions.
   - **13 Standalone Native C++ Tests:** Standalone unit tests executing without Python runtime dependencies in `bin/forgetune_test_suite`.
   - *Containment:* All 13 native C++ test functions are also executed in-process within pytest via `tests/unit/test_pybind11_bindings.py::test_pybind11_native_cpp_test_suite`.
 * **Cross-Platform Test Outcomes:**
-  - **Windows (Local & CI):** 293 passed, 0 skipped, 0 failed.
-  - **Linux (Ubuntu CI):** 292 passed, 1 approved platform-specific skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking behavior), 0 failed.
+  - **Windows (Local & CI):** 306 passed, 0 skipped, 0 failed.
+  - **Linux (Ubuntu CI):** 305 passed, 1 approved platform-specific skip (`test_regression_locked_dll_raises_informative_compilation_error` due to Windows-only NTFS DLL locking behavior), 0 failed.
 
 ---
 
@@ -591,7 +594,7 @@ The verification runner (`scripts/v2_verify_all.py`) enforces strict multi-stage
 
 | Verification Round | Verification Scope | Actions Executed | Certified Outcome |
 |:---:|---|---|:---:|
-| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; rebuild C++ test suite, engine CLI, pybind11 extension; execute C++ suite (13/13) and full pytest suite (293/293); run Models A, B, C | **VERIFIED (PASS)** |
+| **Round 1** | Clean Build & Functional Verification | Clean artifact purge; rebuild C++ test suite, engine CLI, pybind11 extension; execute C++ suite (13/13) and full pytest suite (306/306); run Models A, B, C | **VERIFIED (PASS)** |
 | **Round 2** | Boundary, Adversarial & Memory Verification | Stress dynamic batch boundaries ($B \in [1, 128]$); verify boundary rejection ($B \le 0, B > 128$); verify dual ABI entry points; evaluate memory reduction | **VERIFIED (PASS)** |
 | **Round 3** | Clean Rebuild & Bitwise Reproducibility | Disposable artifact purge; full clean rebuild of all binaries; rerun C++ and Python suites; independent recompilation and 65,536-float bitwise comparison | **VERIFIED (PASS)** |
 
@@ -673,7 +676,7 @@ Forgetune/
 │   ├── main.cpp                # Standalone CLI engine (forgetune_engine)
 │   ├── memory_planner.cpp      # Topological interval coloring implementation
 │   └── pass_manager.cpp        # Graph optimization passes
-└── tests/                      # Multi-tier verification test suite (306 tests)
+└── tests/                      # Multi-tier verification test suite (319 tests)
     ├── correctness/            # Numerical accuracy, stress & regression tests
     ├── integration/            # End-to-end compilation & dynamic batch tests
     └── unit/                   # IR, verification, memory planner & C ABI tests
@@ -708,7 +711,7 @@ python scripts/build_native.py
 ./bin/forgetune_test_suite            # Linux
 # or .\bin\forgetune_test_suite.exe   # Windows
 
-# 3. Run complete Python test suite (293 tests)
+# 3. Run complete Python test suite (306 tests)
 python -m pytest -v tests/
 
 # 4. Generate intermediate buffer memory report

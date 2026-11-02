@@ -47,7 +47,8 @@ def find_zig():
             venv_path,
             os.path.join(venv_path, "bin" if sys.platform != "win32" else "Scripts"),
             os.path.join(venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"),
-            os.path.join(venv_path, "Lib", "site-packages")
+            os.path.join(venv_path, "lib", "site-packages"),
+            os.path.join(venv_path, "Lib", "site-packages"),
         ])
 
     for base in search_dirs:
@@ -200,9 +201,9 @@ def main():
             cand_dirs.extend([
                 os.path.join(base, "include", "pybind11"),
                 os.path.join(base, "include"),
-                os.path.join(base, "Lib", "site-packages", "pybind11", "include"),
                 os.path.join(base, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "pybind11", "include"),
                 os.path.join(base, "lib", "site-packages", "pybind11", "include"),
+                os.path.join(base, "Lib", "site-packages", "pybind11", "include"),
             ])
         for c in cand_dirs:
             if c and os.path.isdir(c):

@@ -327,6 +327,21 @@ class NativeRuntime:
             return output_tensor
 
         else:
+            if batch_size is not None:
+                if isinstance(batch_size, bool):
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {batch_size} (bool)")
+                try:
+                    b_val = operator.index(batch_size)
+                except (TypeError, ValueError):
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {batch_size} ({type(batch_size).__name__})")
+                if b_val <= 0:
+                    raise InvalidShapeError(f"batch_size must be a strictly positive non-boolean integer, got {b_val}")
+                expected_b = self.expected_input_shape[0] if len(self.expected_input_shape) > 0 else 1
+                if b_val != expected_b:
+                    raise InvalidShapeError(
+                        f"Explicit batch_size {b_val} does not match static model expected batch {expected_b}"
+                    )
+
             # Validate shape
             if tuple(input_tensor.shape) != self.expected_input_shape:
                 raise InvalidShapeError(

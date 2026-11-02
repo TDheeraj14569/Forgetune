@@ -139,7 +139,8 @@ class Autotuner:
         max_budget: int = 8,
         force_fusion: bool = False,
         enable_fusion: Optional[bool] = None,
-        max_workspace_bytes: Optional[int] = None
+        max_workspace_bytes: Optional[int] = None,
+        tuning_batch_sizes: Optional[List[int]] = None
     ) -> str:
         h = hashlib.sha256()
         h.update(b"forgetune_v7_complete_provenance_2.0_")
@@ -149,6 +150,7 @@ class Autotuner:
         h.update(str(force_fusion).encode("utf-8"))
         h.update(str(enable_fusion).encode("utf-8"))
         h.update(str(max_workspace_bytes).encode("utf-8"))
+        h.update(str(tuning_batch_sizes).encode("utf-8"))
         h.update(f"atol_{self.atol:.1e}_rtol_{self.rtol:.1e}".encode("utf-8"))
         h.update(self._get_compiler_sources_fingerprint().encode("utf-8"))
         h.update(sys.platform.encode("utf-8"))
@@ -301,7 +303,8 @@ class Autotuner:
         oracle: Optional[Any] = None,
         force_fusion: bool = False,
         enable_fusion: Optional[bool] = None,
-        max_workspace_bytes: Optional[int] = None
+        max_workspace_bytes: Optional[int] = None,
+        tuning_batch_sizes: Optional[List[int]] = None
     ) -> Tuple[KernelCandidate, Dict[str, Any]]:
         """
         Runs correctness-gated autotuning across candidate configurations.
@@ -329,7 +332,7 @@ class Autotuner:
         output_shape = tuple(reference_output.shape)
 
         cache_key = self._compute_cache_key(
-            graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion, max_workspace_bytes=max_workspace_bytes
+            graph_json, input_shape, max_budget=max_budget, force_fusion=force_fusion, enable_fusion=enable_fusion, max_workspace_bytes=max_workspace_bytes, tuning_batch_sizes=tuning_batch_sizes
         )
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
@@ -385,12 +388,24 @@ class Autotuner:
 
         b_example = input_shape[0] if len(input_shape) > 0 and input_shape[0] > 0 else 1
         if is_dyn:
-            in_node_id = graph.inputs[0] if len(graph.inputs) > 0 else None
-            if in_node_id is not None and in_node_id in graph.nodes:
-                symbolic_shape = tuple(graph.nodes[in_node_id].shape)
+            if tuning_batch_sizes is not None:
+                if not isinstance(tuning_batch_sizes, (list, tuple)) or not tuning_batch_sizes:
+                    raise ValueError("tuning_batch_sizes must be a non-empty list of positive integers")
+                validated_batches = []
+                for b in tuning_batch_sizes:
+                    if type(b) is bool or type(b) is not int or b <= 0:
+                        raise ValueError(f"Invalid tuning batch size: {b}")
+                    if b > max_b:
+                        raise ValueError(f"tuning batch size {b} exceeds max_batch_size {max_b}")
+                    validated_batches.append(b)
+                test_batches = sorted(set(validated_batches))
             else:
-                symbolic_shape = (-1, *input_shape[1:])
-            test_batches = get_bounded_test_batches(symbolic_shape, max_b, example_batch=b_example)
+                in_node_id = graph.inputs[0] if len(graph.inputs) > 0 else None
+                if in_node_id is not None and in_node_id in graph.nodes:
+                    symbolic_shape = tuple(graph.nodes[in_node_id].shape)
+                else:
+                    symbolic_shape = (-1, *input_shape[1:])
+                test_batches = get_bounded_test_batches(symbolic_shape, max_b, example_batch=b_example)
         else:
             test_batches = [b_example]
 
@@ -695,6 +710,7 @@ class Autotuner:
             "round_execution_orders": round_exec_orders,
             "fusion_candidates_enabled": bool(enable_fusion),
             "max_workspace_bytes": max_workspace_bytes,
+            "workload_batch_profile": test_batches,
             "candidate_evaluations": candidate_results
         }
 

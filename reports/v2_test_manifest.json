@@ -1,27 +1,45 @@
 {
   "metadata": {
-    "timestamp": "2026-11-02T15:29:43Z",
+    "timestamp": "2026-11-02T20:24:51Z",
     "os_platform": "win32",
     "python_version": "3.12.14 (main, Aug 14 2026, 15:40:22) [MSC v.1944 64 bit (AMD64)]",
-    "git_commit": "507513e53db5162251dc5c60e163d368ffaca0ef",
+    "git_commit": "42f6b2e8254145ed53119b88117754f529683663",
     "git_branch": "v2.0-dev",
-    "working_tree_clean": true,
-    "source_files_clean": true,
-    "dirty_files": [],
-    "harness_description": "ForgeTune Authoritative Test Manifest (303 collected pytest items + 13 native C++ unit tests)"
+    "working_tree_clean": false,
+    "source_files_clean": false,
+    "dirty_files": [
+      "README.md",
+      "docs/BUILD_AND_TESTING.md",
+      "python/forgetune/__init__.py",
+      "python/forgetune/autotuner.py",
+      "python/forgetune/compiler.py",
+      "python/forgetune/errors.py",
+      "python/forgetune/graph_adapter.py",
+      "python/forgetune/runtime.py",
+      "reports/V2_BENCHMARK_REPORT.md",
+      "reports/V2_FINAL_CLOSURE_AUDIT.md",
+      "reports/V2_FINAL_VERIFICATION.md",
+      "reports/V2_REQUIREMENTS_MATRIX.md",
+      "requirements-ci-py311.txt",
+      "requirements-ci.txt",
+      "scripts/build_native.py",
+      "scripts/run_v2_paired_benchmark.py",
+      "tests/correctness/test_audit_regressions.py"
+    ],
+    "harness_description": "ForgeTune Authoritative Test Manifest (306 collected pytest items + 13 native C++ unit tests)"
   },
   "summary": {
-    "total_python_tests_collected": 303,
-    "total_python_tests_executed": 303,
-    "python_passed": 303,
+    "total_python_tests_collected": 306,
+    "total_python_tests_executed": 306,
+    "python_passed": 306,
     "python_skipped": 0,
     "python_failed": 0,
     "python_error": 0,
     "python_collection_error": 0,
     "native_cpp_tests": 13,
     "native_cpp_passed": 13,
-    "total_tests_available": 316,
-    "total_passing": 316,
+    "total_tests_available": 319,
+    "total_passing": 319,
     "total_blocked_by_sac": 0,
     "pytest_return_code": 0
   },
@@ -711,6 +729,15 @@
       "outcome": "passed"
     },
     "tests/correctness/test_audit_regressions.py::test_manifest_zero_collected_tests_reconciliation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_graph_validate_rejects_mutated_objects": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_static_runtime_batch_size_validation": {
+      "outcome": "passed"
+    },
+    "tests/correctness/test_audit_regressions.py::test_star_import_does_not_shadow_builtin_runtime_error": {
       "outcome": "passed"
     },
     "tests/correctness/test_differential.py::test_full_differential_hierarchy": {

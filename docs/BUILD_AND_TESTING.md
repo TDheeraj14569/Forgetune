@@ -8,7 +8,7 @@ This guide describes how to build, run tests, and execute verification suites fo
 
 - **Operating System:** Windows 10/11 (x86_64) or Linux (Ubuntu 22.04+, x86_64)
 - **Python Support & CI Verification Scope:**
-  - **Python 3.12:** Full test suite (293 pytest items + 13 native C++ tests) and three-round master verification protocol in the primary CI workflow (tested with Python 3.12.14).
+  - **Python 3.12:** Full test suite (306 pytest items + 13 native C++ tests) and three-round master verification protocol in the primary CI workflow (tested with Python 3.12.14).
   - **Python 3.11:** Core acceptance suite and native C++ compatibility smoke verification in CI (tested with Python 3.11).
 - **PyTorch:** PyTorch >= 2.1 (tested with PyTorch 2.14.1+cpu)
 - **Native Toolchain:**
@@ -56,7 +56,7 @@ This automatically compiles:
 # or .\bin\forgetune_test_suite.exe on Windows
 ```
 
-### 4.2 Full Python Test Suite (293 Tests)
+### 4.2 Full Python Test Suite (306 Tests)
 ```bash
 python -m pytest -v tests/
 ```
