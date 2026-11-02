@@ -112,17 +112,20 @@ def classify_diagnostic(line_str: str, repo_root: Optional[str] = None) -> str:
     if any(clean_cand_lower.startswith(sd) for sd in project_subdirs):
         return "project_warning"
 
-    abs_cand = os.path.abspath(file_candidate).replace("\\", "/").lower()
-    if abs_cand.startswith(repo_root_norm + "/"):
-        rel_under_repo = abs_cand[len(repo_root_norm) + 1:]
-        if any(rel_under_repo.startswith(sd) for sd in project_subdirs):
-            return "project_warning"
-        return "toolchain_warning"
-
-    # Strictly check for CI / synthetic paths anchored under a forgetune repo directory
+    # Strictly check for repo-anchored paths (CI, synthetic, or standard repo checkouts)
     cand_norm = file_candidate.replace("\\", "/")
     if re.search(r"/(?:forgetune/)+(?:src/|include/forgetune/|tests/cpp/)", "/" + cand_norm.lstrip("/"), re.IGNORECASE):
         return "project_warning"
+
+    # Only attempt host-specific absolute path resolution if path matches host path format
+    is_foreign_platform_path = (os.name != "nt" and re.match(r"^[a-zA-Z]:", file_candidate)) or (os.name == "nt" and file_candidate.startswith("/"))
+    if not is_foreign_platform_path:
+        abs_cand = os.path.abspath(file_candidate).replace("\\", "/").lower()
+        if abs_cand.startswith(repo_root_norm + "/"):
+            rel_under_repo = abs_cand[len(repo_root_norm) + 1:]
+            if any(rel_under_repo.startswith(sd) for sd in project_subdirs):
+                return "project_warning"
+            return "toolchain_warning"
 
     return "unknown_warning"
 
